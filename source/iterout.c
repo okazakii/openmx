@@ -56,9 +56,14 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
           fprintf(fp,"%4s   %8.5f  %8.5f  %8.5f  %14.6f %14.6f %14.6f  %8.5f  %8.5f  %8.5f  %8.5f\n",
                   Atom_Symbol[j],                
 	   	  Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
-		  Gxyz[k][24]*2.36852*1000000,
-                  Gxyz[k][25]*2.36852*1000000,
-                  Gxyz[k][26]*2.36852*1000000,
+/*==== 2012/12/03-A modification start okazaki,i ====*/
+//		  Gxyz[k][24]*2.36852*1000000,
+//                Gxyz[k][25]*2.36852*1000000,
+//                Gxyz[k][26]*2.36852*1000000,
+                  Gxyz[k][24]/(0.4571028*0.000001),
+                  Gxyz[k][25]/(0.4571028*0.000001),
+                  Gxyz[k][26]/(0.4571028*0.000001),
+/*==== 2012/12/03-A modification close ====*/
                   InitN_USpin[k],
                   InitN_DSpin[k],
                   InitN_USpin[k]+InitN_DSpin[k],

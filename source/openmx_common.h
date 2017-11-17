@@ -2631,7 +2631,10 @@ double Band_DFT_Dosout( int knum_i, int knum_j, int knum_k,
                         double *****nh,
                         double *****ImNL,
                         double ****CntOLP );
-double MD_pac(int iter, char *fname_input);
+/*==== 2012/12/03-A modification start okazaki,i ====*/
+//double MD_pac(int iter, char *fname_input);
+double MD_pac(int iter, char *fname_input, char *fileDRC);
+/*==== 2012/12/03-A modification close ====*/
 int Species2int(char Species[YOUSO10]);
 int R_atv(int CpyCell, int i, int j, int k);
 int SEQ(char str1[YOUSO10], char str2[YOUSO10]);

@@ -474,7 +474,10 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
     CompTime[myid0][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
     if (myid0==Host_ID) iterout(MD_iter,MD_TimeStep*MD_iter,fileE,fileDRC);
 
-    if (ML_flag==0) CompTime[myid0][4] += MD_pac(MD_iter,argv[1]);
+/*==== 2012/12/03-A modification start okazaki,i ====*/
+//  if (ML_flag==0) CompTime[myid0][4] += MD_pac(MD_iter,argv[1]);
+    if (ML_flag==0) CompTime[myid0][4] += MD_pac(MD_iter,argv[1],fileDRC);
+/*==== 2012/12/03-A modification close ====*/
 
     MD_iter++;
 

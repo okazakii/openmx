@@ -472,11 +472,17 @@ int main(int argc, char *argv[])
 
     CompTime[myid][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
 
+/*==== 2012/12/03-A modification start okazaki,i ====*/
+    if (ML_flag!=0)
+/*==== 2012/12/03-A modification close ====*/
     if (myid==Host_ID) iterout(MD_iter,MD_TimeStep*(MD_iter-1),fileE,fileDRC);
 
     /* MD or geometry optimization */
 
-    if (ML_flag==0) CompTime[myid][4] += MD_pac(MD_iter,argv[1]);
+/*==== 2012/12/03-B modification start okazaki,i ====*/
+  //if (ML_flag==0) CompTime[myid][4] += MD_pac(MD_iter,argv[1]);
+    if (ML_flag==0) CompTime[myid][4] += MD_pac(MD_iter,argv[1],fileDRC);
+/*==== 2012/12/03-B modification close ====*/
 
     MD_iter++;
 

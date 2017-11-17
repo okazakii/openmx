@@ -32,10 +32,16 @@
 #define Criterion_Max_Step       0.06
  
 static void NoMD(int iter);
-static void VerletXYZ(int iter);
+/*==== 2012/12/03-D modification start okazaki,i ====*/
+//static void VerletXYZ(int iter);
+static void VerletXYZ(char *fname_input, int iter, char *fileDRC);
+/*==== 2012/12/03-D modification close ====*/
 static void NVT_VS(int iter);  /* added by mari */
 static void NVT_VS2(int iter); /* added by Ohwaki */
-static void NVT_NH(int iter); 
+/*==== 2012/12/04-B modification start okazaki,i ====*/
+//static void NVT_NH(int iter); 
+static void NVT_NH(char *fname_input, int iter, char *fileDRC);
+/*==== 2012/12/04-B modification close ====*/
 static void Steepest_Descent(int iter, int SD_scaling_flag);
 static void GDIIS(int iter, int iter0);
 static void GDIIS_BFGS(int iter, int iter0);
@@ -49,11 +55,21 @@ static void RF(int iter, int iter0);
 static void EvsLC(int iter);
 
 
-double MD_pac(int iter, char *fname_input)
+/*==== 2012/12/03-G modification start okazaki,i ====*/
+//double MD_pac(int iter, char *fname_input)
+double MD_pac(int iter, char *fname_input, char *fileDRC)
+/*==== 2012/12/03-G modification close ====*/
 {
   double time0;
   double TStime,TEtime;
   int numprocs,myid;
+/*==== 2012/12/03-I modification start okazaki,i ====*/
+  char fileE[YOUSO10];
+
+  if (myid==Host_ID){  
+      sprintf(fileE,"%s%s.ene",filepath,filename);
+  }
+/*==== 2012/12/03-I modification close ====*/
 
   dtime(&TStime);
  
@@ -66,17 +82,46 @@ double MD_pac(int iter, char *fname_input)
   if (myid==Host_ID && 0<level_stdout){
     printf("\n*******************************************************\n"); 
     printf("             MD or geometry opt. at MD =%2d              \n",iter);
+/*==== 2012/12/03-H modification start okazaki,i ====*/
+    printf("             caution: VerletXYZ,NVT_NH are modified\n"      );
+/*==== 2012/12/03-H modification close ====*/
     printf("*******************************************************\n\n"); 
   }
 
-  /* making of an input file with the final structure */
-  if (Runtest_flag==0){
-    Make_InputFile_with_FinalCoord(fname_input,iter);
-  }
+/*==== 2012/12/03-F modification start okazaki,i ====*/
+///* making of an input file with the final structure */
+//if (Runtest_flag==0){
+//  Make_InputFile_with_FinalCoord(fname_input,iter);
+//}
+  switch (MD_switch) {
+    case  0:
+  //case  1:
+    case  2:
+    case  3:
+    case  4:
+    case  5:
+    case  6:
+    case  7:
+    case  8:
+  //case  9:
+    case 10:
+    case 11:
+    case 12:
+        /* making of an input file with the final structure */
+        if (Runtest_flag==0){
+            Make_InputFile_with_FinalCoord(fname_input,iter);
+        }
 
+        if (myid==Host_ID) iterout(iter,MD_TimeStep*(iter-1),fileE,fileDRC);
+    break;
+  }
+/*==== 2012/12/03-F modification close ====*/
   switch (MD_switch) {
     case  0: NoMD(iter);                    break;
-    case  1: VerletXYZ(iter);               break;
+/*==== 2012/12/03-C modification start okazaki,i ====*/
+//  case  1: VerletXYZ(iter);               break;
+    case  1: VerletXYZ(fname_input,iter,fileDRC);  break;
+/*==== 2012/12/03-C modification close ====*/
     case  2: NVT_VS(iter);                  break;  /* added by mari */
     case  3: Steepest_Descent(iter,1);      break;
     case  4: Geometry_Opt_DIIS_EF(iter);    break; 
@@ -84,7 +129,10 @@ double MD_pac(int iter, char *fname_input)
     case  6: Geometry_Opt_RF(iter);         break;  /* added by hmweng */
     case  7: Geometry_Opt_DIIS(iter);       break;                    
     case  8:                                break;  /* not used */
-    case  9: NVT_NH(iter);                  break;
+/*==== 2012/12/04-A modification start okazaki,i ====*/
+//  case  9: NVT_NH(iter);                  break;
+    case  9: NVT_NH(fname_input,iter,fileDRC);     break;
+/*==== 2012/12/04-A modification close ====*/
     case 10:                                break;  /* not used */
     case 11: NVT_VS2(iter);                 break;  /* added by Ohwaki */
     case 12: EvsLC(iter);                   break; 
@@ -414,7 +462,10 @@ void Correct_Position_In_First_Cell()
 }
 
 
-void VerletXYZ(int iter)
+/*==== 2012/12/03-A modification start okazaki,i ====*/
+//void VerletXYZ(int iter)
+void VerletXYZ(char *fname_input, int iter, char *fileDRC)
+/*==== 2012/12/03-A modification close ====*/
 {
   /***********************************************************
    NVE molecular dynamics with velocity-Verlet integrator
@@ -513,6 +564,18 @@ void VerletXYZ(int iter)
       iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
 
+    /*==== 2012/12/03-B modification start okazaki,i ====*/
+    /* making of an input file with the final structure */
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+        ID = G2ID[Gc_AN];
+        MPI_Bcast(&Gxyz[Gc_AN][24], 3, MPI_DOUBLE, ID, mpi_comm_level1);
+    }
+    if (Runtest_flag==0){
+        Make_InputFile_with_FinalCoord(fname_input,iter);
+    }
+    if (myid==Host_ID) iterout(iter,MD_TimeStep*(iter-1),fileE,fileDRC);
+    /*==== 2012/12/03-B modification close ====*/
+
     /****************************************************
       first step in velocity Verlet 
     ****************************************************/
@@ -591,6 +654,18 @@ void VerletXYZ(int iter)
       sprintf(fileE,"%s%s.ene",filepath,filename);
       iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     } 
+
+    /*==== 2012/12/03-E modification start okazaki,i ====*/
+    /* making of an input file with the final structure */
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+        ID = G2ID[Gc_AN];
+        MPI_Bcast(&Gxyz[Gc_AN][24], 3, MPI_DOUBLE, ID, mpi_comm_level1);
+    }
+    if (Runtest_flag==0){
+        Make_InputFile_with_FinalCoord(fname_input,iter);
+    }
+    if (myid==Host_ID) iterout(iter,MD_TimeStep*(iter-1),fileE,fileDRC);
+    /*==== 2012/12/03-E modification close ====*/
 
     /****************************************************
       first step in velocity Verlet 
@@ -3941,7 +4016,10 @@ void NVT_VS2(int iter)
 
 
 
-void NVT_NH(int iter)
+/*==== 2012/12/04-C modification start okazaki,i ====*/
+//void NVT_NH(int iter)
+void NVT_NH(char *fname_input, int iter, char *fileDRC)
+/*==== 2012/12/04-C modification close ====*/
 {
   /***********************************************************
    a constant temperature molecular dynamics by a Nose-Hoover
@@ -4061,6 +4139,18 @@ void NVT_NH(int iter)
       sprintf(fileE,"%s%s.ene",filepath,filename);
       iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
+
+    /*==== 2012/12/04-D modification start okazaki,i ====*/
+    /* making of an input file with the final structure */
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+        ID = G2ID[Gc_AN];
+        MPI_Bcast(&Gxyz[Gc_AN][24], 3, MPI_DOUBLE, ID, mpi_comm_level1);
+    }
+    if (Runtest_flag==0){
+        Make_InputFile_with_FinalCoord(fname_input,iter);
+    }
+    if (myid==Host_ID) iterout(iter,MD_TimeStep*(iter-1),fileE,fileDRC);
+    /*==== 2012/12/04-D modification close ====*/
 
     /****************************************************
       first step in velocity Verlet 
@@ -4262,6 +4352,18 @@ void NVT_NH(int iter)
       iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
 
+    /*==== 2012/12/04-E modification start okazaki,i ====*/
+    /* making of an input file with the final structure */
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+        ID = G2ID[Gc_AN];
+        MPI_Bcast(&Gxyz[Gc_AN][24], 3, MPI_DOUBLE, ID, mpi_comm_level1);
+    }
+    if (Runtest_flag==0){
+        Make_InputFile_with_FinalCoord(fname_input,iter);
+    }
+    if (myid==Host_ID) iterout(iter,MD_TimeStep*(iter-1),fileE,fileDRC);
+    /*==== 2012/12/04-E modification close ====*/
+
     /****************************************************
      Nose-Hoover Hamiltonian which is a conserved quantity
     ****************************************************/
@@ -4364,6 +4466,18 @@ void NVT_NH(int iter)
       sprintf(fileE,"%s%s.ene",filepath,filename);
       iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
+
+    /*==== 2012/12/04-F modification start okazaki,i ====*/
+    /* making of an input file with the final structure */
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+        ID = G2ID[Gc_AN];
+        MPI_Bcast(&Gxyz[Gc_AN][24], 3, MPI_DOUBLE, ID, mpi_comm_level1);
+    }
+    if (Runtest_flag==0){
+        Make_InputFile_with_FinalCoord(fname_input,iter);
+    }
+    if (myid==Host_ID) iterout(iter,MD_TimeStep*(iter-1),fileE,fileDRC);
+    /*==== 2012/12/04-F modification close ====*/
 
     /****************************************************
       first step in velocity Verlet 
