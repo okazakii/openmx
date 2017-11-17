@@ -1,0 +1,547 @@
+# CC      = pgcc -Mbounds -Ktrap=fp
+# CC      = pgcc -fast
+# CC      = pgcc -g -Mbounds -Ktrap=fp  -I$(HOME)/include
+# CC      = icc -O3 -I$(HOME)/include
+# CC      = gcc -O3 -I$(HOME)/include
+# STACK   = -Wl,--heap,90000,--stack,90000
+# LIB     = -L c:cygwin/usr/local/lib -lfftw -llapack -lblas -lg2c
+# LIB     = -L /usr/local/lib -lfftw -llapack -lblas -lg2c
+# LIB     = -L$(HOME)/lib -lfftw -L /usr/local/lib -lfftw -llapack -lblas -lg2c
+# LIB     = -L$(HOME)/lib -lfftw -L /usr/local/lib -lfftw -llapack -lblas -lg2c -static 
+# LIB     = -L/usr/local/lib -lfftw /usr/local/intel/mkl/LIB/libmkl32_lapack.a \
+#	/usr/local/intel/mkl/LIB/libmkl32_p4.a \
+#	-lpthread -lsvml /usr/lib/gcc-lib/i486-suse-linux/2.95.2/libg2c.a   
+# CC      = gcc -O3 -D nompi
+# CC      = mpiicc -O3 -I$(HOME)/include
+# LIB     = -L/usr/local/lib -lfftw -llapack -lblas -lg2c -static 
+
+# ntgrx (Itanium2)
+# mpicc = /usr/local/mpich-gnu-1.2.5.2/bin/mpicc
+# CC	= $(mpicc) -g 
+# CC	= mpicc -O3
+# LIB     = -L/opt/intel/mkl60/lib/64 -lmkl_lapack -lmkl_ipf -lguide -lfftw -static -lpthread
+
+# ntgp (Opteron)
+# mpicc = /usr/local/mpich-gnu-1.2.5/bin/mpicc
+# mpicc = /usr/local/mpich/bin/mpicc
+# CC	= $(mpicc) -m64 -O3
+# LIB     = -L/usr/local/lib64/lib -lfftw -L/opt/acml/gnu64 -lacml -L/usr/lib64 -lg2c -static
+
+# mx73 (Xeon) 
+# CC      = icc -O3 -D nompi
+# CC      = mpicc -O3 -I/usr/local/include
+# CC      = mpicc -O3 -I/usr/local/include -I/home/ozaki/include  
+# CC      = mpicc -O3 -D fftw2 -I/usr/local/include
+# LIB     = -L/usr/local/lib -lfftw -llapack_LINUX -lblas_LINUX -lg2c -static
+# LIB     = -L/home/ozaki/lib -lfftw3 -L/usr/local/lib -llapack -lblas -lg2c -static
+
+# qnano (P4)
+# CC      = mpiicc -O3 -I$(HOME)/include
+# CC      = icc -O3 -D nompi
+# LIB     = -L/usr/local/lib -lfftw -llapack -lblas -lg2c -static 
+
+# CC      = mpicc -O3 -I/usr/local/include
+# LIB     = -L/usr/local/lib -lfftw -llapack_LINUX -lblas_LINUX -lg2c -static
+# CC      = gcc -O3 -D nompi
+
+#######################################################################
+# Please set appropriate CC and LIB on your computational environment #
+#######################################################################
+
+#CC      = gcc -O3 -Dnompi -I/usr/local/include -I/home/ozaki/include  
+#LIB     = -L/home/ozaki/lib -lfftw3 -L/usr/local/lib -llapack -lblas -lg2c -static
+
+CFLAGS  = -g 
+
+CC      = xlc -DNOUNDERSCORE    -DFT_BCAST   -q64  -O3 -qstrict  -I$(HOME)/include  
+F90     = mpif90_r -64
+LIB     = -lessl   -L/usr/local/lib -llapack -lblas  -L/opt/ofort90/lib -lf90s   -parallel 
+
+
+
+OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
+          init.o LU_inverse.o ReLU_inverse.o \
+          truncation.o readfile.o FT_PAO.o FT_NLP.o \
+          FT_ProExpn_VNA.o FT_VNA.o FT_ProductPAO.o FT_LESP_Weight.o \
+          Hamiltonian_Cluster.o Overlap_Cluster.o Hamiltonian_Band.o \
+          Overlap_Band.o Hamiltonian_Cluster_NC.o Hamiltonian_Band_NC.o \
+          Hamiltonian_Cluster_SO.o SetPara_DFT.o \
+          XC_Ceperly_Alder.o XC_CA_LSDA.o XC_PW91C.o XC_PBE.o XC_EX.o \
+          DFT.o Mixing_DM.o Force.o Poisson.o \
+          Cluster_DFT.o Cluster_DFT_Dosout.o Cluster_Krylov.o \
+          Band_DFT.o Band_DFT_kpath.o Band_DFT_MO.o Band_DFT_Dosout.o \
+          Set_Density_Grid.o Set_Orbitals_Grid.o Set_LESP_Proj_Grid.o \
+          Set_Aden_Grid.o Gauss_Legendre.o xyz2spherical.o AngularF.o \
+          RadialF.o Dr_RadialF.o PhiF.o VNAF.o Dr_VNAF.o VH_AtomF.o \
+          Dr_VH_AtomF.o Dr_AtomicDenF.o RF_BesselF.o QuickSort2.o \
+          Nonlocal_RadialF.o AtomicDenF.o Mulliken_Charge.o \
+          Occupation_Number_LDA_U.o Eff_Hub_Pot.o \
+          AtomicPCCF.o Dr_AtomicPCCF.o Pot_NeutralAtom.o \
+          Simple_Mixing_DM.o DIIS_Mixing_DM.o GR_Pulay_DM.o \
+          Kerker_Mixing_Rhok.o DIIS_Mixing_Rhok.o \
+          Correction_Energy.o Contract_Hamiltonian.o Contract_iHNL.o \
+          Cont_Matrix0.o Cont_Matrix1.o Cont_Matrix2.o Cont_Matrix3.o \
+          Opt_Contraction.o Initial_CntCoes.o Set_XC_Grid.o \
+          Get_Orbitals.o Get_dOrbitals.o \
+          Get_Cnt_Orbitals.o Get_Cnt_dOrbitals.o Gaunt.o Find_CGrids.o \
+          RestartFileDFT.o Output_CompTime.o Merge_LogFile.o \
+          RecursionS_C.o Divide_Conquer.o GDivide_Conquer.o \
+          Divide_Conquer_Dosout.o GDivide_Conquer_Dosout.o \
+          Eigen_lapack.o EigenBand_lapack.o \
+          Eigen_PReHH.o BroadCast_ReMatrix.o \
+          Eigen_PHH.o BroadCast_ComplexMatrix.o \
+          lapack_dstedc1.o lapack_dstedc2.o lapack_dstegr1.o lapack_dstegr2.o \
+          lapack_dstevx1.o lapack_dstevx2.o \
+          Nonlocal_Basis.o Set_OLP_Kin.o Set_Nonlocal.o Set_ProExpn_VNA.o \
+          Set_WbyVNA.o Set_Hamiltonian.o Set_Vpot.o \
+          Voronoi_Charge.o Make_ESM.o Fuzzy_Weight.o Calc_LESP.o \
+          IS_Lanczos.o IS_Taylor.o IS_Hotelling.o IS_LU.o MD_pac.o \
+          iterout.o Allocate_Arrays.o Free_Arrays.o \
+          Init_List_YOUSO.o headerfile.o outputfile1.o Timetool.o \
+          malloc_multidimarray.o PrintMemory.o PrintMemory_Fix.o \
+          dtime.o OutData.o init_alloc_first.o File_CntCoes.o \
+          SCF2File.o mimic_mpi.o Set_Allocate_Atom2CPU.o \
+          Cutoff.o setup_CPU_group.o Maketest.o Runtest.o \
+          FFT_Poisson_essl.o 
+
+# PROG    = openmx.exe
+# PROG    = openmx
+
+PROG    = openmx
+DESTDIR = ../work
+
+All:	$(PROG)
+
+openmx:	$(OBJS)
+	$(F90) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+
+openmx.o: openmx.c openmx_common.h
+	$(CC) -c openmx.c
+openmx_common.o: openmx_common.c openmx_common.h
+	$(CC) -c openmx_common.c
+Input_std.o: Input_std.c openmx_common.h Inputtools.h
+	$(CC) -c Input_std.c
+Inputtools.o: Inputtools.c
+	$(CC) -c Inputtools.c
+
+init.o: init.c openmx_common.h
+	$(CC) -c init.c
+LU_inverse.o: LU_inverse.c openmx_common.h
+	$(CC) -c LU_inverse.c
+ReLU_inverse.o: ReLU_inverse.c openmx_common.h
+	$(CC) -c ReLU_inverse.c
+truncation.o: truncation.c openmx_common.h
+	$(CC) -c truncation.c
+Find_CGrids.o: Find_CGrids.c openmx_common.h
+	$(CC) -c Find_CGrids.c
+readfile.o: readfile.c openmx_common.h
+	$(CC) -c readfile.c
+#
+#
+#
+Hamiltonian_Cluster.o: Hamiltonian_Cluster.c openmx_common.h
+	$(CC) -c Hamiltonian_Cluster.c
+Overlap_Cluster.o: Overlap_Cluster.c openmx_common.h
+	$(CC) -c Overlap_Cluster.c
+Hamiltonian_Band.o: Hamiltonian_Band.c openmx_common.h
+	$(CC) -c Hamiltonian_Band.c
+Overlap_Band.o: Overlap_Band.c openmx_common.h
+	$(CC) -c Overlap_Band.c
+Hamiltonian_Cluster_NC.o: Hamiltonian_Cluster_NC.c openmx_common.h
+	$(CC) -c Hamiltonian_Cluster_NC.c
+Hamiltonian_Cluster_SO.o: Hamiltonian_Cluster_SO.c openmx_common.h
+	$(CC) -c Hamiltonian_Cluster_SO.c
+Hamiltonian_Band_NC.o: Hamiltonian_Band_NC.c openmx_common.h
+	$(CC) -c Hamiltonian_Band_NC.c
+#
+#
+#  
+SetPara_DFT.o: SetPara_DFT.c openmx_common.h
+	$(CC) -c SetPara_DFT.c
+XC_Ceperly_Alder.o: XC_Ceperly_Alder.c openmx_common.h
+	$(CC) -c XC_Ceperly_Alder.c
+XC_CA_LSDA.o: XC_CA_LSDA.c openmx_common.h
+	$(CC) -c XC_CA_LSDA.c
+XC_PW91C.o: XC_PW91C.c openmx_common.h
+	$(CC) -c XC_PW91C.c
+XC_PBE.o: XC_PBE.c openmx_common.h
+	$(CC) -c XC_PBE.c
+XC_EX.o: XC_EX.c openmx_common.h
+	$(CC) -c XC_EX.c
+#
+# SCF
+#
+DFT.o: DFT.c openmx_common.h
+	$(CC) -c DFT.c
+Cluster_DFT.o: Cluster_DFT.c openmx_common.h
+	$(CC) -c Cluster_DFT.c
+Cluster_DFT_Dosout.o: Cluster_DFT_Dosout.c openmx_common.h
+	$(CC) -c Cluster_DFT_Dosout.c
+Cluster_Krylov.o: Cluster_Krylov.c openmx_common.h
+	$(CC) -c Cluster_Krylov.c
+Band_DFT.o: Band_DFT.c openmx_common.h
+	$(CC) -c Band_DFT.c
+Band_DFT_kpath.o: Band_DFT_kpath.c openmx_common.h
+	$(CC) -c Band_DFT_kpath.c
+Band_DFT_MO.o: Band_DFT_MO.c openmx_common.h
+	$(CC) -c Band_DFT_MO.c
+Band_DFT_Dosout.o: Band_DFT_Dosout.c openmx_common.h
+	$(CC) -c Band_DFT_Dosout.c
+Mixing_DM.o: Mixing_DM.c openmx_common.h
+	$(CC) -c Mixing_DM.c
+Force.o: Force.c openmx_common.h
+	$(CC) -c Force.c
+Poisson.o: Poisson.c openmx_common.h
+	$(CC) -c Poisson.c
+Mulliken_Charge.o: Mulliken_Charge.c openmx_common.h
+	$(CC) -c Mulliken_Charge.c
+Occupation_Number_LDA_U.o: Occupation_Number_LDA_U.c openmx_common.h
+	$(CC) -c Occupation_Number_LDA_U.c
+Eff_Hub_Pot.o: Eff_Hub_Pot.c openmx_common.h
+	$(CC) -c Eff_Hub_Pot.c
+Gauss_Legendre.o: Gauss_Legendre.c openmx_common.h
+	$(CC) -c Gauss_Legendre.c
+xyz2spherical.o: xyz2spherical.c openmx_common.h
+	$(CC) -c xyz2spherical.c
+AngularF.o: AngularF.c openmx_common.h
+	$(CC) -c AngularF.c
+RadialF.o: RadialF.c openmx_common.h
+	$(CC) -c RadialF.c
+Dr_RadialF.o: Dr_RadialF.c openmx_common.h
+	$(CC) -c Dr_RadialF.c
+PhiF.o: PhiF.c openmx_common.h
+	$(CC) -c PhiF.c
+VNAF.o: VNAF.c openmx_common.h
+	$(CC) -c VNAF.c
+Dr_VNAF.o: Dr_VNAF.c openmx_common.h
+	$(CC) -c Dr_VNAF.c
+VH_AtomF.o: VH_AtomF.c openmx_common.h
+	$(CC) -c VH_AtomF.c
+Dr_VH_AtomF.o: Dr_VH_AtomF.c openmx_common.h
+	$(CC) -c Dr_VH_AtomF.c
+
+RF_BesselF.o: RF_BesselF.c openmx_common.h
+	$(CC) -c RF_BesselF.c
+Nonlocal_RadialF.o: Nonlocal_RadialF.c openmx_common.h
+	$(CC) -c Nonlocal_RadialF.c
+
+Set_Orbitals_Grid.o: Set_Orbitals_Grid.c openmx_common.h
+	$(CC) -c Set_Orbitals_Grid.c
+Set_LESP_Proj_Grid.o: Set_LESP_Proj_Grid.c openmx_common.h
+	$(CC) -c Set_LESP_Proj_Grid.c
+Set_Density_Grid.o: Set_Density_Grid.c openmx_common.h
+	$(CC) -c Set_Density_Grid.c
+Set_Aden_Grid.o: Set_Aden_Grid.c openmx_common.h
+	$(CC) -c Set_Aden_Grid.c
+
+AtomicDenF.o: AtomicDenF.c openmx_common.h
+	$(CC) -c AtomicDenF.c
+Dr_AtomicDenF.o: Dr_AtomicDenF.c openmx_common.h
+	$(CC) -c Dr_AtomicDenF.c
+AtomicPCCF.o: AtomicPCCF.c openmx_common.h
+	$(CC) -c AtomicPCCF.c
+Dr_AtomicPCCF.o: Dr_AtomicPCCF.c openmx_common.h
+	$(CC) -c Dr_AtomicPCCF.c
+Pot_NeutralAtom.o: Pot_NeutralAtom.c openmx_common.h
+	$(CC) -c Pot_NeutralAtom.c
+Simple_Mixing_DM.o: Simple_Mixing_DM.c openmx_common.h
+	$(CC) -c Simple_Mixing_DM.c
+DIIS_Mixing_DM.o: DIIS_Mixing_DM.c openmx_common.h
+	$(CC) -c DIIS_Mixing_DM.c
+GR_Pulay_DM.o: GR_Pulay_DM.c openmx_common.h
+	$(CC) -c GR_Pulay_DM.c
+Kerker_Mixing_Rhok.o: Kerker_Mixing_Rhok.c openmx_common.h
+	$(CC) -c Kerker_Mixing_Rhok.c
+DIIS_Mixing_Rhok.o: DIIS_Mixing_Rhok.c openmx_common.h
+	$(CC) -c DIIS_Mixing_Rhok.c
+Correction_Energy.o: Correction_Energy.c openmx_common.h
+	$(CC) -c Correction_Energy.c
+Contract_Hamiltonian.o: Contract_Hamiltonian.c openmx_common.h
+	$(CC) -c Contract_Hamiltonian.c
+Contract_iHNL.o: Contract_iHNL.c openmx_common.h
+	$(CC) -c Contract_iHNL.c
+Cont_Matrix0.o: Cont_Matrix0.c openmx_common.h
+	$(CC) -c Cont_Matrix0.c
+Cont_Matrix1.o: Cont_Matrix1.c openmx_common.h
+	$(CC) -c Cont_Matrix1.c
+Cont_Matrix2.o: Cont_Matrix2.c openmx_common.h
+	$(CC) -c Cont_Matrix2.c
+Cont_Matrix3.o: Cont_Matrix3.c openmx_common.h
+	$(CC) -c Cont_Matrix3.c
+Opt_Contraction.o: Opt_Contraction.c openmx_common.h
+	$(CC) -c Opt_Contraction.c
+Initial_CntCoes.o: Initial_CntCoes.c openmx_common.h
+	$(CC) -c Initial_CntCoes.c
+
+
+Set_XC_Grid.o: Set_XC_Grid.c openmx_common.h
+	$(CC) -c Set_XC_Grid.c
+Get_Orbitals.o: Get_Orbitals.c openmx_common.h
+	$(CC) -c Get_Orbitals.c
+Get_dOrbitals.o: Get_dOrbitals.c openmx_common.h
+	$(CC) -c Get_dOrbitals.c
+Get_Cnt_Orbitals.o: Get_Cnt_Orbitals.c openmx_common.h
+	$(CC) -c Get_Cnt_Orbitals.c
+Get_Cnt_dOrbitals.o: Get_Cnt_dOrbitals.c openmx_common.h
+	$(CC) -c Get_Cnt_dOrbitals.c
+Gaunt.o: Gaunt.c openmx_common.h
+	$(CC) -c Gaunt.c
+RestartFileDFT.o: RestartFileDFT.c openmx_common.h
+	$(CC) -c RestartFileDFT.c
+Output_CompTime.o: Output_CompTime.c openmx_common.h
+	$(CC) -c Output_CompTime.c
+Merge_LogFile.o: Merge_LogFile.c openmx_common.h
+	$(CC) -c Merge_LogFile.c
+#
+#
+#
+QuickSort2.o: QuickSort2.c openmx_common.h
+	$(CC) -c QuickSort2.c
+Eigen_lapack.o: Eigen_lapack.c openmx_common.h
+	$(CC) -c Eigen_lapack.c
+EigenBand_lapack.o: EigenBand_lapack.c openmx_common.h
+	$(CC) -c EigenBand_lapack.c
+Eigen_PReHH.o: Eigen_PReHH.c openmx_common.h
+	$(CC) -c Eigen_PReHH.c
+Eigen_PHH.o: Eigen_PHH.c openmx_common.h
+	$(CC) -c Eigen_PHH.c
+BroadCast_ReMatrix.o: BroadCast_ReMatrix.c openmx_common.h
+	$(CC) -c BroadCast_ReMatrix.c
+BroadCast_ComplexMatrix.o: BroadCast_ComplexMatrix.c openmx_common.h
+	$(CC) -c BroadCast_ComplexMatrix.c
+lapack_dstedc1.o: lapack_dstedc1.c openmx_common.h
+	$(CC) -c lapack_dstedc1.c
+lapack_dstedc2.o: lapack_dstedc2.c openmx_common.h
+	$(CC) -c lapack_dstedc2.c
+lapack_dstegr1.o: lapack_dstegr1.c openmx_common.h
+	$(CC) -c lapack_dstegr1.c
+lapack_dstegr2.o: lapack_dstegr2.c openmx_common.h
+	$(CC) -c lapack_dstegr2.c
+lapack_dstevx1.o: lapack_dstevx1.c openmx_common.h
+	$(CC) -c lapack_dstevx1.c
+lapack_dstevx2.o: lapack_dstevx2.c openmx_common.h
+	$(CC) -c lapack_dstevx2.c
+Nonlocal_Basis.o: Nonlocal_Basis.c openmx_common.h
+	$(CC) -c Nonlocal_Basis.c
+Set_OLP_Kin.o: Set_OLP_Kin.c openmx_common.h 
+	$(CC) -c Set_OLP_Kin.c
+Set_Nonlocal.o: Set_Nonlocal.c openmx_common.h
+	$(CC) -c Set_Nonlocal.c
+Set_ProExpn_VNA.o: Set_ProExpn_VNA.c openmx_common.h
+	$(CC) -c Set_ProExpn_VNA.c
+Set_WbyVNA.o: Set_WbyVNA.c openmx_common.h
+	$(CC) -c Set_WbyVNA.c
+Set_Hamiltonian.o: Set_Hamiltonian.c openmx_common.h
+	$(CC) -c Set_Hamiltonian.c
+Set_Vpot.o: Set_Vpot.c openmx_common.h
+	$(CC) -c Set_Vpot.c
+#
+#
+#
+FT_PAO.o: FT_PAO.c openmx_common.h
+	$(CC) -c FT_PAO.c
+FT_NLP.o: FT_NLP.c openmx_common.h
+	$(CC) -c FT_NLP.c
+FT_ProExpn_VNA.o: FT_ProExpn_VNA.c openmx_common.h
+	$(CC) -c FT_ProExpn_VNA.c
+FT_VNA.o: FT_VNA.c openmx_common.h
+	$(CC) -c FT_VNA.c
+FT_ProductPAO.o: FT_ProductPAO.c openmx_common.h
+	$(CC) -c FT_ProductPAO.c
+FT_LESP_Weight.o: FT_LESP_Weight.c openmx_common.h
+	$(CC) -c FT_LESP_Weight.c
+#
+#
+#
+Divide_Conquer.o: Divide_Conquer.c openmx_common.h
+	$(CC) -c Divide_Conquer.c
+GDivide_Conquer.o: GDivide_Conquer.c openmx_common.h
+	$(CC) -c GDivide_Conquer.c
+Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
+	$(CC) -c Divide_Conquer_Dosout.c
+GDivide_Conquer_Dosout.o: GDivide_Conquer_Dosout.c openmx_common.h
+	$(CC) -c GDivide_Conquer_Dosout.c
+#
+#
+#
+RecursionS_C.o: RecursionS_C.c openmx_common.h
+	$(CC) -c RecursionS_C.c
+IS_Lanczos.o: IS_Lanczos.c openmx_common.h
+	$(CC) -c IS_Lanczos.c
+IS_Taylor.o: IS_Taylor.c openmx_common.h
+	$(CC) -c IS_Taylor.c
+IS_Hotelling.o: IS_Hotelling.c openmx_common.h
+	$(CC) -c IS_Hotelling.c
+IS_LU.o: IS_LU.c openmx_common.h
+	$(CC) -c IS_LU.c
+#
+#
+#
+MD_pac.o: MD_pac.c openmx_common.h
+	$(CC) -c MD_pac.c
+#
+#
+#
+iterout.o: iterout.c openmx_common.h
+	$(CC) -c iterout.c
+Allocate_Arrays.o: Allocate_Arrays.c openmx_common.h
+	$(CC) -c Allocate_Arrays.c
+Free_Arrays.o: Free_Arrays.c openmx_common.h
+	$(CC) -c Free_Arrays.c
+Init_List_YOUSO.o: Init_List_YOUSO.c openmx_common.h
+	$(CC) -c Init_List_YOUSO.c
+headerfile.o: headerfile.c openmx_common.h
+	$(CC) -c headerfile.c
+outputfile1.o: outputfile1.c openmx_common.h
+	$(CC) -c outputfile1.c
+Timetool.o: Timetool.c
+	$(CC) -c Timetool.c 
+malloc_multidimarray.o: malloc_multidimarray.c
+	$(CC) -c malloc_multidimarray.c 
+PrintMemory.o: PrintMemory.c
+	$(CC) -c PrintMemory.c 
+PrintMemory_Fix.o: PrintMemory_Fix.c openmx_common.h
+	$(CC) -c PrintMemory_Fix.c 
+dtime.o: dtime.c
+	$(CC) -c dtime.c 
+OutData.o: OutData.c openmx_common.h
+	$(CC) -c OutData.c
+init_alloc_first.o: init_alloc_first.c openmx_common.h
+	$(CC) -c init_alloc_first.c
+File_CntCoes.o: File_CntCoes.c openmx_common.h
+	$(CC) -c File_CntCoes.c
+SCF2File.o: SCF2File.c openmx_common.h
+	$(CC) -c SCF2File.c
+Cutoff.o: Cutoff.c openmx_common.h
+	$(CC) -c Cutoff.c
+setup_CPU_group.o: setup_CPU_group.c openmx_common.h
+	$(CC) -c setup_CPU_group.c
+Voronoi_Charge.o: Voronoi_Charge.c openmx_common.h
+	$(CC) -c Voronoi_Charge.c
+Make_ESM.o: Make_ESM.c openmx_common.h
+	$(CC) -c Make_ESM.c
+Fuzzy_Weight.o: Fuzzy_Weight.c openmx_common.h
+	$(CC) -c Fuzzy_Weight.c
+Calc_LESP.o: Calc_LESP.c openmx_common.h
+	$(CC) -c Calc_LESP.c
+#
+#
+#
+mimic_mpi.o: mimic_mpi.c mimic_mpi.h
+	$(CC) -c mimic_mpi.c
+Set_Allocate_Atom2CPU.o: Set_Allocate_Atom2CPU.c openmx_common.h
+	$(CC) -c Set_Allocate_Atom2CPU.c
+
+#
+#
+# Maketest and Runtest
+#
+#
+
+Maketest.o: Maketest.c openmx_common.h Inputtools.h
+	$(CC) -c Maketest.c
+Runtest.o: Runtest.c openmx_common.h Inputtools.h
+	$(CC) -c Runtest.c
+
+
+install:	$(PROG)
+	strip $(PROG)
+	cp $(PROG) $(DESTDIR)/$(PROG)
+
+clean:	$(PROG) $(OBJS)
+	rm $(PROG) $(OBJS) 
+
+#
+#
+# programs for generating DOS from files *.Dos.val and *.Dos.vec
+#
+#
+
+DosMain: DosMain.o Inputtools.o malloc_multidimarray.o Tetrahedron_Blochl.o 
+	$(CC) -o $@ DosMain.o Inputtools.o malloc_multidimarray.o Tetrahedron_Blochl.o -lm 
+	cp DosMain $(DESTDIR)/DosMain
+
+DosMain.o :DosMain.c openmx_common.h
+	$(CC) -o $@ -c DosMain.c
+Tetrahedron_Blochl.o : Tetrahedron_Blochl.c
+	$(CC) -o $@ -c Tetrahedron_Blochl.c 
+
+#
+#
+#  exchange interaction coupling constant J between two atoms
+#
+#
+
+jx: jx.o read_scfout.o Eigen_lapack.o 
+	$(CC) jx.o read_scfout.o $(LIB) -lm -o jx
+	cp jx $(DESTDIR)/jx
+
+jx.o: jx.c read_scfout.h 
+	$(CC) -c jx.c
+
+#
+#
+# analysis_example
+#
+#
+
+analysis_example: analysis_example.o read_scfout.o
+	$(CC) analysis_example.o read_scfout.o $(LIB)  -lm -o analysis_example
+	cp analysis_example $(DESTDIR)/analysis_example
+
+analysis_example.o: analysis_example.c read_scfout.h 
+	$(CC) -c analysis_example.c
+
+read_scfout.o: read_scfout.c read_scfout.h 
+	$(CC) -c read_scfout.c
+
+#
+#
+# program for generating EPS from files *.out and *.vhart
+#
+#
+
+OBJS_ESP  = esp.o Inputtools.o 
+esp:	$(OBJS_ESP)
+	$(CC) $(OBJS_ESP) $(LIB) -lm -o $@
+	cp esp $(DESTDIR)/esp
+esp.o : esp.c Inputtools.h
+	$(CC) -o $@ -c esp.c
+
+#
+#
+# check_lead
+#
+#
+
+check_lead: check_lead.o Inputtools.o
+	$(CC) check_lead.o Inputtools.o -lm -o check_lead
+	cp check_lead $(DESTDIR)/check_lead
+
+check_lead.o: check_lead.c Inputtools.h 
+	$(CC) -c check_lead.c
+
+#
+#
+#  optical conductivity 
+#
+#
+
+OpticalConductivityMain: OpticalConductivityMain.o \
+              Inputtools.o  malloc_multidimarray.o
+	cc -o $@   OpticalConductivityMain.o  Inputtools.o  malloc_multidimarray.o -lm 
+	cp OpticalConductivityMain $(DESTDIR)/OpticalConductivityMain
+
+#
+#
+# test_mpi
+#
+#
+
+test_mpi: test_mpi.o
+	$(CC) test_mpi.o $(LIB) -lm -o test_mpi
+	cp test_mpi $(DESTDIR)/test_mpi
+
+test_mpi.o: test_mpi.c
+	$(CC) -c test_mpi.c
+
