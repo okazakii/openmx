@@ -70,7 +70,7 @@ void FT_ProductPAO()
    In case of Scf_RestartFromFile==1, read Spe_ProductRF_Bessel
   ***********************************************************/
 
-  if (Scf_RestartFromFile){
+  if (Scf_RestartFromFile==1){
 
     /****************************************************
          regenerate radial grids in the k-space

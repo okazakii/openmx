@@ -12,9 +12,9 @@ NEGF.filename.hks.r     lead-chain.hks
 
 NEGF.Num.Poles             100       # default=150
 NEGF.scf.Kgrid             1 1       # default=1 1
-NEGF.SCF.Iter.Band          10
+NEGF.SCF.Iter.Band          50
 
-NEGF.bias.voltage          0.0       # default=0.0 (eV)
+NEGF.bias.voltage          0.1       # default=0.0 (eV)
 NEGF.bias.neq.im.energy    0.01      # default=0.01 (eV)
 NEGF.bias.neq.energy.step  0.02      # default=0.02 (eV) 
 
@@ -23,12 +23,26 @@ NEGF.Dos.energyrange     -15.0 25.0 5.0e-3  #default=-10.0 10.0 5.0e-3 (eV)
 NEGF.Dos.energy.div        200       # default=200
 NEGF.Dos.Kgrid             1 1       # default=1 1 
 
+#
+# Transmission & Eigen Channel
+#
+
+NEGF.tran.Analysis         on        #  default on
 NEGF.tran.energydiv        200       # default=200
 NEGF.tran.energyrange -10 10 1.0e-3  # default=-10.0 10.0 1.0e-3 (eV)
 NEGF.tran.Kgrid            1 1       # default= 1 1
-
-
-
+NEGF.tran.Channel          on        #  default on
+NEGF.Channel.Nkpoint        1        # default=1
+<NEGF.Channel.kpoint
+0.0  0.0
+NEGF.Channel.kpoint>
+# default 0.0 0.0
+NEGF.Channel.Nenergy        1        # default=1
+<NEGF.Channel.energy
+0.0
+NEGF.Channel.energy>
+# default 0.0
+NEGF.Channel.Num            5        # defualt=5(for collinear), 10(for Non-collinear)
 
 #
 # Definition of Atomic Species
@@ -98,16 +112,16 @@ scf.XcType                  LDA        # LDA|LSDA-CA|LSDA-PW|GGA-PBE
 scf.SpinPolarization        off        # On|Off|NC
 scf.ElectronicTemperature  600.0       # default=300 (K)
 scf.energycutoff           180.0       # default=150 (Ry)
-scf.maxIter                 100        # default=40
+scf.maxIter                 500        # default=40
 scf.EigenvalueSolver       NEGF        # DC|GDC|Cluster|Band
-scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
+#scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
 scf.Kgrid                  1 1 1       # means n1 x n2 x n3
 scf.Mixing.Type          rmm-diisk     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
 scf.Init.Mixing.Weight      0.020      # default=0.30
 scf.Min.Mixing.Weight       0.020      # default=0.001
-scf.Max.Mixing.Weight       0.100      # default=0.40
-scf.Mixing.History          20         # default=5
-scf.Mixing.StartPulay       10         # default=6
-scf.Kerker.factor          1.0         # default=1.0  
+scf.Max.Mixing.Weight       0.050      # default=0.40
+scf.Mixing.History          100         # default=5
+scf.Mixing.StartPulay       20         # default=6
 scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
- 
+scf.Kerker.factor          30.0        # default=1
+NEGF.Poisson.Solver       FFT

@@ -92,6 +92,7 @@ void Make_Comm_Worlds(
       MPI_Comm_create(MPI_Curret_Comm_WD,new_group,&MPI_CommWD[i]);
 
       MPI_Group_free(&new_group);
+
       free(new_ranks); /* never forget cleaning! */
 
     }

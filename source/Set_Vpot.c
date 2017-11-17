@@ -53,10 +53,11 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
   ****************************************************/
 
   Set_XC_Grid(XC_P_switch,XC_switch,
-               Density_Grid_D[0],Density_Grid_D[1],
-               Density_Grid_D[2],Density_Grid_D[3],
-               Vxc_Grid_D[0], Vxc_Grid_D[1],
-               Vxc_Grid_D[2], Vxc_Grid_D[3] );
+              Density_Grid_D[0],Density_Grid_D[1],
+              Density_Grid_D[2],Density_Grid_D[3],
+              Vxc_Grid_D[0], Vxc_Grid_D[1],
+	      Vxc_Grid_D[2], Vxc_Grid_D[3],
+              NULL,NULL);
 
   /****************************************************
              copy Vxc_Grid_D to Vxc_Grid_B

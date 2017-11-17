@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
 
     /* in case of a ncsden.xsf file */
 
-    else if (strstr(argv[i],".ncsden.xsf.bin")!=NULL){
+    else if (strstr(argv[i],".xsf.bin")!=NULL){
       printf("converting %s\n",argv[i]);
       convert_xsf(argv[i]);
     }

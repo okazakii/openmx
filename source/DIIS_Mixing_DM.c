@@ -136,7 +136,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
   if (SpinP_switch==3 && ( SO_switch==1
                         || Hub_U_switch==1
-                        || Constraint_NCS_switch==1
+                        || 1<=Constraint_NCS_switch
                         || Zeeman_NCS_switch==1
                         || Zeeman_NCO_switch==1 )){ 
 
@@ -190,7 +190,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
       PrintMemory("DIIS_Mixing_DM: OptRDM",sizeof(double)*size_OptRDM,NULL);
       if (SpinP_switch==3 && ( SO_switch==1 
                             || Hub_U_switch==1
-                            || Constraint_NCS_switch==1
+                            || 1<=Constraint_NCS_switch
                             || Zeeman_NCS_switch==1
                             || Zeeman_NCO_switch==1 )){ 
         PrintMemory("DIIS_Mixing_DM: iOptRDM",sizeof(double)*size_iOptRDM,NULL);
@@ -238,7 +238,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
           if (SpinP_switch==3
               &&
-             ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1 )
+             ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1 )
               && spin<2){ 
 
 	    for (i=0; i<TNO1; i++){
@@ -271,7 +271,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 	  }
 
           if (SpinP_switch==3
-            && ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+            && ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
             && spin<2){ 
 
 	    for (i=0; i<TNO1; i++){
@@ -349,7 +349,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 	  }
 
           if (SpinP_switch==3
-             && ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+             && ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
              && spin<2){ 
 	
             for (i=0; i<TNO1; i++){
@@ -381,6 +381,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
         My_A = 0.0;
 
+#pragma omp parallel for reduction(+:My_A) private(spin, Mc_AN, Gc_AN, wan1, TNO1, h_AN, Gh_AN, wan2, TNO2, i, j, dum1, dum2) if(SpinP_num > 1) schedule(static,1)
         for (spin=0; spin<=SpinP_num; spin++){
           for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
             Gc_AN = M2G[Mc_AN];
@@ -401,7 +402,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
               if (SpinP_switch==3
                   &&
-                 ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+                 ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
                   && spin<2){
  
                 for (i=0; i<TNO1; i++){
@@ -434,6 +435,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
     }
     A[NumMix][NumMix] = 0.0;
 
+#pragma forceinline
     Inverse(NumMix,A,IA);
     for (SCFi=1; SCFi<=NumMix; SCFi++){
       alden[SCFi] = -IA[SCFi-1][NumMix];
@@ -504,7 +506,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
           if (SpinP_switch==3
              &&
-            ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+            ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
              &&
              spin<2){
  
@@ -579,7 +581,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
           if (SpinP_switch==3
             &&
-           ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+           ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
             && spin<2){ 
 
 	    for (i=0; i<TNO1; i++){
@@ -658,7 +660,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
             if (SpinP_switch==3
                 &&
-               (SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+               (SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
                 && spin<2){
  
 	      for (i=0; i<TNO1; i++){
@@ -723,7 +725,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
             if (SpinP_switch==3
                &&
-               ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+               ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
                && spin<2){ 
 	      for (i=0; i<TNO1; i++){
 		for (j=0; j<TNO2; j++){
@@ -805,7 +807,7 @@ void DIIS_Mixing_DM(int SCF_iter, double ******ResidualDM, double ******iResidua
 
   /* iOptRDM */
 
-  if (SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 
+  if (SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
       || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)){ 
 
     for (k=0; k<2; k++){

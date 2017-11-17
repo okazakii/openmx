@@ -29,8 +29,15 @@ static dcomplex G(dcomplex z);
 void init()
 {
   int i,p,wsp,wan;
-  double dp,dM,dum,dum1;
   double kappa,R,R1,R2;
+
+  /****************************************************
+         rediagonalize_flag_overlap_matrix
+         rediagonalize_flag_overlap_matrix_ELPA1
+  ****************************************************/
+
+  rediagonalize_flag_overlap_matrix = 0;
+  rediagonalize_flag_overlap_matrix_ELPA1 = 0;
 
   /****************************************************
                  Correct_Position_flag
@@ -376,7 +383,7 @@ void MM()
 {
   int p;
   double ChemP,N;
-  dcomplex EpC,EpP,CN,CX;
+  dcomplex EpP,CN;
   dcomplex G0; 
 
   ChemP = 0.0;
@@ -406,7 +413,7 @@ void Matsubara()
 {
   int p;
   double ChemP,N,R,mu0;
-  dcomplex EpC,EpP,CN,CX;
+  dcomplex EpP,CN;
   dcomplex G0; 
 
   ChemP = 0.0;
@@ -444,7 +451,7 @@ void HGF()
 {
   int p;
   double ChemP,N,R,mu0;
-  dcomplex EpC,EpP,CN,CX;
+  dcomplex EpP,CN;
   dcomplex G0; 
 
   ChemP = 0.0;
@@ -514,8 +521,8 @@ void InitV()
    1 a.u.=2.4189*10^-2 fs, 1fs=41.341105 a.u. 
   ********************************************************/
 
-  double ax,ay,az,bx,by,bz,tmp,Wscale,sum,v;
-  int j,Mc_AN,Gc_AN,ID,myid,numprocs;
+  double ax,ay,az,tmp,Wscale,sum,v;
+  int j,Gc_AN,myid,numprocs;
 
   Wscale = unified_atomic_mass_unit/electron_mass;
 
@@ -557,7 +564,6 @@ void InitV()
     *****************/
 
     for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-      ID = G2ID[Gc_AN];
       MPI_Bcast(&Gxyz[Gc_AN][24], 3, MPI_DOUBLE, Host_ID, MPI_COMM_WORLD1);
     }
   }

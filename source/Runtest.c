@@ -49,6 +49,9 @@ void Runtest(char *mode, int argc, char *argv[])
   double Utot1,Utot2,dU,dF;
   double Spread1,Spread2;
   double Omega1,Omega2;
+  /*S Mitsuaki Kawamura*/
+  double AveCurrent1, AveCurrent2, EigenChannel1, EigenChannel2;
+  /*E Mitsuaki Kawamura*/
   double gx,gy,gz,fx,fy,fz;
   double sum1,sum2;
   double time1,TotalTime;
@@ -94,6 +97,10 @@ void Runtest(char *mode, int argc, char *argv[])
   else if (strcasecmp(mode,"G")==0){  
     input_dir = "geoopt_example";
     output_file = "runtestG.result";
+  }
+  else if (strcasecmp(mode,"C")==0){
+    input_dir = "cellopt_example";
+    output_file = "runtestC.result";
   }
   else if (strcasecmp(mode,"WF")==0){  
     input_dir = "wf_example";
@@ -247,6 +254,12 @@ void Runtest(char *mode, int argc, char *argv[])
         input_double("Sum.of.Spreads.",&Spread1,(double)0.0);
         input_double("Total.Omega.=",&Omega1,(double)0.0);
       }
+      /*S MitsuakiKAWAMURA*/
+      else if (strcasecmp(mode, "NEGF") == 0) {
+        input_double("Sum.Eigentrans.k0.E0.S0", &EigenChannel1, (double)0.0);
+        input_double("Max.Currentdensity", &AveCurrent1, (double)0.0);
+      }
+      /*E MitsuakiKAWAMURA*/
 
       input_int("Num.Grid1.",&NGrid1_1,(int)0);
       input_int("Num.Grid2.",&NGrid1_2,(int)0);
@@ -291,6 +304,12 @@ void Runtest(char *mode, int argc, char *argv[])
         input_double("Sum.of.Spreads.",&Spread2,(double)0.0);
         input_double("Total.Omega.=",&Omega2,(double)0.0);
       }
+      /*S MitsuakiKAWAMURA*/
+      else if (strcasecmp(mode, "NEGF") == 0) {
+        input_double("Sum.Eigentrans.k0.E0.S0", &EigenChannel2, (double)0.0);
+        input_double("Max.Currentdensity", &AveCurrent2, (double)0.0);
+      }
+      /*E MitsuakiKAWAMURA*/
 
       /* grids */
 
@@ -342,6 +361,15 @@ void Runtest(char *mode, int argc, char *argv[])
 	  fprintf(fp2,"%4d  %-32.30s Elapsed time(s)=%8.2f  diff spread=%15.12f  diff Omega=%15.12f\n",
 		  i+1,fname_dat,time1,fabs(Spread1-Spread2),fabs(Omega1-Omega2));
 	}
+        /*S MitsuakiKAWAMURA*/
+        else if(strcasecmp(mode, "NEGF") == 0){
+
+          fprintf(fp2, "%4d  %-32.30s Elapsed time(s)=%8.2f  diff Utot=%15.12f  diff Force=%15.12f\n",
+            i + 1, fname_dat, time1, dU, dF);
+          fprintf(fp2, "                                       diff EigenChannel=%15.12f  diff CurrentDensity=%15.12f\n",
+            fabs(EigenChannel1 - EigenChannel2), fabs(AveCurrent1 - AveCurrent2));
+        }
+        /*E MitsuakiKAWAMURA*/
         else{
 
 	  fprintf(fp2,"%4d  %-32.30s Elapsed time(s)=%8.2f  diff Utot=%15.12f  diff Force=%15.12f\n",
@@ -467,7 +495,7 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
     }
 
     CompTime[myid0][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
-    if (myid0==Host_ID) iterout(MD_iter,MD_TimeStep*MD_iter,fileE,fileDRC);
+    if (myid0==Host_ID) iterout(MD_iter,MD_TimeStep*MD_iter,filepath,filename);
 
     if (ML_flag==0) CompTime[myid0][4] += MD_pac(MD_iter,argv[1]);
 
@@ -502,6 +530,31 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
 
     Generate_Wannier(argv[1]);
   }
+
+  /*S MitsuakiKAWAMURA*/
+  /*********************************************************
+  Electronic transport calculations based on NEGF:
+  transmission, current, eigen channel analysis, and
+  real space analysis of current
+  *********************************************************/
+
+  if (Solver == 4 && TRAN_analysis == 1) {
+
+    /* if SCF is skipped, calculate values of basis functions on each grid */
+    if (TRAN_SCF_skip == 1) i = Set_Orbitals_Grid(0);
+
+    if (SpinP_switch == 3) {
+      TRAN_Main_Analysis_NC(mpi_comm_level1, argc, argv, Matomnum, M2G,
+        GridN_Atom, GridListAtom, CellListAtom,
+        Orbs_Grid, TNumGrid);
+    }
+    else {
+      TRAN_Main_Analysis(mpi_comm_level1, argc, argv, Matomnum, M2G,
+        GridN_Atom, GridListAtom, CellListAtom,
+        Orbs_Grid, TNumGrid);
+    }
+  }
+  /*E MitsuakiKAWAMURA*/
 
   /****************************************************
                   Making of output files
@@ -558,6 +611,7 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
     MPI_Comm_create(MPI_COMM_WORLD1,new_group,&mpi_comm_level1);
 
     MPI_Group_free(&new_group);
+
     free(new_ranks); /* never forget cleaning! */
   }
 

@@ -482,12 +482,6 @@ double TRAN_DFT(
     Eele1[0] = 0.0;
     Eele1[1] = 0.0;
 
-    /*
-    printf("ABC3 numprocs0=%2d myid0=%2d\n",numprocs0,myid0);   
-    MPI_Finalize();
-    exit(0);
-    */
-
     /***********************************************
        freeing of arrays
     ***********************************************/
@@ -1230,10 +1224,8 @@ static void TRAN_DFT_Kdependent(
   int *MP;
   int  iw,iw_method;
   dcomplex w, w_weight;
-  dcomplex *GC_Ad;
   dcomplex *GC,*GRL,*GRR;
   dcomplex *SigmaL, *SigmaR; 
-  dcomplex *SigmaL_Ad, *SigmaR_Ad; 
   dcomplex *work1,*work2,*Gless;
   dcomplex **v2;
   double dum;
@@ -1302,16 +1294,12 @@ static void TRAN_DFT_Kdependent(
   }
   
   GC = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-  GC_Ad = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
 
   GRL = (dcomplex*)malloc(sizeof(dcomplex)*NUM_e[0]* NUM_e[0]);
   GRR = (dcomplex*)malloc(sizeof(dcomplex)*NUM_e[1]* NUM_e[1]);
 
   SigmaL = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
   SigmaR = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-
-  SigmaL_Ad = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-  SigmaR_Ad = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
 
   work1 = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
   work2 = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
@@ -1374,71 +1362,15 @@ static void TRAN_DFT_Kdependent(
         using the lesser Green's function.
     ***********************************************/
 
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && iw_method==2){
-
-      for (i=0; i<NUM_c*NUM_c; i++) {
-
-	SigmaL_Ad[i].r = SigmaL[i].r;
-	SigmaL_Ad[i].i =-SigmaL[i].i;
-
-	SigmaR_Ad[i].r = SigmaR[i].r;
-	SigmaR_Ad[i].i =-SigmaR[i].i;
-
-	GC_Ad[i].r = GC[i].r;  
-	GC_Ad[i].i =-GC[i].i;  
-      }    
-
-      TRAN_Calc_CentGreenLesser( w, ChemP_e, NUM_c, 
-				 Order_Lead_Side,  
-				 SigmaL, SigmaL_Ad, 
-				 SigmaR, SigmaR_Ad, 
-				 GC, GC_Ad,        
-				 HCC[k], SCC,
-				 work1, work2, Gless);
-    }
-
-    /* in case of TRAN_Kspace_grid2!=1 || TRAN_Kspace_grid3!=1 */ 
-    /* calculation of advanced Green's function */ 
-         
-    else if (iw_method==2){
-
-      /* conjugate complex */
-      w.i = -w.i;
-
-      /* calculation of surface Green's function and self energy from the LEFT lead */
-
-      iside = 0;
-
-      TRAN_Calc_SurfGreen_direct(w, NUM_e[iside], H00_e[iside][k], H01_e[iside][k],
-				 S00_e[iside], S01_e[iside], tran_surfgreen_iteration_max,
-				 tran_surfgreen_eps, GRL);
-
-      TRAN_Calc_SelfEnergy(w, NUM_e[iside], GRL, NUM_c, HCL[k], SCL, SigmaL_Ad);
-
-      /* calculation of surface Green's function and self energy from the RIGHT lead */
-
-      iside = 1;
-
-      TRAN_Calc_SurfGreen_direct(w, NUM_e[iside], H00_e[iside][k], H01_e[iside][k],
-				 S00_e[iside], S01_e[iside], tran_surfgreen_iteration_max,
-				 tran_surfgreen_eps, GRR);
-
-      TRAN_Calc_SelfEnergy(w, NUM_e[iside], GRR, NUM_c, HCR[k], SCR, SigmaR_Ad);
-
-      /* calculation of central advanced Green's function */
-
-      TRAN_Calc_CentGreen(w, NUM_c, SigmaL_Ad, SigmaR_Ad, HCC[k], SCC, GC_Ad);
-
-      /* conjugate complex */
-      w.i = -w.i;
+    if (iw_method==2){
 
       /* calculation of central lesser Green's function */
 
       TRAN_Calc_CentGreenLesser( w, ChemP_e, NUM_c, 
 				 Order_Lead_Side, 
-				 SigmaL, SigmaL_Ad, 
-				 SigmaR, SigmaR_Ad, 
-				 GC, GC_Ad, 
+				 SigmaL,
+				 SigmaR,
+				 GC, 
 				 HCC[k], SCC,
 				 work1, work2, Gless);
     }
@@ -1447,7 +1379,9 @@ static void TRAN_DFT_Kdependent(
             add it to construct the density matrix
     ***********************************************/
 
-    if (iw_method==1)
+    if      (iw_method==0)
+      TRAN_Add_MAT( 0, NUM_c, w_weight, GC,     v2[k]);
+    else if (iw_method==1)
       TRAN_Add_MAT( 1, NUM_c, w_weight, GC,     v2[k]);
     else if (iw_method==2)
       TRAN_Add_MAT( 1, NUM_c, w_weight, Gless,  v2[k]);
@@ -1592,19 +1526,15 @@ static void TRAN_DFT_Kdependent(
     printf("TRAN_DFT(%d)> calculaiton (%le)\n",myid, time_a1-time_a0 ); 
   }
 
-
   /* free arrays */
 
   free(Gless);
   free(work2);
   free(work1);
-  free(SigmaL_Ad);
-  free(SigmaR_Ad);
   free(SigmaR);
   free(SigmaL);
   free(GRR);
   free(GRL);
-  free(GC_Ad);
   free(GC);
 
   for (k=0; k<=SpinP_switch; k++) {
@@ -1624,23 +1554,38 @@ static void TRAN_Add_MAT(
     dcomplex *v,
     dcomplex *out
 )
+
+#define v_ref(i,j)        v[NUM_c*(j)+(i)]
+#define out_ref(i,j)      out[NUM_c*(j)+(i)]
+
 {
-  int i;
-  double dum; 
+  int i,j;
+  double re,im;
 
   switch (mode) {
+
   case 0:
-    for (i=0; i<NUM_c*NUM_c; i++) {
-      out[i].r =  0.0;
-      out[i].i =  0.0;
+
+    for (i=0; i<NUM_c; i++) {
+      for (j=0; j<NUM_c; j++) {
+        re = v_ref(i,j).r + v_ref(j,i).r; 
+        im = v_ref(i,j).i - v_ref(j,i).i; 
+        out_ref(i,j).r += re*w_weight.r - im*w_weight.i;
+        out_ref(i,j).i += re*w_weight.i + im*w_weight.r;
+      }
     }
+
     break;
+
   case 1:
+
     for (i=0; i<NUM_c*NUM_c; i++) {
       out[i].r += ( v[i].r*w_weight.r - v[i].i*w_weight.i );
       out[i].i += ( v[i].r*w_weight.i + v[i].i*w_weight.r );
     }
+
     break;
+
   }
 
 }

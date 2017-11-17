@@ -65,6 +65,10 @@ void Maketest(char *mode, int argc, char *argv[])
     dir = "geoopt_example";
     sprintf(namemode,"runtestG");
   }
+  else if (strcasecmp(mode,"C")==0){  
+    dir = "cellopt_example";
+    sprintf(namemode,"runtestC");
+  }
   else if (strcasecmp(mode,"WF")==0){  
     dir = "wf_example";
     sprintf(namemode,"runtestWF");

@@ -24,10 +24,19 @@
 
 #include <fftw3.h> 
 
-static void FFT2D_Poisson(double *ReRhor, double *ImRhor, 
+/*S MitsuakiKAWAMURA*/
+void FFT2D_Poisson(double *ReRhor, double *ImRhor, 
                           double *ReRhok, double *ImRhok);
-static void Inverse_FFT2D_Poisson(double *ReRhor, double *ImRhor, 
+/*E MitsuakiKAWAMURA*/
+static void Inverse_FFT2D_Poisson(double *ReRhor, double *ImRhor,
 				  double *ReRhok, double *ImRhok); 
+
+/* added by mari 09.12.2014 */
+static double TRAN_Poisson_FDG(double *ReRhok, double *ImRhok);
+static void FFT1D_Poisson(double *ReRhok, double *ImRhok,
+                          dcomplex ***VHart_Boundary_a,
+                          dcomplex **VHart_Boundary_b);
+static void Inverse_FFT1D_Poisson(double *ReRhok, double *ImRhok); 
 
 static double TRAN_Poisson_FD(double *ReRhok, double *ImRhok);
 static double TRAN_Poisson_FFT(double *ReRhok, double *ImRhok);
@@ -46,6 +55,11 @@ double TRAN_Poisson(double *ReRhok, double *ImRhok)
 
     case 2:
       time = TRAN_Poisson_FFT(ReRhok, ImRhok);
+    break;
+
+    /* added by mari 09.12.2014 */
+    case 3:
+      time = TRAN_Poisson_FDG(ReRhok, ImRhok);
     break;
   }
 
@@ -234,7 +248,8 @@ double TRAN_Poisson_FFT(double *ReRhok, double *ImRhok)
     k = GN - i*Ngrid2*Ngrid3 - j*Ngrid3; 
 
     cv = (double)i*length_gtv[1] + Grid_Origin[ip];
-    gateV = tran_gate_voltage*exp( -pow( (cv-cc)/a, 8.0) );
+    /* modified by mari 12.22.2014 */
+    gateV = tran_gate_voltage[0]*exp( -pow( (cv-cc)/a, 8.0) );
     dVHart_Grid_B[BN_AB] += gateV;
   }
 
@@ -391,7 +406,8 @@ double TRAN_Poisson_FD(double *ReRhok, double *ImRhok)
     k = GN - i*Ngrid2*Ngrid3 - j*Ngrid3; 
 
     cv = (double)i*length_gtv[1] + Grid_Origin[ip];
-    gateV = tran_gate_voltage*exp( -pow( (cv-cc)/a, 8.0) );
+    /* modified by mari 12.22.2014 */
+    gateV = tran_gate_voltage[0]*exp( -pow( (cv-cc)/a, 8.0) );
     dVHart_Grid_B[BN_AB] += gateV;
   }
 
@@ -1000,3 +1016,583 @@ void Get_Value_inReal2D(int complex_flag,
   free(ImTmpr);
 }
 
+
+/* beginning: added by mari 09.12.2014 */
+double TRAN_Poisson_FDG(double *ReRhok, double *ImRhok)
+{ 
+  int myid,numprocs;
+  int N2D,My_NumGridB_C,GN,GNs;
+  double *ReRhok_C,*ImRhok_C;
+  dcomplex *A,*B,***VHart_Boundary_a,**VHart_Boundary_b;
+  int *IPIV;
+  int i,k,k1,k2,k3,ku1,ku2,kl1,kl2;
+  double *array0,*array1;
+  int ID,IDS,IDR,tag=999,BN_AB,BN_C;
+  double da2,db2,sk3,Gx,Gy,Gz,Gpara2;
+  INTEGER n,nrhs,lda,ldb,info;
+  MPI_Status stat;
+  MPI_Request request;
+  double TStime,TEtime,etime;
+
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  if (myid==Host_ID) printf("<TRAN_Poisson_FDG>  Solving Poisson's equation...\n");
+
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TStime);
+
+  /****************************************************
+                  allocation of arrays
+  ****************************************************/
+
+
+  N2D = Ngrid1*Ngrid2;
+  My_NumGridB_C = (((myid+1)*Ngrid3+numprocs-1)/numprocs)*N2D 
+                - ((myid*Ngrid3+numprocs-1)/numprocs)*N2D;
+  ReRhok_C = (double*)malloc(sizeof(double)*My_NumGridB_C); 
+  ImRhok_C = (double*)malloc(sizeof(double)*My_NumGridB_C); 
+
+  A  = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid1*Ngrid2*Ngrid1*Ngrid2);
+  B  = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid1*Ngrid2);
+  IPIV  = (int*)malloc(sizeof(int)*Ngrid1*Ngrid2);
+
+  VHart_Boundary_G[0] = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid3);
+  VHart_Boundary_G[1] = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid3);
+
+  VHart_Boundary_a = (dcomplex***)malloc(sizeof(dcomplex)*2);
+  VHart_Boundary_a[0] = (dcomplex**)malloc(sizeof(dcomplex)*Ngrid2);
+  VHart_Boundary_a[1] = (dcomplex**)malloc(sizeof(dcomplex)*Ngrid2);
+  for (k2=0; k2<Ngrid2; k2++) {
+    VHart_Boundary_a[0][k2] = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid3);
+    VHart_Boundary_a[1][k2] = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid3);
+  } 
+  VHart_Boundary_b = (dcomplex**)malloc(sizeof(dcomplex)*2);
+  VHart_Boundary_b[0] = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid3);
+  VHart_Boundary_b[1] = (dcomplex*)malloc(sizeof(dcomplex)*Ngrid3);
+
+  for (k3=0; k3<Ngrid3; k3++) {
+    VHart_Boundary_G[0][k3].r=tran_gate_voltage[0];
+    VHart_Boundary_G[0][k3].i=0.0;
+    VHart_Boundary_G[1][k3].r=tran_gate_voltage[1];
+    VHart_Boundary_G[1][k3].i=0.0;
+  }
+
+  /****************************************************
+      FFT of Rho and VHart_Boundary along the c axis
+  ****************************************************/
+
+  etime = FFT1D_Density(0,ReRhok,ImRhok,VHart_Boundary_a,VHart_Boundary_b);
+
+/* AB to C (MPI) */
+
+  array0 = (double*)malloc(sizeof(double)*2*Max_Num_Snd_Grid_B_AB2C);
+  array1 = (double*)malloc(sizeof(double)*2*Max_Num_Rcv_Grid_B_AB2C);
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (ID!=0){
+
+      for (i=0; i<Num_Snd_Grid_B_AB2C[IDS]; i++){
+        BN_AB = Index_Snd_Grid_B_AB2C[IDS][i];
+        array0[2*i  ] = ReRhok[BN_AB];
+        array0[2*i+1] = ImRhok[BN_AB];
+      }
+
+      if (Num_Snd_Grid_B_AB2C[IDS]!=0){
+        MPI_Isend( &array0[0], Num_Snd_Grid_B_AB2C[IDS]*2,
+                   MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+      }
+
+      if (Num_Rcv_Grid_B_AB2C[IDR]!=0){
+        MPI_Recv( &array1[0], Num_Rcv_Grid_B_AB2C[IDR]*2,
+                  MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+      }
+
+      if (Num_Snd_Grid_B_AB2C[IDS]!=0) MPI_Wait(&request,&stat);
+
+      for (i=0; i<Num_Rcv_Grid_B_AB2C[IDR]; i++){
+        BN_C = Index_Rcv_Grid_B_AB2C[IDR][i];
+        ReRhok_C[BN_C] = array1[2*i  ];
+        ImRhok_C[BN_C] = array1[2*i+1];
+      }
+    }
+
+    else{
+      for (i=0; i<Num_Rcv_Grid_B_AB2C[IDR]; i++){
+        BN_AB = Index_Snd_Grid_B_AB2C[IDS][i];
+        BN_C = Index_Rcv_Grid_B_AB2C[IDR][i];
+        ReRhok_C[BN_C] = ReRhok[BN_AB];
+        ImRhok_C[BN_C] = ImRhok[BN_AB];
+      }
+    }
+  }
+
+  free(array0);
+  free(array1);
+
+  /****************************************************
+           solve finite difference equations
+  ****************************************************/
+
+  da2 = Dot_Product(gtv[1],gtv[1]);
+  db2 = Dot_Product(gtv[2],gtv[2]);
+  GNs = ((myid*Ngrid3+numprocs-1)/numprocs)*N2D;
+
+  for (BN_C=0; BN_C<My_NumGridB_C; BN_C+=N2D){
+
+    GN = BN_C + GNs;     
+    k3 = GN/N2D;    
+    
+    if (k3<Ngrid3/2) sk3 = (double)k3;
+    else             sk3 = (double)(k3 - Ngrid3);
+
+    Gx = sk3*rtv[3][1];
+    Gy = sk3*rtv[3][2]; 
+    Gz = sk3*rtv[3][3];
+    Gpara2 = Gx*Gx + Gy*Gy + Gz*Gz;
+
+    /* set A */
+
+    for (k=0; k<N2D; k++) {
+      for (i=0; i<N2D; i++) {
+        A[k*N2D+i].r=0.0;
+        A[k*N2D+i].i=0.0;
+      }
+    }
+    for (k=0; k<N2D; k++){
+      A[k*N2D+k].r = - 2.0/da2 - 2.0/db2 - Gpara2;
+      A[k*N2D+k].i = 0.0;
+    }
+    for (k2=0; k2<Ngrid2; k2++){
+      for (k1=0; k1<Ngrid1; k1++){
+        k = k1*Ngrid2 + k2;
+        ku1 = (k1+1)*Ngrid2 + k2;
+        kl1 = (k1-1)*Ngrid2 + k2;
+        ku2 = k1*Ngrid2 + k2+1;
+        kl2 = k1*Ngrid2 + k2-1;
+        if(k1!=0) A[k*N2D+kl1].r = 1.0/da2;
+        if(k1!=0) A[k*N2D+kl1].i = 0.0;
+        if(k1!=Ngrid1-1) A[k*N2D+ku1].r = 1.0/da2;
+        if(k1!=Ngrid1-1) A[k*N2D+ku1].i = 0.0;
+        if(k2!=0) A[k*N2D+kl2].r = 1.0/db2;
+        if(k2!=0) A[k*N2D+kl2].i = 0.0;
+        if(k2!=Ngrid2-1) A[k*N2D+ku2].r = 1.0/db2;
+        if(k2!=Ngrid2-1) A[k*N2D+ku2].i = 0.0;
+      }         
+    }         
+
+    /* scale terms with Gpara=0 */ 
+
+/*    if (k2==0 && k3==0){
+        for (k1=0; k1<Ngrid1; k1++){
+          ReRhok[BN_CB+k1] *= TRAN_Poisson_Gpara_Scaling;
+        }
+      } because default value = 1.0 */
+
+    /* set B */
+
+    for (k=0; k<N2D; k++){
+        B[k].r = -4.0*PI*ReRhok_C[BN_C+k];
+        B[k].i = -4.0*PI*ImRhok_C[BN_C+k];
+    }
+
+    /* add the boundary condition */
+
+    for (k2=0; k2<Ngrid2; k2++){
+      k = k2;
+      B[k].r -= VHart_Boundary_a[0][k2][k3].r/da2;
+      B[k].i -= VHart_Boundary_a[0][k2][k3].i/da2;
+      k = (Ngrid1-1)*Ngrid2 + k2;
+      B[k].r -= VHart_Boundary_a[1][k2][k3].r/da2;
+      B[k].i -= VHart_Boundary_a[1][k2][k3].i/da2;
+    }
+    for (k1=0; k1<Ngrid1; k1++){
+      k = k1*Ngrid2;
+      B[k].r -= VHart_Boundary_b[0][k3].r/db2;
+      B[k].i -= VHart_Boundary_b[0][k3].i/db2;
+      k = k1*Ngrid2 + Ngrid2-1;
+      B[k].r -= VHart_Boundary_b[1][k3].r/db2;
+      B[k].i -= VHart_Boundary_b[1][k3].i/db2;
+    }
+
+    /* solve the linear equation */
+
+    n = N2D;
+    nrhs = 1;
+    lda = n;
+    ldb = n;
+     
+    F77_NAME(zgesv,ZGESV)(&n, &nrhs, A, &lda, IPIV, B, &ldb, &info);
+
+    /* store B to ReRhor and ImRhor */
+    for (k=0; k<N2D; k++){
+      ReRhok_C[BN_C+k] = B[k].r;
+      ImRhok_C[BN_C+k] = B[k].i;
+    }
+
+  }
+
+/* C to AB (MPI) */
+
+  array0 = (double*)malloc(sizeof(double)*2*Max_Num_Rcv_Grid_B_AB2C);
+  array1 = (double*)malloc(sizeof(double)*2*Max_Num_Snd_Grid_B_AB2C);
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (ID!=0){
+
+      for (i=0; i<Num_Rcv_Grid_B_AB2C[IDS]; i++){
+        BN_C = Index_Rcv_Grid_B_AB2C[IDS][i];
+        array0[2*i  ] = ReRhok_C[BN_C];
+        array0[2*i+1] = ImRhok_C[BN_C];
+      }
+
+      if (Num_Rcv_Grid_B_AB2C[IDS]!=0){
+        MPI_Isend( &array0[0], Num_Rcv_Grid_B_AB2C[IDS]*2,
+                   MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+      }
+
+
+      if (Num_Snd_Grid_B_AB2C[IDR]!=0){
+        MPI_Recv( &array1[0], Num_Snd_Grid_B_AB2C[IDR]*2,
+                  MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+      }
+
+      if (Num_Rcv_Grid_B_AB2C[IDS]!=0)  MPI_Wait(&request,&stat);
+
+      for (i=0; i<Num_Snd_Grid_B_AB2C[IDR]; i++){
+        BN_AB = Index_Snd_Grid_B_AB2C[IDR][i];
+        ReRhok[BN_AB] = array1[2*i  ];
+        ImRhok[BN_AB] = array1[2*i+1];
+      }
+    }
+
+    else{
+      for (i=0; i<Num_Snd_Grid_B_AB2C[IDR]; i++){
+        BN_C = Index_Rcv_Grid_B_AB2C[IDS][i];
+        BN_AB = Index_Snd_Grid_B_AB2C[IDR][i];
+        ReRhok[BN_AB] = ReRhok_C[BN_C];
+        ImRhok[BN_AB] = ImRhok_C[BN_C];
+      }
+    }
+
+  }
+
+  free(array0);
+  free(array1);
+
+  /****************************************************
+         find the Hartree potential in real space
+  ****************************************************/
+
+  Get_Value_inReal1D(0,dVHart_Grid_B,NULL,ReRhok,ImRhok);
+ 
+  /****************************************************
+                    freeing of arrays
+  ****************************************************/
+
+  free(ReRhok_C);
+  free(ImRhok_C);
+  free(A);
+  free(B);
+  free(IPIV);
+  free(VHart_Boundary_G[0]);
+  free(VHart_Boundary_G[1]);
+  free(VHart_Boundary_b[0]);
+  free(VHart_Boundary_b[1]);
+  for (k2=0; k2<Ngrid2; k2++) {
+    free(VHart_Boundary_a[0][k2]);
+    free(VHart_Boundary_a[1][k2]);
+  }
+  free(VHart_Boundary_a[0]);
+  free(VHart_Boundary_a[1]);
+
+  /* for time */
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TEtime);
+  return (TEtime-TStime);
+}
+
+double FFT1D_Density(int den_flag, 
+                     double *ReRhok, double *ImRhok,
+                     dcomplex ***VHart_Boundary_a,
+                     dcomplex **VHart_Boundary_b)
+{
+  int BN_AB,k3;
+  int numprocs,myid;
+  double tmp0;
+  double TStime,TEtime,time0;
+
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  dtime(&TStime);
+
+  if (4<den_flag){
+    printf("invalid den_flag for FFT1D_Density\n");
+    MPI_Finalize();
+    exit(0);
+  }
+
+  /* set ReRhor and ImRhor */
+
+  switch (den_flag){
+
+    case 0:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhok[BN_AB] = Density_Grid_B[0][BN_AB] + Density_Grid_B[1][BN_AB]
+                       -2.0*ADensity_Grid_B[BN_AB]; 
+        ImRhok[BN_AB] = 0.0;
+      }
+
+    break;
+
+    case 1:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhok[BN_AB] = Density_Grid_B[0][BN_AB];
+        ImRhok[BN_AB] = 0.0;
+      }
+
+    break;
+
+    case 2:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhok[BN_AB] = Density_Grid_B[1][BN_AB];
+        ImRhok[BN_AB] = 0.0;
+      }
+
+    break;
+
+    case 3:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhok[BN_AB] = 2.0*ADensity_Grid_B[BN_AB];
+        ImRhok[BN_AB] = 0.0;
+      }
+
+    break;
+
+    case 4:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhok[BN_AB] = Density_Grid_B[2][BN_AB];
+        ImRhok[BN_AB] = Density_Grid_B[3][BN_AB];
+      }
+
+    break;
+  }
+  
+  /****************************************************
+                        FFT of Dens
+  ****************************************************/
+
+  FFT1D_Poisson(ReRhok, ImRhok, VHart_Boundary_a, VHart_Boundary_b);
+
+  tmp0 = 1.0/(double)(Ngrid3);
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+    ReRhok[BN_AB] *= tmp0;
+    ImRhok[BN_AB] *= tmp0;
+  }
+  for (k3=0; k3<Ngrid3; k3++){
+    VHart_Boundary_b[0][k3].r *= tmp0;
+    VHart_Boundary_b[0][k3].i *= tmp0;
+    VHart_Boundary_b[1][k3].r *= tmp0;
+    VHart_Boundary_b[1][k3].i *= tmp0;
+  }
+
+  /* for time */
+  dtime(&TEtime);
+  time0 = TEtime - TStime;
+  return time0;
+}
+
+void FFT1D_Poisson(double *ReRhok, double *ImRhok,
+                   dcomplex ***VHart_Boundary_a, 
+                   dcomplex **VHart_Boundary_b) 
+{
+  int i,k3,BN_AB;
+  fftw_complex *in, *out;
+  fftw_plan p;
+  
+  /****************************************************
+    allocation of arrays:
+  ****************************************************/
+
+  in  = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
+  out = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
+
+/*------------- FFT of Rhok along the C-axis -------------*/
+
+  p = fftw_plan_dft_1d(Ngrid3,in,out,-1,FFTW_ESTIMATE);
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB+=Ngrid3){
+
+    for (i=0; i<Ngrid3; i++){
+      in[i][0] = ReRhok[BN_AB+i];
+      in[i][1] = ImRhok[BN_AB+i];
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid3; i++){
+      ReRhok[BN_AB+i] = out[i][0];
+      ImRhok[BN_AB+i] = out[i][1];
+    }
+
+  }
+
+/*------- FFT of VHart_Boundary_G along the C-axis -------*/
+
+  for (i=0; i<Ngrid3; i++){
+    in[i][0] = VHart_Boundary_G[0][i].r;
+    in[i][1] = VHart_Boundary_G[0][i].i;
+  }
+
+  fftw_execute(p);
+
+  for (i=0; i<Ngrid3; i++){
+    VHart_Boundary_b[0][i].r = out[i][0];
+    VHart_Boundary_b[0][i].i = out[i][1];
+  }
+
+  for (i=0; i<Ngrid3; i++){
+    in[i][0] = VHart_Boundary_G[1][i].r;
+    in[i][1] = VHart_Boundary_G[1][i].i;
+  }
+
+  fftw_execute(p);
+
+  for (i=0; i<Ngrid3; i++){
+    VHart_Boundary_b[1][i].r = out[i][0];
+    VHart_Boundary_b[1][i].i = out[i][1];
+  }
+
+  fftw_destroy_plan(p);  
+
+/*---- Inverse FFT of VHart_Boundary along the B-axis ----*/
+
+  p = fftw_plan_dft_1d(Ngrid2,in,out,1,FFTW_ESTIMATE);
+
+  for (k3=0; k3<Ngrid3; k3+=1){
+
+    for (i=0; i<Ngrid2; i++){
+      in[i][0] = VHart_Boundary[0][Ngrid1_e[0]-1][i][k3].r;
+      in[i][1] = VHart_Boundary[0][Ngrid1_e[0]-1][i][k3].i;
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid2; i++){
+      VHart_Boundary_a[0][i][k3].r = out[i][0];
+      VHart_Boundary_a[0][i][k3].i = out[i][1];
+    }
+  }
+
+  for (k3=0; k3<Ngrid3; k3+=1){
+
+    for (i=0; i<Ngrid2; i++){
+      in[i][0] = VHart_Boundary[1][0][i][k3].r;
+      in[i][1] = VHart_Boundary[1][0][i][k3].i;
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid2; i++){
+      VHart_Boundary_a[1][i][k3].r = out[i][0];
+      VHart_Boundary_a[1][i][k3].i = out[i][1];
+    }
+  }
+
+  fftw_destroy_plan(p);  
+  fftw_cleanup();
+
+  /****************************************************
+    freeing of arrays:
+  ****************************************************/
+
+  fftw_free(in);
+  fftw_free(out);
+}
+
+void Inverse_FFT1D_Poisson(double *ReRhok, double *ImRhok) 
+{
+  int i,BN_AB;
+
+  fftw_complex *in, *out;
+  fftw_plan p;
+  
+  /****************************************************
+    allocation of arrays:
+  ****************************************************/
+
+  in  = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
+  out = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
+
+/*--------- Inverse FFT of Rhok along the C-axis ---------*/
+
+  p = fftw_plan_dft_1d(Ngrid3,in,out,1,FFTW_ESTIMATE);
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB+=Ngrid3){
+
+    for (i=0; i<Ngrid3; i++){
+      in[i][0] = ReRhok[BN_AB+i];
+      in[i][1] = ImRhok[BN_AB+i];
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid3; i++){
+      ReRhok[BN_AB+i] = out[i][0];
+      ImRhok[BN_AB+i] = out[i][1];
+    }
+  }
+
+  fftw_destroy_plan(p);  
+  fftw_cleanup();
+
+  /****************************************************
+    freeing of arrays:
+  ****************************************************/
+
+  fftw_free(in);
+  fftw_free(out);
+}
+
+void Get_Value_inReal1D(int complex_flag,
+                        double *ReVr, double *ImVr, 
+                        double *ReVk, double *ImVk)
+{
+  int BN_AB;
+
+  /* allocation of arrays */
+
+  /* call Inverse_FFT1D_Poisson */
+ 
+  Inverse_FFT1D_Poisson(ReVk, ImVk);
+  
+  if (complex_flag==0){
+
+    for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+      ReVr[BN_AB] = ReVk[BN_AB];
+    }  
+  }
+  else if (complex_flag==1){
+
+    for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+      ReVr[BN_AB] = ReVk[BN_AB];
+      ImVr[BN_AB] = ImVk[BN_AB];
+    }  
+  }
+
+}
+/* ending: added by mari 09.12.2014 */

@@ -26,7 +26,7 @@
 #include "mpi.h"
 
 
-#define Criterion_Max_Step            0.06
+#define Criterion_Max_Step            0.20
 
  
 static void NoMD(int iter);
@@ -45,11 +45,16 @@ static void Geometry_Opt_DIIS_BFGS(int iter);
 static void Geometry_Opt_DIIS_EF(int iter);
 static void Correct_Position_In_First_Cell();
 static void Geometry_Opt_RF(int iter);
+static void Estimate_Initial_Hessian(int diis_iter, int CellOpt_flag, double itv[4][4]);
 static void RF(int iter, int iter0);
+static void RFC5(int iter, int iter0, double dE_da[4][4], double itv[4][4]);
 static void EvsLC(int iter);
 static void Delta_Factor(int iter);
 static void Correct_Force();
 static int RestartFiles4GeoOpt(char *mode);
+static void Output_abc_file(int iter);
+static void Cell_Opt_SD(int iter, int SD_scaling_flag);
+static void Cell_Opt_RF(int iter);
 
 int SuccessReadingfiles;
 
@@ -61,6 +66,7 @@ double MD_pac(int iter, char *fname_input)
   double time0;
   double TStime,TEtime;
   int numprocs,myid;
+  int i,j,k;
 
   dtime(&TStime);
  
@@ -73,6 +79,8 @@ double MD_pac(int iter, char *fname_input)
     printf("             MD or geometry opt. at MD =%2d              \n",iter);
     printf("*******************************************************\n\n"); 
   }
+
+  if (myid==Host_ID && MD_OutABC==1) Output_abc_file(iter);
 
   /*********************************************** 
     read restart files for geometry optimization
@@ -105,22 +113,24 @@ double MD_pac(int iter, char *fname_input)
   /* Call a subroutine based on MD_switch */
 
   switch (MD_switch) {
-    case  0: NoMD(iter);                    break;
-    case  1: VerletXYZ(iter);               break;
-    case  2: NVT_VS(iter);                  break;  /* added by mari */
+    case  0: NoMD(iter+MD_Current_Iter);                    break;
+    case  1: VerletXYZ(iter+MD_Current_Iter);               break;
+    case  2: NVT_VS(iter+MD_Current_Iter);                  break;  /* added by mari */
     case  3: Steepest_Descent(iter+MD_Current_Iter,1);      break;
     case  4: Geometry_Opt_DIIS_EF(iter+MD_Current_Iter);    break;
     case  5: Geometry_Opt_DIIS_BFGS(iter+MD_Current_Iter);  break;
     case  6: Geometry_Opt_RF(iter+MD_Current_Iter);         break;  /* added by hmweng */
     case  7: Geometry_Opt_DIIS(iter+MD_Current_Iter);       break;
-    case  8:                                break;  /* not used */
-    case  9: NVT_NH(iter);                  break;
-    case 10:                                break;  /* not used */
-    case 11: NVT_VS2(iter);                 break;  /* added by Ohwaki */
-    case 12: EvsLC(iter);                   break;
-    case 14: NVT_VS4(iter);                 break;  /* added by Ohwaki */
-    case 15: NVT_Langevin(iter);            break;  /* added by Ohwaki */
-    case 16: Delta_Factor(iter);            break;  /* delta-factor */
+    case  8:                                                break;  /* not used */
+    case  9: NVT_NH(iter+MD_Current_Iter);                  break;
+    case 10:                                                break;  /* not used */
+    case 11: NVT_VS2(iter+MD_Current_Iter);                 break;  /* added by Ohwaki */
+    case 12: EvsLC(iter);                                   break;
+    case 14: NVT_VS4(iter+MD_Current_Iter);                 break;  /* added by Ohwaki */
+    case 15: NVT_Langevin(iter+MD_Current_Iter);            break;  /* added by Ohwaki */
+    case 16: Delta_Factor(iter);                            break;  /* delta-factor */
+    case 17: Cell_Opt_SD(iter+MD_Current_Iter,1);           break;
+    case 18: Cell_Opt_RF(iter+MD_Current_Iter);             break;
   }
 
   /***************************************************************
@@ -141,7 +151,7 @@ double MD_pac(int iter, char *fname_input)
 
   /* making of an input file with the final structure */
   if (Runtest_flag==0){
-    Make_InputFile_with_FinalCoord(fname_input,iter);
+    Make_InputFile_with_FinalCoord(fname_input,iter+MD_Current_Iter);
   }
 
   /*********************************************** 
@@ -155,7 +165,6 @@ double MD_pac(int iter, char *fname_input)
   if ( MD_switch==3 || MD_switch==4 || MD_switch==5 || MD_switch==6 || MD_switch==7 ){
     RestartFiles4GeoOpt("write");
   }
-
 
   MPI_Bcast(&MD_Opt_OK, 1, MPI_INT, Host_ID, MPI_COMM_WORLD1);
 
@@ -224,7 +233,7 @@ void NoMD(int iter)
 
   if (myid==Host_ID){  
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
 }
@@ -559,7 +568,7 @@ void VerletXYZ(int iter)
 
     if (myid==Host_ID){  
       sprintf(fileE,"%s%s.ene",filepath,filename);
-      iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+      iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
 
     /****************************************************
@@ -637,7 +646,7 @@ void VerletXYZ(int iter)
     if (myid==Host_ID){  
 
       sprintf(fileE,"%s%s.ene",filepath,filename);
-      iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+      iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     } 
 
     /****************************************************
@@ -756,13 +765,13 @@ void Steepest_Descent(int iter, int SD_scaling_flag)
 
   dt = 41.3411*2.0;
   SD_init = dt*dt/Wscale;
-  SD_max = SD_init*10.0;   /* default 10   */
+  SD_max = SD_init*15.0;   /* default 15   */
   SD_min = SD_init*0.04;   /* default 0.02 */
   Atom_W = 12.0;
 
   if (iter==1 || SD_scaling_flag==0){
 
-    SD_scaling_user = Max_Force/BohrR/2.0;
+    SD_scaling_user = Max_Force/BohrR/1.5;
     SD_scaling = SD_scaling_user/(Max_Force+1.0e-10);
 
     if (SD_max<SD_scaling) SD_scaling = SD_max;
@@ -797,7 +806,7 @@ void Steepest_Descent(int iter, int SD_scaling_flag)
   if (myid==Host_ID){  
 
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   /****************************************************
@@ -931,6 +940,911 @@ void Steepest_Descent(int iter, int SD_scaling_flag)
     if ((fp = fopen(file_name,"wb")) != NULL){
 
       fwrite(&Correct_Position_flag, sizeof(int), 1, fp);
+      fwrite(&SD_scaling,      sizeof(double), 1, fp);
+      fwrite(&SD_scaling_user, sizeof(double), 1, fp);
+      fwrite(&Past_Utot,       sizeof(double), 10, fp);
+
+      fclose(fp);
+    }    
+    else{
+      printf("Failure of saving %s\n",file_name);
+    }
+  }
+
+}
+
+
+
+void Cell_Opt_SD(int iter, int SD_scaling_flag)
+{
+  /* 1au=2.4189*10^-2 fs, 1fs=41.341105 au */
+
+  int i,j,k;
+  double itv[4][4],dE_da[4][4];
+  double sum,detA,Max_Gradient;
+  double My_Max_Force,Max_Force;
+
+  int l,Mc_AN,Gc_AN;
+  double dt,SD_max,SD_min,SD_init,Atom_W,tmp0,scale;
+  double Wscale;
+  char fileCoord[YOUSO10];
+  char fileSD[YOUSO10];
+  FILE *fp_crd,*fp_SD;
+  int numprocs,myid,ID;
+  double tmp1,MaxStep;
+  char buf[fp_bsize];          /* setvbuf */
+  char fileE[YOUSO10];
+  char file_name[YOUSO10];
+  FILE *fp;
+
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+  MPI_Barrier(mpi_comm_level1);
+
+  MD_Opt_OK = 0;
+  Wscale = unified_atomic_mass_unit/electron_mass;
+
+  /******************************************
+              read *.rst4gopt.SD1
+  ******************************************/
+
+  if (SuccessReadingfiles){
+
+    sprintf(file_name,"%s%s_rst/%s.rst4gopt.SD1",filepath,filename,filename);
+
+    if ((fp = fopen(file_name,"rb")) != NULL){
+
+      fread(&Correct_Position_flag, sizeof(int), 1, fp);
+      fread(&SD_scaling,      sizeof(double), 1, fp);
+      fread(&SD_scaling_user, sizeof(double), 1, fp);
+      fread(&Past_Utot,       sizeof(double), 10, fp);
+
+      fclose(fp);
+    }    
+    else{
+      printf("Failure of saving %s\n",file_name);
+    }
+  }
+
+  /****************************************************
+     calculate the inverse of a matrix consisiting 
+     of the cell vectors   
+  ****************************************************/
+
+  detA = tv[1][1]*tv[2][2]*tv[3][3]+tv[2][1]*tv[3][2]*tv[1][3]+tv[3][1]*tv[1][2]*tv[2][3]
+        -tv[1][1]*tv[3][2]*tv[2][3]-tv[3][1]*tv[2][2]*tv[1][3]-tv[2][1]*tv[1][2]*tv[3][3];
+
+  itv[1][1] = (tv[2][2]*tv[3][3] - tv[2][3]*tv[3][2])/detA; 
+  itv[1][2] = (tv[1][3]*tv[3][2] - tv[1][2]*tv[3][3])/detA;
+  itv[1][3] = (tv[1][2]*tv[2][3] - tv[1][3]*tv[2][2])/detA;
+
+  itv[2][1] = (tv[2][3]*tv[3][1] - tv[2][1]*tv[3][3])/detA; 
+  itv[2][2] = (tv[1][1]*tv[3][3] - tv[1][3]*tv[3][1])/detA;
+  itv[2][3] = (tv[1][3]*tv[2][1] - tv[1][1]*tv[2][3])/detA;
+
+  itv[3][1] = (tv[2][1]*tv[3][2] - tv[2][2]*tv[3][1])/detA; 
+  itv[3][2] = (tv[1][2]*tv[3][1] - tv[1][1]*tv[3][2])/detA;
+  itv[3][3] = (tv[1][1]*tv[2][2] - tv[1][2]*tv[2][1])/detA;
+
+  for (i=1; i<=3; i++){
+    for (j=1; j<=3; j++){
+
+      sum = 0.0;
+      for (k=1; k<=3; k++){
+        sum += itv[k][i]*Stress_Tensor[3*(k-1)+(j-1)];
+      }
+
+      dE_da[i][j] = sum;
+    }
+  }
+
+  /****************************************************
+          find the maximum gradient dE/daij
+  ****************************************************/
+
+  Max_Gradient = 0.0;
+
+  /* no constraint for cell vectors */
+  /* while keeping the fractional coordinates */
+
+  if (cellopt_swtich==1){
+
+    for (i=1; i<=3; i++){
+      for (j=1; j<=3; j++){
+
+	if (Max_Gradient<fabs(dE_da[i][j] && Cell_Fixed_XYZ[i][j]==0)){
+	  Max_Gradient = fabs(dE_da[i][j]); 
+	}
+      }
+    }
+  }
+
+  /* angles fixed for cell vectors */
+  /* while keeping the fractional coordinates */
+
+  else if (cellopt_swtich==2){
+
+    for (i=1; i<=3; i++){
+
+      if (   Cell_Fixed_XYZ[i][1]==0
+          && Cell_Fixed_XYZ[i][2]==0 
+	  && Cell_Fixed_XYZ[i][3]==0 ){ 
+
+	sum = 0.0;
+	for (j=1; j<=3; j++){
+	  sum += tv[i][j]*dE_da[i][j]; 
+	}
+
+        sum = sum/sqrt(tv[i][1]*tv[i][1]+tv[i][2]*tv[i][2]+tv[i][3]*tv[i][3]);
+
+        if (Max_Gradient<fabs(sum)) Max_Gradient = fabs(sum);
+
+      }
+    }
+  }
+
+  /* angles fixed and |a1|=|a2|=|a3| for cell vectors */
+  /* while keeping the fractional coordinates */
+
+  else if (cellopt_swtich==3){
+
+    for (i=1; i<=3; i++){
+
+      sum = 0.0;
+      for (j=1; j<=3; j++){
+	sum += tv[i][j]*dE_da[i][j]; 
+      }
+
+      sum = sum/sqrt(tv[i][1]*tv[i][1]+tv[i][2]*tv[i][2]+tv[i][3]*tv[i][3]);
+
+      if (Max_Gradient<fabs(sum)) Max_Gradient = fabs(sum);
+    }
+  }
+
+  /* angles fixed and |a1|=|a2|!=|a3| for cell vectors */
+  /* while keeping the fractional coordinates */
+
+  else if (cellopt_swtich==4){
+
+    for (i=1; i<=3; i++){
+
+      sum = 0.0;
+      for (j=1; j<=3; j++){
+	sum += tv[i][j]*dE_da[i][j]; 
+      }
+
+      sum = sum/sqrt(tv[i][1]*tv[i][1]+tv[i][2]*tv[i][2]+tv[i][3]*tv[i][3]);
+
+      if (Max_Gradient<fabs(sum)) Max_Gradient = fabs(sum);
+    }
+  }
+
+  /* no constraint for cell and coordinates */
+
+  else if (cellopt_swtich==5){
+
+    for (i=1; i<=3; i++){
+      for (j=1; j<=3; j++){
+
+	if (Max_Gradient<fabs(dE_da[i][j] && Cell_Fixed_XYZ[i][j]==0)){
+	  Max_Gradient = fabs(dE_da[i][j]); 
+	}
+      }
+    }
+
+    My_Max_Force = 0.0;
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+      Gc_AN = M2G[Mc_AN];
+
+      tmp0 = 0.0;
+      for (j=1; j<=3; j++){
+	if (atom_Fixed_XYZ[Gc_AN][j]==0){
+	  tmp0 += Gxyz[Gc_AN][16+j]*Gxyz[Gc_AN][16+j];
+	}
+      }
+      tmp0 = sqrt(tmp0); 
+      if (My_Max_Force<tmp0) My_Max_Force = tmp0;
+    }
+
+    MPI_Allreduce(&My_Max_Force, &Max_Force, 1, MPI_DOUBLE, MPI_MAX, mpi_comm_level1);
+
+    if (Max_Gradient<Max_Force) Max_Gradient = Max_Force;
+  }
+
+  /****************************************************
+   MD_Opt_OK
+  ****************************************************/
+
+  if (Max_Gradient<MD_Opt_criterion) MD_Opt_OK = 1;
+
+  /****************************************************
+   set up SD_scaling
+  ****************************************************/
+
+  dt = 41.3411*2.0;
+  SD_init = dt*dt/Wscale;
+  SD_max = SD_init*15.0;   /* default 15   */
+  SD_min = SD_init*0.04;   /* default 0.02 */
+  Atom_W = 12.0;
+
+  if (iter==1 || SD_scaling_flag==0){
+
+    SD_scaling_user = Max_Gradient/BohrR/1.5;
+    SD_scaling = SD_scaling_user/(Max_Gradient+1.0e-10);
+
+    if (SD_max<SD_scaling) SD_scaling = SD_max;
+    if (SD_scaling<SD_min) SD_scaling = SD_min;
+  }
+
+  else{
+
+    if (Past_Utot[1]<Utot && iter%3==1){ 
+      SD_scaling = SD_scaling/5.0;
+    }
+    else if (Past_Utot[1]<Past_Utot[2] && Utot<Past_Utot[1] && iter%4==1){
+      SD_scaling = SD_scaling*2.5;
+    }
+
+    if (SD_max<SD_scaling) SD_scaling = SD_max;
+    if (SD_scaling<SD_min) SD_scaling = SD_min;
+
+    Past_Utot[5] = Past_Utot[4];
+    Past_Utot[4] = Past_Utot[3];
+    Past_Utot[3] = Past_Utot[2];
+    Past_Utot[2] = Past_Utot[1];
+    Past_Utot[1] = Utot;
+  }
+  
+  if (myid==Host_ID && 0<level_stdout) printf("<Steepest_Descent>  SD_scaling=%15.12f\n",SD_scaling);
+
+  /****************************************************
+   write informatins to *.ene
+  ****************************************************/
+
+  if (myid==Host_ID){  
+
+    sprintf(fileE,"%s%s.ene",filepath,filename);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
+  }
+
+  /****************************************************
+    update lattice vectors and cartesian coordinates
+  ****************************************************/
+
+  if (MD_Opt_OK!=1 && iter!=MD_IterNumber){
+
+    /* avoid too large movement */
+    if ( Criterion_Max_Step<(Max_Gradient*SD_scaling) )
+      scale = Criterion_Max_Step/(Max_Gradient*SD_scaling);
+    else 
+      scale = 1.0; 
+
+    /***************************************************
+                    update lattice vectors
+    ***************************************************/
+    
+    /* no constraint for cell vectors */
+    /* while keeping the fractional coordinates */
+
+    if (cellopt_swtich==1){
+    
+      for (i=1; i<=3; i++){
+	for (j=1; j<=3; j++){
+	  if (Cell_Fixed_XYZ[i][j]==0){
+	    tv[i][j] = tv[i][j] - scale*SD_scaling*dE_da[i][j];
+	  }
+	}
+      }
+    }
+
+    /* angles fixed for cell vectors */
+    /* while keeping the fractional coordinates */
+
+    else if (cellopt_swtich==2){
+
+      for (i=1; i<=3; i++){
+
+        if (   Cell_Fixed_XYZ[i][1]==0
+            && Cell_Fixed_XYZ[i][2]==0 
+            && Cell_Fixed_XYZ[i][3]==0 ){ 
+
+	  sum = 0.0;
+	  for (j=1; j<=3; j++){
+            sum += tv[i][j]*dE_da[i][j]; 
+	  }
+
+          sum = sum/sqrt(tv[i][1]*tv[i][1]+tv[i][2]*tv[i][2]+tv[i][3]*tv[i][3]);
+
+          tv[i][1] = tv[i][1] - scale*SD_scaling*sum*tv[i][1];
+          tv[i][2] = tv[i][2] - scale*SD_scaling*sum*tv[i][2];
+          tv[i][3] = tv[i][3] - scale*SD_scaling*sum*tv[i][3];
+	}
+      }
+    }
+
+    /* angles fixed and |a1|=|a2|=|a3| for cell vectors */
+    /* while keeping the fractional coordinates */
+
+    else if (cellopt_swtich==3){
+
+      double length_a[4],av_a;
+
+      for (i=1; i<=3; i++){
+
+        sum = 0.0;  
+	for (j=1; j<=3; j++){
+	  sum += tv[i][j]*dE_da[i][j]; 
+	}
+	sum = sum/sqrt(tv[i][1]*tv[i][1]+tv[i][2]*tv[i][2]+tv[i][3]*tv[i][3]);
+
+        tv[i][1] = tv[i][1] - scale*SD_scaling*sum*tv[i][1];
+        tv[i][2] = tv[i][2] - scale*SD_scaling*sum*tv[i][2];
+        tv[i][3] = tv[i][3] - scale*SD_scaling*sum*tv[i][3];
+      }
+
+      for (i=1; i<=3; i++){
+        length_a[i] = 0.0;  
+	for (j=1; j<=3; j++){
+	  length_a[i] += tv[i][j]*tv[i][j];
+	}
+        length_a[i] = sqrt(length_a[i]);
+      }
+
+      av_a = (length_a[1]+length_a[2]+length_a[3])/3.0;      
+
+      for (i=1; i<=3; i++){
+	for (j=1; j<=3; j++){
+          tv[i][j] = tv[i][j]/length_a[i]*av_a;
+	}
+      }
+    }
+
+    /* angles fixed and |a1|=|a2|!=|a3| for cell vectors */
+    /* while keeping the fractional coordinates */
+
+    else if (cellopt_swtich==4){
+
+      double length_a[4],av_a;
+
+      for (i=1; i<=3; i++){
+
+        sum = 0.0;  
+	for (j=1; j<=3; j++){
+	  sum += tv[i][j]*dE_da[i][j]; 
+	}
+	sum = sum/sqrt(tv[i][1]*tv[i][1]+tv[i][2]*tv[i][2]+tv[i][3]*tv[i][3]);
+
+        tv[i][1] = tv[i][1] - scale*SD_scaling*sum*tv[i][1];
+        tv[i][2] = tv[i][2] - scale*SD_scaling*sum*tv[i][2];
+        tv[i][3] = tv[i][3] - scale*SD_scaling*sum*tv[i][3];
+      }
+
+      for (i=1; i<=3; i++){
+        length_a[i] = 0.0;  
+	for (j=1; j<=3; j++){
+	  length_a[i] += tv[i][j]*tv[i][j];
+	}
+        length_a[i] = sqrt(length_a[i]);
+      }
+
+      av_a = (length_a[1]+length_a[2])/2.0;      
+
+      for (i=1; i<=2; i++){
+	for (j=1; j<=3; j++){
+          tv[i][j] = tv[i][j]/length_a[i]*av_a;
+	}
+      }
+    }
+
+    /* no constraint for cell and coordinates */
+
+    else if (cellopt_swtich==5){
+
+      /* calculate dE_dq */
+
+      for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+       for (i=1; i<=3; i++){
+          sum = 0.0;
+          for (j=1; j<=3; j++){
+            sum += Gxyz[Gc_AN][16+j]*tv[i][j];
+	  }
+          Gxyz[Gc_AN][13+i] = sum;
+	}
+      }
+
+      /* update tv */
+
+      for (i=1; i<=3; i++){
+	for (j=1; j<=3; j++){
+	  if (Cell_Fixed_XYZ[i][j]==0){
+	    tv[i][j] = tv[i][j] - scale*SD_scaling*dE_da[i][j];
+	  }
+	}
+      }
+    }
+
+    /***************************************************
+                update cartesian coordinates
+    ***************************************************/
+
+    /* update coordinates while keeping the fractional coordinates */
+
+    if (  cellopt_swtich==1 
+       || cellopt_swtich==2
+       || cellopt_swtich==3
+       || cellopt_swtich==4
+       ){
+
+      for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+	Gxyz[Gc_AN][1] = Cell_Gxyz[Gc_AN][1]*tv[1][1]
+                       + Cell_Gxyz[Gc_AN][2]*tv[2][1]
+                       + Cell_Gxyz[Gc_AN][3]*tv[3][1] + Grid_Origin[1];
+
+	Gxyz[Gc_AN][2] = Cell_Gxyz[Gc_AN][1]*tv[1][2]
+                       + Cell_Gxyz[Gc_AN][2]*tv[2][2]
+                       + Cell_Gxyz[Gc_AN][3]*tv[3][2] + Grid_Origin[2];
+
+	Gxyz[Gc_AN][3] = Cell_Gxyz[Gc_AN][1]*tv[1][3]
+                       + Cell_Gxyz[Gc_AN][2]*tv[2][3]
+                       + Cell_Gxyz[Gc_AN][3]*tv[3][3] + Grid_Origin[3];
+      }
+    }
+
+    /* no constraint for cell and coordinates */
+
+    else if (cellopt_swtich==5){
+
+
+      for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+	if (1){
+
+	  Gxyz[Gc_AN][1] = Cell_Gxyz[Gc_AN][1]*tv[1][1]
+                         + Cell_Gxyz[Gc_AN][2]*tv[2][1]
+                         + Cell_Gxyz[Gc_AN][3]*tv[3][1] + Grid_Origin[1];
+
+	  Gxyz[Gc_AN][2] = Cell_Gxyz[Gc_AN][1]*tv[1][2]
+                         + Cell_Gxyz[Gc_AN][2]*tv[2][2]
+                         + Cell_Gxyz[Gc_AN][3]*tv[3][2] + Grid_Origin[2];
+
+	  Gxyz[Gc_AN][3] = Cell_Gxyz[Gc_AN][1]*tv[1][3]
+                         + Cell_Gxyz[Gc_AN][2]*tv[2][3]
+                         + Cell_Gxyz[Gc_AN][3]*tv[3][3] + Grid_Origin[3];
+
+	  for (j=1; j<=3; j++){
+	    if (atom_Fixed_XYZ[Gc_AN][j]==0){
+	      Gxyz[Gc_AN][j] = Gxyz[Gc_AN][j] - 0.5*scale*SD_scaling*Gxyz[Gc_AN][16+j];
+	    }
+	  }
+
+	}
+
+	else {
+
+	  /* update Cell_Gxyz */
+
+	  double len[4];
+
+	  len[1] = sqrt( Dot_Product(tv[1], tv[1]) ); 
+	  len[2] = sqrt( Dot_Product(tv[2], tv[2]) ); 
+	  len[3] = sqrt( Dot_Product(tv[3], tv[3]) ); 
+
+	  for (j=1; j<=3; j++){
+	    if (atom_Fixed_XYZ[Gc_AN][j]==0){
+	      Cell_Gxyz[Gc_AN][j] = Cell_Gxyz[Gc_AN][j] - 0.01*scale*SD_scaling*Gxyz[Gc_AN][13+j]/len[j];
+	    }
+	  }
+
+	  /* update Gxyz */
+
+	  Gxyz[Gc_AN][1] = Cell_Gxyz[Gc_AN][1]*tv[1][1]
+                         + Cell_Gxyz[Gc_AN][2]*tv[2][1]
+                         + Cell_Gxyz[Gc_AN][3]*tv[3][1] + Grid_Origin[1];
+
+	  Gxyz[Gc_AN][2] = Cell_Gxyz[Gc_AN][1]*tv[1][2]
+                         + Cell_Gxyz[Gc_AN][2]*tv[2][2]
+                         + Cell_Gxyz[Gc_AN][3]*tv[3][2] + Grid_Origin[2];
+
+	  Gxyz[Gc_AN][3] = Cell_Gxyz[Gc_AN][1]*tv[1][3]
+                          + Cell_Gxyz[Gc_AN][2]*tv[2][3]
+                          + Cell_Gxyz[Gc_AN][3]*tv[3][3] + Grid_Origin[3];
+	}
+
+
+      }
+    }
+
+  }
+
+  /****************************************************
+                show and save information
+  ****************************************************/
+
+  if (myid==Host_ID){ 
+
+    if (0<level_stdout){ 
+
+      printf("<Steepest_Descent>  |Maximum dE/da| (Hartree/Bohr) =%15.12f\n",
+             Max_Gradient);
+      printf("<Steepest_Descent>  Criterion       (Hartree/Bohr) =%15.12f\n",
+	     MD_Opt_criterion);
+
+      printf("\n");
+      printf(" Cell vectors and derivatives of total energy with respect to them\n");
+
+      printf(" a1(Ang.) =%10.5f %10.5f %10.5f   dE/da1(a.u.) =%10.5f %10.5f %10.5f\n",
+             tv[1][1]*BohrR,tv[1][2]*BohrR,tv[1][3]*BohrR,dE_da[1][1],dE_da[1][2],dE_da[1][3]);
+      printf(" a2(Ang.) =%10.5f %10.5f %10.5f   dE/da2(a.u.) =%10.5f %10.5f %10.5f\n",
+             tv[2][1]*BohrR,tv[2][2]*BohrR,tv[2][3]*BohrR,dE_da[2][1],dE_da[2][2],dE_da[2][3]);
+      printf(" a3(Ang.) =%10.5f %10.5f %10.5f   dE/da3(a.u.) =%10.5f %10.5f %10.5f\n",
+             tv[3][1]*BohrR,tv[3][2]*BohrR,tv[3][3]*BohrR,dE_da[3][1],dE_da[3][2],dE_da[3][3]);
+
+
+      if (1<level_stdout){ 
+
+	printf("\n");
+	for (i=1; i<=atomnum; i++){
+	  printf("     atom=%4d, XYZ(ang) Fxyz(a.u.)=%9.4f %9.4f %9.4f  %9.4f %9.4f %9.4f\n",
+		 i,BohrR*Gxyz[i][1],BohrR*Gxyz[i][2],BohrR*Gxyz[i][3],
+		 Gxyz[i][17],Gxyz[i][18],Gxyz[i][19] ); fflush(stdout);
+	}   
+      }
+    }
+
+    strcpy(fileSD,".SD");
+    fnjoint(filepath,filename,fileSD);
+    if ((fp_SD = fopen(fileSD,"a")) != NULL){
+
+#ifdef xt3
+      setvbuf(fp_SD,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+      if ( Criterion_Max_Step<(Max_Gradient*SD_scaling) )
+	MaxStep = Criterion_Max_Step;
+      else 
+	MaxStep = SD_scaling*Max_Gradient;
+
+      if (iter==1){
+
+        fprintf(fp_SD,"\n");
+        fprintf(fp_SD,"***********************************************************\n");
+        fprintf(fp_SD,"***********************************************************\n");
+        fprintf(fp_SD,"                History of cell optimization               \n");
+        fprintf(fp_SD,"***********************************************************\n");
+        fprintf(fp_SD,"***********************************************************\n\n");
+
+        fprintf(fp_SD,"  MD_iter   SD_scaling     |Maximum grad|     Maximum step        Utot\n");
+        fprintf(fp_SD,"                           (Hartree/Bohr)        (Ang)         (Hartree)\n\n");
+      }
+      fprintf(fp_SD,"  %3d  %15.8f  %15.8f  %15.8f  %15.8f\n",
+              iter,SD_scaling,Max_Gradient,MaxStep*BohrR, Utot);
+      fclose(fp_SD);
+    }
+    else
+      printf("Error(7) in MD_pac.c\n");
+
+    if (MD_Opt_OK==1 || iter==MD_IterNumber){
+
+      strcpy(fileCoord,".crd");
+      fnjoint(filepath,filename,fileCoord);
+      if ((fp_crd = fopen(fileCoord,"w")) != NULL){
+
+#ifdef xt3
+        setvbuf(fp_crd,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+        fprintf(fp_crd,"\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"    Cell vectors (Ang.) and derivatives of total energy    \n");
+        fprintf(fp_crd,"             with respect to them (Hartree/Bohr)           \n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n\n");
+
+        fprintf(fp_crd," a1 =%10.5f %10.5f %10.5f   dE/da1 =%10.5f %10.5f %10.5f\n",
+                tv[1][1]*BohrR,tv[1][2]*BohrR,tv[1][3]*BohrR,dE_da[1][1],dE_da[1][2],dE_da[1][3]);
+        fprintf(fp_crd," a2 =%10.5f %10.5f %10.5f   dE/da2 =%10.5f %10.5f %10.5f\n",
+               tv[2][1]*BohrR,tv[2][2]*BohrR,tv[2][3]*BohrR,dE_da[2][1],dE_da[2][2],dE_da[2][3]);
+        fprintf(fp_crd," a3 =%10.5f %10.5f %10.5f   dE/da3 =%10.5f %10.5f %10.5f\n",
+               tv[3][1]*BohrR,tv[3][2]*BohrR,tv[3][3]*BohrR,dE_da[3][1],dE_da[3][2],dE_da[3][3]);
+
+        fprintf(fp_crd,"\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"       xyz-coordinates (Ang.) and forces (Hartree/Bohr)    \n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n\n");
+
+        fprintf(fp_crd,"<coordinates.forces\n");
+        fprintf(fp_crd,"  %i\n",atomnum);
+        for (k=1; k<=atomnum; k++){
+          i = WhatSpecies[k];
+          j = Spe_WhatAtom[i];
+          fprintf(fp_crd," %4d  %4s   %9.5f %9.5f %9.5f  %15.12f %15.12f %15.12f\n",
+                  k,Atom_Symbol[j],
+	          Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
+	    	  -Gxyz[k][17],-Gxyz[k][18],-Gxyz[k][19]);
+        }
+        fprintf(fp_crd,"coordinates.forces>\n");
+        fclose(fp_crd);
+      }
+      else
+        printf("error(1) in MD_pac.c\n");
+    }
+
+  } /* if (myid==Host_ID) */
+
+  /******************************************
+              save *.rst4gopt.SD1 
+  ******************************************/
+
+  if (myid==Host_ID){
+
+    sprintf(file_name,"%s%s_rst/%s.rst4gopt.SD1",filepath,filename,filename);
+
+    if ((fp = fopen(file_name,"wb")) != NULL){
+
+      fwrite(&Correct_Position_flag, sizeof(int), 1, fp);
+      fwrite(&SD_scaling,      sizeof(double), 1, fp);
+      fwrite(&SD_scaling_user, sizeof(double), 1, fp);
+      fwrite(&Past_Utot,       sizeof(double), 10, fp);
+
+      fclose(fp);
+    }    
+    else{
+      printf("Failure of saving %s\n",file_name);
+    }
+  }
+
+}
+
+
+void Cell_Opt_RF(int iter)
+{
+  int i,j,iatom,icell,k,diis_iter;
+  double dE_da[4][4],detA,itv[4][4],sum;
+  double sMD_TimeStep;
+  static int local_iter=1;
+  static int SD_iter=0,GDIIS_iter=0;
+  static int flag=0;
+  static int Every_iter;
+  char file_name[YOUSO10];
+  FILE *fp;
+  int tmp_array[10];
+  int everyiter,buf_iter;
+  int numprocs,myid,ID;  
+
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+  MPI_Barrier(mpi_comm_level1);
+
+  /******************************************
+              read *.rst4gopt.RF1
+  ******************************************/
+
+  if (SuccessReadingfiles){
+
+    sprintf(file_name,"%s%s_rst/%s.rst4gopt.RF1",filepath,filename,filename);
+
+    if ((fp = fopen(file_name,"rb")) != NULL){
+
+      fread(tmp_array, sizeof(int), 6, fp);
+
+      local_iter            = tmp_array[0];
+      SD_iter               = tmp_array[1];
+      GDIIS_iter            = tmp_array[2];
+      flag                  = tmp_array[3];
+      Every_iter            = tmp_array[4];
+      Correct_Position_flag = tmp_array[5];
+ 
+      fread(&SD_scaling,      sizeof(double), 1, fp);
+      fread(&SD_scaling_user, sizeof(double), 1, fp);
+      fread(&Past_Utot,       sizeof(double), 10, fp);
+
+      fclose(fp);
+    }    
+    else{
+      printf("Failure of saving %s\n",file_name);
+    }
+  }
+
+  /****************************************************
+     calculate the inverse of a matrix consisiting 
+     of the cell vectors
+     and
+     calculate dE_da   
+  ****************************************************/
+
+  detA = tv[1][1]*tv[2][2]*tv[3][3]+tv[2][1]*tv[3][2]*tv[1][3]+tv[3][1]*tv[1][2]*tv[2][3]
+        -tv[1][1]*tv[3][2]*tv[2][3]-tv[3][1]*tv[2][2]*tv[1][3]-tv[2][1]*tv[1][2]*tv[3][3];
+
+  itv[1][1] = (tv[2][2]*tv[3][3] - tv[2][3]*tv[3][2])/detA; 
+  itv[1][2] = (tv[1][3]*tv[3][2] - tv[1][2]*tv[3][3])/detA;
+  itv[1][3] = (tv[1][2]*tv[2][3] - tv[1][3]*tv[2][2])/detA;
+
+  itv[2][1] = (tv[2][3]*tv[3][1] - tv[2][1]*tv[3][3])/detA; 
+  itv[2][2] = (tv[1][1]*tv[3][3] - tv[1][3]*tv[3][1])/detA;
+  itv[2][3] = (tv[1][3]*tv[2][1] - tv[1][1]*tv[2][3])/detA;
+
+  itv[3][1] = (tv[2][1]*tv[3][2] - tv[2][2]*tv[3][1])/detA; 
+  itv[3][2] = (tv[1][2]*tv[3][1] - tv[1][1]*tv[3][2])/detA;
+  itv[3][3] = (tv[1][1]*tv[2][2] - tv[1][2]*tv[2][1])/detA;
+
+  for (i=1; i<=3; i++){
+    for (j=1; j<=3; j++){
+
+      sum = 0.0;
+      for (k=1; k<=3; k++){
+        sum += itv[k][i]*Stress_Tensor[3*(k-1)+(j-1)];
+      }
+
+      dE_da[i][j] = sum;
+    }
+  }
+
+  /* set parameters */
+
+  Every_iter = OptEveryDIIS;
+
+  if (iter<M_GDIIS_HISTORY)
+    diis_iter = iter;
+  else   
+    diis_iter = M_GDIIS_HISTORY;
+
+  /* increament of iter */
+
+  if (iter<OptStartDIIS){
+    flag = 0;     
+  }
+
+  else if (iter==OptStartDIIS){
+    flag = 1;     
+    GDIIS_iter++;
+  }
+
+  else if (flag==0){
+    SD_iter++; 
+  }  
+  else if (flag==1){
+    GDIIS_iter++;
+  }
+
+  /* SD */
+
+  if (flag==0){
+
+    if (SD_iter==1)
+      Cell_Opt_SD(iter,0);
+    else 
+      Cell_Opt_SD(iter,1);
+
+    /* shift one */
+
+    for (i=(diis_iter-2); 0<=i; i--) {
+
+      /* cartesian coordinates */
+
+      for (iatom=1; iatom<=atomnum; iatom++) {
+	for (k=1; k<=3; k++) {
+	  GxyzHistoryIn[i+1][iatom][k] = GxyzHistoryIn[i][iatom][k];
+	  GxyzHistoryR[i+1][iatom][k]  = GxyzHistoryR[i][iatom][k];
+	}
+      }
+
+      /* cell vectors */
+ 
+      for (icell=1; icell<=3; icell++) {
+	for (k=1; k<=3; k++) {
+	  GxyzHistoryIn[i+1][atomnum+icell][k] = GxyzHistoryIn[i][atomnum+icell][k];
+	  GxyzHistoryR[i+1][atomnum+icell][k]  = GxyzHistoryR[i][atomnum+icell][k];
+	}
+      }
+    }
+
+    /* add GxyzHistoryIn and GxyzHisotryR */
+
+    for (iatom=1; iatom<=atomnum; iatom++) {
+
+      /* calculate dE_dq */
+
+      for (i=1; i<=3; i++){
+	sum = 0.0;
+	for (j=1; j<=3; j++){
+	  sum += Gxyz[iatom][16+j]*tv[i][j];
+	}
+	Gxyz[iatom][13+i] = sum;
+      }
+
+      /* add Cell_Gxyz and dE_dq */
+
+      for (k=1; k<=3; k++) {
+        if (atom_Fixed_XYZ[iatom][k]==0){
+
+	  GxyzHistoryIn[0][iatom][k] = Cell_Gxyz[iatom][k];
+	  GxyzHistoryR[0][iatom][k]  = Gxyz[iatom][13+k];
+	}
+        else{
+	  GxyzHistoryIn[0][iatom][k] = Cell_Gxyz[iatom][k];
+	  GxyzHistoryR[0][iatom][k]  = 0.0;
+        }
+      }
+    }
+
+    /* add information on the cell vectors */
+
+    for (icell=1; icell<=3; icell++) {
+      for (k=1; k<=3; k++) {
+        if (Cell_Fixed_XYZ[icell][k]==0){
+	  GxyzHistoryIn[0][atomnum+icell][k] = tv[icell][k];
+	  GxyzHistoryR[0][atomnum+icell][k]  = dE_da[icell][k];
+	}
+        else{
+	  GxyzHistoryIn[0][atomnum+icell][k] = tv[icell][k];
+	  GxyzHistoryR[0][atomnum+icell][k]  = 0.0;
+        }
+      }
+    }
+
+    /* initialize local_iter */
+
+    local_iter = 1;
+
+  }
+
+  /* RFC */
+
+  else {
+ 
+    if (cellopt_swtich==5) RFC5(local_iter,iter,dE_da,itv);
+
+    else {
+
+      if (myid==Host_ID){
+        printf("The optimizer is not supported.\n");
+      }
+
+      MPI_Finalize();
+      exit(1);
+    }
+
+    local_iter++;
+  }
+
+  /* check the number of iterations */
+
+  if (Every_iter<=SD_iter){
+    flag = 1;
+    SD_iter = 0;
+    GDIIS_iter = 0;
+  }
+
+  else if (Every_iter<=GDIIS_iter){
+    flag = 0;
+    SD_iter = 0;
+    GDIIS_iter = 0;
+  }
+
+  /******************************************
+              save *.rst4gopt.RF1 
+  ******************************************/
+
+  if (myid==Host_ID){
+
+    sprintf(file_name,"%s%s_rst/%s.rst4gopt.RF1",filepath,filename,filename);
+
+    if ((fp = fopen(file_name,"wb")) != NULL){
+
+      tmp_array[0] = local_iter;
+      tmp_array[1] = SD_iter;
+      tmp_array[2] = GDIIS_iter;
+      tmp_array[3] = flag;
+      tmp_array[4] = Every_iter;
+      tmp_array[5] = Correct_Position_flag;
+ 
+      fwrite(tmp_array, sizeof(int), 6, fp);
+
       fwrite(&SD_scaling,      sizeof(double), 1, fp);
       fwrite(&SD_scaling_user, sizeof(double), 1, fp);
       fwrite(&Past_Utot,       sizeof(double), 10, fp);
@@ -1835,7 +2749,7 @@ void GDIIS(int iter, int iter0)
   if (myid==Host_ID){  
 
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   if (MD_Opt_OK!=1 && iter!=MD_IterNumber){
@@ -2078,6 +2992,7 @@ void RF(int iter, int iter0)
 /*  double sum1,tmp1,tmp2,c0,c1; */
   double sum1,tmp1,tmp2,lamda;
   double mixing,force_Max;
+  double itv[4][4];
   static double sMD_TimeStep,dx_max=0.05; 
   double diff_dx;
   int *ipiv;
@@ -2104,6 +3019,8 @@ void RF(int iter, int iter0)
     MPI_Bcast(&Gxyz[Gc_AN][1],  3, MPI_DOUBLE, ID, mpi_comm_level1);
     MPI_Bcast(&Gxyz[Gc_AN][17], 3, MPI_DOUBLE, ID, mpi_comm_level1);
   }
+
+  /* set diis_iter */
 
   if (iter<M_GDIIS_HISTORY)
     diis_iter = iter;
@@ -2135,6 +3052,16 @@ void RF(int iter, int iter0)
 	GxyzHistoryR[0][iatom][k]  = 0.0;
       }
     }
+  }
+
+  /* set the initial approximate Hessian */
+
+  if (iter%30==1){
+
+    if (iter0<M_GDIIS_HISTORY)
+      Estimate_Initial_Hessian(iter0-1,0,itv);
+    else   
+      Estimate_Initial_Hessian(M_GDIIS_HISTORY-1,0,itv);
   }
 
   if (myid!=Host_ID) goto Last_Bcast; 
@@ -2273,7 +3200,7 @@ void RF(int iter, int iter0)
   if (myid==Host_ID){  
 
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   if (MD_Opt_OK!=1 && iter!=MD_IterNumber){
@@ -2301,7 +3228,7 @@ void RF(int iter, int iter0)
     sumB = 0.0;
     for (iatom=1; iatom<=atomnum; iatom++) {
       for (j=1; j<=3; j++) {
-	sumB += Gxyz[iatom][j]*Gxyz[iatom][j] ;
+	sumB += Gxyz[iatom][j]*Gxyz[iatom][j];
       }
     }
 
@@ -2315,16 +3242,7 @@ void RF(int iter, int iter0)
      s = GxyzHistoryIn[0][iatom][k] - GxyzHistoryIn[1][iatom][k]
     *********************************************************************************/
 
-    if (iter==1){
-      for (i=1; i<=3*atomnum; i++){     
-	for (j=1; j<=3*atomnum; j++){     
-	  Hessian[i][j] = 0.0;
-	}
-	Hessian[i][i] = 1.0;
-      }
-    }
-
-    else {
+    if (iter!=1){
    
       /* H*s  */
 
@@ -2359,13 +3277,10 @@ void RF(int iter, int iter0)
 		+(GxyzHistoryIn[0][k][3] - GxyzHistoryIn[1][k][3])*Hessian[0][3*k  ]); 
       }
 
-      /* c0=(tmp1+tmp2)/(tmp1*tmp1), c1=-1.0/tmp1 */
-
-      /*
-	c0 = (tmp1 + tmp2)/(tmp1*tmp1);
-	c1 =-1.0/tmp1;
-      */
       /* update the approximate Hessian by the BFGS method */
+
+      if (tmp1<1.0e-10) tmp1 = 1.0e-10; 
+      if (tmp2<1.0e-10) tmp2 = 1.0e-10; 
 
       m1 = 0;
       for (i=1; i<=atomnum; i++){   
@@ -2390,6 +3305,18 @@ void RF(int iter, int iter0)
       }
     }
 
+    /*
+    if (myid==Host_ID){  
+      printf("Hessian\n");
+      for (i=1; i<=3*atomnum; i++){     
+	for (j=1; j<=3*atomnum; j++){     
+	  printf("%8.4f ",Hessian[i][j]);
+	}
+	printf("\n");
+      }
+    }
+    */
+
     /************************************************************
             Construct augmented Hessian matrix  
            | H    g | ( s )         ( s ) 
@@ -2410,10 +3337,8 @@ void RF(int iter, int iter0)
   
     /************************************************************
      find the lowest eigenvalue and corresponding eigenvector
-           of the augmented Hessian matrix
+               of the augmented Hessian matrix
     ************************************************************/  
-
-    /*  lamda = find_Emin(3*atomnum+1, Hessian); */
 
     work2 = (double*)malloc(sizeof(double)*(3*atomnum+3));
 
@@ -2437,11 +3362,6 @@ void RF(int iter, int iter0)
     */
 
     for(i=1;i<=3*atomnum+1; i++){
-
-      /*
-      printf("%15.8f\n",ahes[i][1]);
-      */
-
       Hessian[0][i]=ahes[i][1]/ahes[3*atomnum+1][1];
     }
  
@@ -2645,6 +3565,765 @@ void RF(int iter, int iter0)
   } /* if (myid==Host_ID) */
 
 }
+
+
+
+void RFC5(int iter, int iter0, double dE_da[4][4], double itv[4][4])
+{
+  /* 1au=2.4189*10^-2 fs, 1fs=41.341105 au */
+
+  int k1,k2,m1,m2;
+  char *func_name="RF";
+  char *JOBB="L";
+  double dt,diff,Max_Step,sum;
+  double *A,*B,sumB,max_A, RR,dRi[4],dRj[4];
+  double *work, *work2,**ahes;
+  double sum1,tmp1,tmp2,lamda;
+  double mixing,force_Max,Max_Gradient;
+  static double sMD_TimeStep,dx_max=0.05; 
+  double diff_dx;
+  int *ipiv;
+  INTEGER i,j,k,iatom,icell,N,LDA,LWORK,info;
+  int diis_iter;
+  char fileCoord[YOUSO10];
+  char fileSD[YOUSO10];
+  FILE *fp_crd,*fp_SD;
+  char buf[fp_bsize];          /* setvbuf */
+  char fileE[YOUSO10];
+
+  /* variables for MPI */
+  int Gc_AN;
+  int numprocs,myid,ID;  
+
+  /* MPI myid */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+  MPI_Barrier(mpi_comm_level1);
+
+  /* share Gxyz */
+  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+    ID = G2ID[Gc_AN];
+    MPI_Bcast(&Gxyz[Gc_AN][1],  3, MPI_DOUBLE, ID, mpi_comm_level1);
+    MPI_Bcast(&Gxyz[Gc_AN][17], 3, MPI_DOUBLE, ID, mpi_comm_level1);
+  }
+
+  /* set diis_iter */
+
+  if (iter<M_GDIIS_HISTORY)
+    diis_iter = iter;
+  else   
+    diis_iter = M_GDIIS_HISTORY;
+
+  /* shift one */
+
+  for (i=(diis_iter-2); 0<=i; i--) {
+
+    /* fractional coordinates and gradients of the total energy w.r.t. the coordinates */
+
+    for (iatom=1; iatom<=atomnum; iatom++) {
+      for (k=1; k<=3; k++) {
+	GxyzHistoryIn[i+1][iatom][k] = GxyzHistoryIn[i][iatom][k];
+	GxyzHistoryR[i+1][iatom][k]  = GxyzHistoryR[i][iatom][k];
+      }
+    }
+
+    /* cell vectors and gradients of the total energy w.r.t. the cell vectors */
+ 
+    for (icell=1; icell<=3; icell++) {
+      for (k=1; k<=3; k++) {
+	GxyzHistoryIn[i+1][atomnum+icell][k] = GxyzHistoryIn[i][atomnum+icell][k];
+	GxyzHistoryR[i+1][atomnum+icell][k]  = GxyzHistoryR[i][atomnum+icell][k];
+      }
+    }
+  }
+
+  /* add GxyzHistoryIn and GxyzHisotryR */
+
+  for (iatom=1; iatom<=atomnum; iatom++)   {
+
+    /* calculate dE_dq */
+
+    for (i=1; i<=3; i++){
+      sum = 0.0;
+      for (j=1; j<=3; j++){
+	sum += Gxyz[iatom][16+j]*tv[i][j];
+      }
+      Gxyz[iatom][13+i] = sum;
+    }
+
+    for (k=1; k<=3; k++) {
+      GxyzHistoryIn[0][iatom][k] = Cell_Gxyz[iatom][k];
+      GxyzHistoryR[0][iatom][k]  = Gxyz[iatom][13+k];
+    }
+  }
+
+  /* add information on the cell vectors */
+
+  for (icell=1; icell<=3; icell++) {
+    for (k=1; k<=3; k++) {
+      GxyzHistoryIn[0][atomnum+icell][k] = tv[icell][k];
+      GxyzHistoryR[0][atomnum+icell][k]  = dE_da[icell][k];
+    }
+  }
+
+  /* set the initial approximate Hessian */
+
+  if (iter==1){
+
+    if (iter0<M_GDIIS_HISTORY)
+      Estimate_Initial_Hessian(iter0-1,1,itv);
+    else   
+      Estimate_Initial_Hessian(M_GDIIS_HISTORY-1,1,itv);
+  }
+  
+  if (myid!=Host_ID) goto Last_Bcast; 
+  
+  /*********************** for myid==Host_ID **************************/
+  
+  /* allocation of arrays */
+  
+  A = (double*)malloc(sizeof(double)*(diis_iter+2)*(diis_iter+2));
+  for (i=0; i<(diis_iter+2)*(diis_iter+2); i++) A[i] = 0.0;
+  B = (double*)malloc(sizeof(double)*(diis_iter+2));
+  
+  /* find the maximum gradient dE_da */
+  
+  Max_Gradient = 0.0;
+  
+  for (i=1; i<=3; i++){
+    for (j=1; j<=3; j++){
+      if (Max_Gradient<fabs(dE_da[i][j])) Max_Gradient = fabs(dE_da[i][j]); 
+    }
+  }
+
+  /* find the maximum force */
+
+  force_Max=0.0;
+  for (iatom=1; iatom<=atomnum; iatom++)   {
+    for (k=1; k<=3; k++) {
+      if (force_Max< fabs(Gxyz[iatom][16+k]) ) force_Max = fabs(Gxyz[iatom][16+k]);
+    }
+  }
+  
+  if (Max_Gradient<force_Max) Max_Gradient = force_Max;
+  
+  sMD_TimeStep = 0.05/(0.01*41.341105);
+
+  if (2<=level_stdout){
+    printf("<%s>  |Maximum gradient| (Hartree/Bohr) = %15.12f tuned_dt= %f\n",func_name,Max_Gradient, sMD_TimeStep);
+    printf("<%s>  Criterion      (Hartree/Bohr) = %15.12f\n", func_name, MD_Opt_criterion);
+  }
+
+  for (i=0; i<diis_iter; i++) {
+    for (j=0; j<diis_iter; j++) {
+
+      RR = 0.0;
+
+      /* dE/dr and dE/da */
+
+      for (iatom=1; iatom<=(atomnum+3); iatom++)   {
+	for (k=1; k<=3; k++) {
+	  dRi[k] = GxyzHistoryR[i][iatom][k];
+	  dRj[k] = GxyzHistoryR[j][iatom][k];
+	}
+
+	RR += dRi[1]*dRj[1] + dRi[2]*dRj[2] + dRi[3]*dRj[3];
+      }
+
+      A[ i*(diis_iter+1)+j ]= RR;
+    }
+  }
+  
+  /* find the maximum value in elements of the matrix A */
+
+  max_A = 0.0;
+
+  for (i=0;i<diis_iter;i++) {
+    for (j=0;j<diis_iter;j++) {
+      RR = fabs(A[i*(diis_iter+1)+j]) ;
+      if (max_A< RR ) max_A = RR;
+    }
+  }
+
+  max_A = 1.0/max_A;
+
+  for (i=0; i<diis_iter; i++) {
+    for (j=0; j<diis_iter; j++) {
+      A[ i*(diis_iter+1)+j ] *= max_A;
+    }
+  }
+
+  for (i=0; i<diis_iter; i++) {
+    A[ i*(diis_iter+1)+diis_iter ] = 1.0;
+    A[ diis_iter*(diis_iter+1)+i ] = 1.0;
+  }
+
+  A[diis_iter*(diis_iter+1)+diis_iter] = 0.0;
+
+  for (i=0; i<diis_iter; i++) B[i] = 0.0;
+  B[diis_iter] = 1.0;
+
+  if (2<=level_stdout && myid==0){
+    printf("<%s>  DIIS matrix\n",func_name);
+    for (i=0; i<(diis_iter+1); i++) {
+      printf("<%s> ",func_name);
+      for (j=0; j<(diis_iter+1); j++) {
+        printf("%6.3f ",A[i*(diis_iter+1)+j]);
+      }
+      printf("\n");
+    }
+  }
+
+  /* lapack routine */
+
+  N = diis_iter+1;
+  LDA = diis_iter+1;
+  LWORK = diis_iter+1;
+  work = (double*)malloc(sizeof(double)*LWORK);
+  ipiv = (int*)malloc(sizeof(int)*(diis_iter+1));
+
+  i = 1; 
+
+  if (2<=level_stdout){
+    printf("<%s> M_GDIIS_HISTORY=%2d diis_iter=%2d\n",func_name,M_GDIIS_HISTORY,diis_iter);
+  }
+
+  F77_NAME(dsysv,DSYSV)( JOBB, &N, &i, A, &LDA,  ipiv, B, &LDA, work, &LWORK, &info);
+
+  if (info!=0) {
+    printf("<%s> dsysv_, info=%d\n",func_name,info);
+    printf("<%s> \n",func_name);
+    printf("<%s> ERROR, aborting\n",func_name);
+    printf("<%s> \n",func_name);
+
+    MD_Opt_OK =1; 
+    /* no change */
+
+    goto Last_Bcast ;
+  }
+
+  if (2<=level_stdout){
+    printf("<%s> diis alpha=",func_name);
+    sumB = 0;
+    for (i=0; i<diis_iter; i++) {
+      printf("%f ",B[i]);
+      sumB += B[i];
+    }
+    printf("%lf\n",B[diis_iter]);
+  }
+
+  if (Max_Gradient<MD_Opt_criterion ){
+    MD_Opt_OK = 1;
+    Max_Force = Max_Gradient;
+  }
+
+  /****************************************************
+   write informatins to *.ene
+  ****************************************************/
+
+  if (myid==Host_ID){  
+
+    sprintf(fileE,"%s%s.ene",filepath,filename);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
+  }
+
+  if (MD_Opt_OK!=1 && iter!=MD_IterNumber){
+
+    /* initialize Gxyz */
+
+    for (iatom=1; iatom<=(atomnum+3); iatom++) {
+      for (j=1; j<=3; j++) {
+
+        /* store coordinates at the previous step */
+
+        if (iatom<=atomnum) 
+          Gxyz[iatom][20+j] = Gxyz[iatom][j]; 
+        else 
+          Gxyz[iatom][20+j] = tv[iatom-atomnum][j]; 
+
+        /* initialize */
+	Gxyz[iatom][j] = 0.0;
+      }
+    }
+
+    /* add tilde{R} for Gxyz */
+
+    for (iatom=1; iatom<=atomnum; iatom++) {
+      for (j=1; j<=3; j++) {
+	for (i=0; i<diis_iter; i++) {
+	  Gxyz[iatom][j] += GxyzHistoryR[i][iatom][j]*B[i];
+	}
+      }
+    }
+
+    /* add tilde{R} for tv */
+
+    for (icell=1; icell<=3; icell++) {
+      for (j=1; j<=3; j++) {
+	for (i=0; i<diis_iter; i++) {
+	  Gxyz[atomnum+icell][j] += GxyzHistoryR[i][atomnum+icell][j]*B[i];
+	}
+      }
+    }
+
+    /* calculate the norm of tilde{R} */
+
+    sumB = 0.0;
+
+    for (iatom=1; iatom<=(atomnum+3); iatom++) {
+      for (j=1; j<=3; j++) {
+	sumB += Gxyz[iatom][j]*Gxyz[iatom][j];
+      }
+    }
+
+    sumB = sqrt(sumB)/(double)(atomnum+3);
+
+    /*********************************************************************************
+     update an approximate Hessian matrix 
+   
+     H_k = H_{k-1} + y*y^t/(y^t*y) - H_{k-1}*s * s^t * H_{k-1}^t /(s^t * H_{k-1} * s)
+     y = GxyzHistoryR[0][iatom][k]  - GxyzHistoryR[1][iatom][k]
+     s = GxyzHistoryIn[0][iatom][k] - GxyzHistoryIn[1][iatom][k]
+    *********************************************************************************/
+
+    if (iter!=1){
+   
+      /* H*s  */
+
+      for (i=1; i<=(3*atomnum+9); i++){
+
+	sum1 = 0.0;  
+	for (k=1; k<=(atomnum+3); k++){     
+
+	  sum1 += ( Hessian[i][3*k-2]*(GxyzHistoryIn[0][k][1] - GxyzHistoryIn[1][k][1])
+		   +Hessian[i][3*k-1]*(GxyzHistoryIn[0][k][2] - GxyzHistoryIn[1][k][2])
+		   +Hessian[i][3*k  ]*(GxyzHistoryIn[0][k][3] - GxyzHistoryIn[1][k][3]));
+	}
+ 
+	/* store H*s */
+
+	Hessian[0][i] = sum1;
+      }
+
+      /* tmp1 = y^t*s, tmp2 = s^t*H*s */ 
+    
+      tmp1 = 0.0;
+      tmp2 = 0.0;
+    
+      for (k=1; k<=(atomnum+3); k++){     
+
+	tmp1 += ((GxyzHistoryIn[0][k][1] - GxyzHistoryIn[1][k][1])*(GxyzHistoryR[0][k][1] - GxyzHistoryR[1][k][1])
+	        +(GxyzHistoryIn[0][k][2] - GxyzHistoryIn[1][k][2])*(GxyzHistoryR[0][k][2] - GxyzHistoryR[1][k][2])
+		+(GxyzHistoryIn[0][k][3] - GxyzHistoryIn[1][k][3])*(GxyzHistoryR[0][k][3] - GxyzHistoryR[1][k][3]));
+
+	tmp2 += ((GxyzHistoryIn[0][k][1] - GxyzHistoryIn[1][k][1])*Hessian[0][3*k-2]
+		+(GxyzHistoryIn[0][k][2] - GxyzHistoryIn[1][k][2])*Hessian[0][3*k-1] 
+		+(GxyzHistoryIn[0][k][3] - GxyzHistoryIn[1][k][3])*Hessian[0][3*k  ]); 
+      }
+
+      printf("WWW1 tmp1=%15.12f tmp2=%15.12f\n",tmp1,tmp2);
+
+      /* update the approximate Hessian by the BFGS method */
+
+      if (tmp1<1.0e-10) tmp1 = 1.0e-10; 
+      if (tmp2<1.0e-10) tmp2 = 1.0e-10; 
+
+      m1 = 0;
+      for (i=1; i<=(atomnum+3); i++){   
+	for (k1=1; k1<=3; k1++){     
+
+	  m1++;
+
+	  m2 = 0;
+	  for (j=1; j<=(atomnum+3); j++){     
+	    for (k2=1; k2<=3; k2++){     
+
+	      m2++;
+
+	      Hessian[m1][m2] += 
+
+		1.0/tmp1*(GxyzHistoryR[0][i][k1]-GxyzHistoryR[1][i][k1])*(GxyzHistoryR[0][j][k2]-GxyzHistoryR[1][j][k2])
+               -1.0/tmp2*Hessian[0][m1]*Hessian[0][m2];
+
+	    }
+	  }
+	}
+      }
+
+    }
+
+    /*
+    if (myid==Host_ID){  
+      printf("Hessian\n");
+      for (i=1; i<=(3*atomnum+9); i++){     
+	for (j=1; j<=(3*atomnum+9); j++){     
+	  printf("%6.3f ",Hessian[i][j]);
+	}
+	printf("\n");
+      }
+    }
+    */
+
+    /************************************************************
+            Construct augmented Hessian matrix  
+           | H    g | ( s )         ( s ) 
+           |        |       = lamda             
+           | g    0 | ( 1 )         ( 1 )
+    ************************************************************/
+  
+    Hessian[3*atomnum+10][3*atomnum+10] = 0.0;
+    
+    m2 = 0;
+    for (i=1; i<=(atomnum+3); i++){   
+      for (k=1; k<=3; k++){   
+	m2++;
+	Hessian[3*atomnum+10][m2] = Gxyz[i][k];
+	Hessian[m2][3*atomnum+10] = Gxyz[i][k];  
+      }	
+    }
+  
+    /************************************************************
+     find the lowest eigenvalue and corresponding eigenvector
+               of the augmented Hessian matrix
+    ************************************************************/  
+
+    work2 = (double*)malloc(sizeof(double)*(3*atomnum+12));
+
+    ahes = (double**)malloc(sizeof(double*)*(3*atomnum+12));
+    for (i=0; i<3*atomnum+12; i++){
+      ahes[i] = (double*)malloc(sizeof(double)*(3*atomnum+12));
+    }
+
+    for(i=0; i<3*atomnum+11; i++){
+      for(j=0; j<3*atomnum+11; j++){
+	ahes[i][j] = Hessian[i][j];
+      }
+    }
+
+    Eigen_lapack(ahes, work2, 3*atomnum+10, 1); 
+
+    for (i=1; i<=(3*atomnum+10); i++){
+      Hessian[0][i]=ahes[i][1]/ahes[3*atomnum+10][1];
+    }
+ 
+    if (2<=level_stdout){
+      printf("<%s> |tilde{R}|=%E\n",func_name, sumB);
+    }
+
+    /**************************************************
+      update fractional coordinates and cell vectors 
+    **************************************************/
+
+    /* initialize */
+
+    for (iatom=1; iatom<=(atomnum+3); iatom++) {
+      for (j=1; j<=3; j++) {
+        Cell_Gxyz[iatom][j] = 0.0;
+      }
+    }
+
+    /* calculate the DIIS coordinates tilde{cell_x} */
+
+    m1 = 0;
+    for (iatom=1; iatom<=(atomnum+3); iatom++) {
+      for (j=1; j<=3; j++) {
+
+	/* DIIS mixing */
+        
+	for (i=0; i<diis_iter; i++) {
+	  Cell_Gxyz[iatom][j] += GxyzHistoryIn[i][iatom][j]*B[i]; 
+	}
+        
+	/* a quasi Newton method */ 
+        
+	m1++;
+        
+	Cell_Gxyz[iatom][j] += Hessian[0][m1];
+      }
+    }
+
+    /************************************
+                    set tv 
+    ************************************/
+
+    for (i=1; i<=3; i++){
+      for (j=1; j<=3; j++){
+        tv[i][j] = Cell_Gxyz[atomnum+i][j];
+      }
+    }
+
+    /*********************************
+              calculate Gxyz 
+    *********************************/
+
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      Gxyz[Gc_AN][1] = Cell_Gxyz[Gc_AN][1]*tv[1][1]
+                     + Cell_Gxyz[Gc_AN][2]*tv[2][1]
+	             + Cell_Gxyz[Gc_AN][3]*tv[3][1] + Grid_Origin[1];
+
+      Gxyz[Gc_AN][2] = Cell_Gxyz[Gc_AN][1]*tv[1][2]
+	             + Cell_Gxyz[Gc_AN][2]*tv[2][2]
+	             + Cell_Gxyz[Gc_AN][3]*tv[3][2] + Grid_Origin[2];
+
+      Gxyz[Gc_AN][3] = Cell_Gxyz[Gc_AN][1]*tv[1][3]
+	             + Cell_Gxyz[Gc_AN][2]*tv[2][3]
+	             + Cell_Gxyz[Gc_AN][3]*tv[3][3] + Grid_Origin[3];
+    }
+
+    /************************************************************
+       In case of a too large updating, do a modest updating
+       find Max_Step:
+    ************************************************************/  
+
+    Max_Step = 0.0;
+
+    /* atomic coordinates */
+     
+    for (iatom=1; iatom<=atomnum; iatom++) {
+      for (j=1; j<=3; j++) {
+    
+        diff = fabs(Gxyz[iatom][j] - Gxyz[iatom][20+j]);
+        if (Max_Step<diff) Max_Step = diff;
+      }
+    }
+     
+    /* cell vectors */
+    
+    for (i=1; i<=3; i++) {
+      for (j=1; j<=3; j++) {
+    
+        diff = fabs(tv[i][j] - Gxyz[atomnum+i][20+j]);
+        if (Max_Step<diff) Max_Step = diff;
+      }
+    }
+    
+    /******************************************************
+     if (Criterion_Max_Step<Max_Step), correct the update
+    ******************************************************/
+
+    if (Criterion_Max_Step<Max_Step){
+
+      /* atomic coordinates */
+
+      for (iatom=1; iatom<=atomnum; iatom++) {
+	for (j=1; j<=3; j++) {
+
+	  diff = Gxyz[iatom][j] - Gxyz[iatom][20+j];
+	  Gxyz[iatom][j] = Gxyz[iatom][20+j] + diff/Max_Step*Criterion_Max_Step;
+	}
+      }
+
+      /* cell vectors */
+
+      for (i=1; i<=3; i++) {
+	for (j=1; j<=3; j++) {
+
+	  diff = tv[i][j] - Gxyz[atomnum+i][20+j];
+	  tv[i][j] = Gxyz[atomnum+i][20+j] + diff/Max_Step*Criterion_Max_Step;
+	}
+      }
+    }
+
+    /*************************
+          find Max_Step 
+    *************************/
+
+    Max_Step = 0.0;
+
+    /* atomic coordinates */
+
+    for (iatom=1; iatom<=atomnum; iatom++) {
+      for (j=1; j<=3; j++) {
+
+        diff = fabs(Gxyz[iatom][j] - Gxyz[iatom][20+j]);
+        if (Max_Step<diff) Max_Step = diff;
+      }
+    }
+
+    /* cell vectors */
+
+    for (i=1; i<=3; i++) {
+      for (j=1; j<=3; j++) {
+
+        diff = fabs(tv[i][j] - Gxyz[atomnum+i][20+j]);
+        if (Max_Step<diff) Max_Step = diff;
+      }
+    }
+
+    /************************************************************
+                   show cooridinates and gradients
+    ************************************************************/  
+
+    if (2<=level_stdout){
+
+      printf("<%s> diff_x= %f , dE= %f\n",func_name, Max_Step, fabs(Utot-Past_Utot[1]) );
+
+      /* print atomic positions */
+      printf("<%s> atomnum= %d\n",func_name,atomnum);
+      for (i=1; i<=atomnum; i++){
+	j = Spe_WhatAtom[WhatSpecies[i]];
+	printf("  %3d %s XYZ(ang) Fxyz(a.u.)= %9.4f %9.4f %9.4f  %9.4f %9.4f %9.4f\n",
+	       i,Atom_Symbol[j],
+	       BohrR*Gxyz[i][1],BohrR*Gxyz[i][2],BohrR*Gxyz[i][3],
+	       Gxyz[i][17],Gxyz[i][18],Gxyz[i][19] ); 
+      }   
+    }
+
+    Past_Utot[1]=Utot;
+
+    Max_Force = Max_Gradient;
+    SD_scaling_user = SD_scaling*Max_Force*0.2;
+
+    /* free arrays */
+
+    free(A);
+    free(B);
+    free(ipiv);
+    free(work);
+    free(work2);
+
+    for (i=0; i<(3*atomnum+3); i++){
+      free(ahes[i]);
+    }
+    free(ahes);
+
+  } /* if (MD_Opt_OK!=1 && iter!=MD_IterNumber) */
+
+  /*********************** end of "myid==Host_ID" **************************/
+
+ Last_Bcast: 
+
+  MPI_Bcast(&MD_Opt_OK,1,MPI_INT, Host_ID, mpi_comm_level1);
+
+  for (Gc_AN=1; Gc_AN<=(atomnum+3); Gc_AN++){
+    MPI_Bcast(&Gxyz[Gc_AN][1],  3, MPI_DOUBLE, Host_ID, mpi_comm_level1);
+  }
+
+  /* copy tv[i] */ 
+
+  for (i=1; i<=3; i++){
+    MPI_Bcast(&tv[i][1],  3, MPI_DOUBLE, Host_ID, mpi_comm_level1);
+  }
+
+  /* print information */ 
+
+  if (myid==Host_ID){ 
+
+    if (0<level_stdout){ 
+
+      printf("<%s>  |Maximum force| (Hartree/Bohr) =%15.12f\n",
+	     func_name,Max_Force);fflush(stdout);
+      printf("<%s>  Criterion       (Hartree/Bohr) =%15.12f\n",
+	     func_name,MD_Opt_criterion);fflush(stdout);
+
+      printf("\n");
+      printf(" Cell vectors and derivatives of total energy with respect to them\n");
+
+      printf(" a1(Ang.) =%10.5f %10.5f %10.5f   dE/da1(a.u.) =%10.5f %10.5f %10.5f\n",
+             tv[1][1]*BohrR,tv[1][2]*BohrR,tv[1][3]*BohrR,dE_da[1][1],dE_da[1][2],dE_da[1][3]);
+      printf(" a2(Ang.) =%10.5f %10.5f %10.5f   dE/da2(a.u.) =%10.5f %10.5f %10.5f\n",
+             tv[2][1]*BohrR,tv[2][2]*BohrR,tv[2][3]*BohrR,dE_da[2][1],dE_da[2][2],dE_da[2][3]);
+      printf(" a3(Ang.) =%10.5f %10.5f %10.5f   dE/da3(a.u.) =%10.5f %10.5f %10.5f\n",
+             tv[3][1]*BohrR,tv[3][2]*BohrR,tv[3][3]*BohrR,dE_da[3][1],dE_da[3][2],dE_da[3][3]);
+
+      if (1<level_stdout){ 
+
+	printf("\n");
+	for (i=1; i<=atomnum; i++){
+	  printf("     atom=%4d, XYZ(Ang) Fxyz(a.u.)=%9.4f %9.4f %9.4f  %9.4f %9.4f %9.4f\n",
+		 i,BohrR*Gxyz[i][1],BohrR*Gxyz[i][2],BohrR*Gxyz[i][3],
+		 Gxyz[i][17],Gxyz[i][18],Gxyz[i][19] ); fflush(stdout);
+	}   
+      }
+    }
+
+    strcpy(fileSD,".SD");
+    fnjoint(filepath,filename,fileSD);
+
+    if ((fp_SD = fopen(fileSD,"a")) != NULL){
+
+#ifdef xt3
+      setvbuf(fp_SD,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+      if (iter0==1){
+
+        fprintf(fp_SD,"\n");
+        fprintf(fp_SD,"***********************************************************\n");
+        fprintf(fp_SD,"***********************************************************\n");
+        fprintf(fp_SD,"              History of geometry optimization             \n");
+        fprintf(fp_SD,"***********************************************************\n");
+        fprintf(fp_SD,"***********************************************************\n\n");
+
+
+        fprintf(fp_SD,"  MD_iter   SD_scaling     |Maximum force|   Maximum step        Utot\n");
+        fprintf(fp_SD,"                           (Hartree/Bohr)        (Ang)         (Hartree)\n\n");
+      }
+
+      fprintf(fp_SD,"  %3d  %15.8f  %15.8f  %15.8f  %15.8f\n",
+              iter0,SD_scaling,Max_Force,Max_Step*BohrR,Utot);
+      fclose(fp_SD);
+    }
+    else{
+      printf("Could not open a file in MD_pac.!\n");
+    }
+
+    if (MD_Opt_OK==1 || iter0==MD_IterNumber){
+
+      strcpy(fileCoord,".crd");
+      fnjoint(filepath,filename,fileCoord);
+      if ((fp_crd = fopen(fileCoord,"w")) != NULL){
+
+#ifdef xt3
+        setvbuf(fp_crd,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+        fprintf(fp_crd,"\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"    Cell vectors (Ang.) and derivatives of total energy    \n");
+        fprintf(fp_crd,"             with respect to them (Hartree/Bohr)           \n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n\n");
+
+        fprintf(fp_crd," a1 =%10.5f %10.5f %10.5f   dE/da1 =%10.5f %10.5f %10.5f\n",
+                tv[1][1]*BohrR,tv[1][2]*BohrR,tv[1][3]*BohrR,dE_da[1][1],dE_da[1][2],dE_da[1][3]);
+        fprintf(fp_crd," a2 =%10.5f %10.5f %10.5f   dE/da2 =%10.5f %10.5f %10.5f\n",
+               tv[2][1]*BohrR,tv[2][2]*BohrR,tv[2][3]*BohrR,dE_da[2][1],dE_da[2][2],dE_da[2][3]);
+        fprintf(fp_crd," a3 =%10.5f %10.5f %10.5f   dE/da3 =%10.5f %10.5f %10.5f\n",
+               tv[3][1]*BohrR,tv[3][2]*BohrR,tv[3][3]*BohrR,dE_da[3][1],dE_da[3][2],dE_da[3][3]);
+
+        fprintf(fp_crd,"\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"       xyz-coordinates (Ang) and forces (Hartree/Bohr)  \n");
+        fprintf(fp_crd,"***********************************************************\n");
+        fprintf(fp_crd,"***********************************************************\n\n");
+
+        fprintf(fp_crd,"<coordinates.forces\n");
+        fprintf(fp_crd,"  %i\n",atomnum);
+        for (k=1; k<=atomnum; k++){
+          i = WhatSpecies[k];
+          j = Spe_WhatAtom[i];
+          fprintf(fp_crd," %4d  %4s   %9.5f %9.5f %9.5f  %15.12f %15.12f %15.12f\n",
+                  k,Atom_Symbol[j],
+	          Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
+	    	  -Gxyz[k][17],-Gxyz[k][18],-Gxyz[k][19]);
+        }
+        fprintf(fp_crd,"coordinates.forces>\n");
+        fclose(fp_crd);
+      }
+      else
+        printf("error(1) in MD_pac.c\n");
+    }
+
+  } /* if (myid==Host_ID) */
+
+}
+
+
+
 
 
 
@@ -2852,7 +4531,7 @@ void GDIIS_BFGS(int iter, int iter0)
   if (myid==Host_ID){  
 
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   if (MD_Opt_OK!=1 && iter!=MD_IterNumber){
@@ -3072,7 +4751,7 @@ void GDIIS_BFGS(int iter, int iter0)
       printf("<%s> atomnum= %d\n",func_name,atomnum);
       for (i=1; i<=atomnum; i++){
 	j = Spe_WhatAtom[WhatSpecies[i]];
-	printf("  %3d %s XYZ(ang) Fxyz(a.u.)= %9.4f %9.4f %9.4f  %9.4f %9.4f %9.4f\n",
+	printf("  %3d %s XYZ(Ang) Fxyz(a.u.)= %9.4f %9.4f %9.4f  %9.4f %9.4f %9.4f\n",
 	       i,Atom_Symbol[j],
 	       BohrR*Gxyz[i][1],BohrR*Gxyz[i][2],BohrR*Gxyz[i][3],
 	       Gxyz[i][17],Gxyz[i][18],Gxyz[i][19] ); 
@@ -3207,6 +4886,7 @@ void GDIIS_EF(int iter, int iter0)
   char *func_name="EF";
   char *JOBB="L";
   double dt,MinKo;
+  double itv[4][4];
   double *A,*B,sumB,max_A, RR,dRi[4],dRj[4];
   double *ko,**U;
   double *work;
@@ -3266,6 +4946,8 @@ void GDIIS_EF(int iter, int iter0)
     MPI_Bcast(&Gxyz[Gc_AN][17], 3, MPI_DOUBLE, ID, mpi_comm_level1);
   }
 
+  /* set diis_iter */
+
   if (iter<M_GDIIS_HISTORY)
     diis_iter = iter;
   else   
@@ -3297,6 +4979,13 @@ void GDIIS_EF(int iter, int iter0)
       }
     }
   }
+
+  /* set the initial approximate Hessian */
+
+  if (iter==1){
+    scaling_factor = 2.0;
+    Estimate_Initial_Hessian(diis_iter,0,itv);
+  }
   
   if (myid!=Host_ID)   goto Last_Bcast; 
 
@@ -3322,10 +5011,6 @@ void GDIIS_EF(int iter, int iter0)
     wan = Spe_WhatAtom[wsp];
 
     for (k=1;k<=3;k++) {
-
-      /*
-      if (atom_Fixed_XYZ[iatom][k]==0){
-      */
 
       if (atom_Fixed_XYZ[iatom][k]==0 && wan!=0){
 
@@ -3447,7 +5132,7 @@ void GDIIS_EF(int iter, int iter0)
   if (myid==Host_ID){  
     
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   } 
 
   if (MD_Opt_OK!=1 && iter!=MD_IterNumber){
@@ -3495,27 +5180,15 @@ void GDIIS_EF(int iter, int iter0)
       printf("<%s> |tilde{R}|=%E\n",func_name, sumB);
     }
 
-    /************************************************************
-   update an approximate Hessian matrix 
+    /***********************************************************************************
+      update an approximate Hessian matrix 
    
-   H_k = H_{k-1} + y*y^t/(y^t*y) - H_{k-1}*s * s^t * H_{k-1}^t /(s^t * H_{k-1} * s)
-   y = GxyzHistoryR[0][iatom][k]  - GxyzHistoryR[1][iatom][k]
-   s = GxyzHistoryIn[0][iatom][k] - GxyzHistoryIn[1][iatom][k]
-    ************************************************************/
+      H_k = H_{k-1} + y*y^t/(y^t*y) - H_{k-1}*s * s^t * H_{k-1}^t /(s^t * H_{k-1} * s)
+      y = GxyzHistoryR[0][iatom][k]  - GxyzHistoryR[1][iatom][k]
+      s = GxyzHistoryIn[0][iatom][k] - GxyzHistoryIn[1][iatom][k]
+    ***********************************************************************************/
 
-    if (iter==1){
-
-      scaling_factor = 1.0;
-
-      for (i=1; i<=3*atomnum; i++){     
-	for (j=1; j<=3*atomnum; j++){     
-	  Hessian[i][j] = 0.0;
-	}
-	Hessian[i][i] = 1.0;
-      }
-    }
-
-    else {
+    if (iter!=1){
    
       /* H*s  */
 
@@ -3628,7 +5301,7 @@ void GDIIS_EF(int iter, int iter0)
     */
 
     if (atomnum<=4) MinKo = 0.10;
-    else            MinKo = 0.02;
+    else            MinKo = 0.005;
 
     for (i=1; i<=3*atomnum; i++){
       if (ko[i]<MinKo) ko[i] = MinKo;
@@ -3683,9 +5356,6 @@ void GDIIS_EF(int iter, int iter0)
 
 	for (i=0; i<diis_iter; i++) {
 	  Gxyz[iatom][j] += GxyzHistoryIn[i][iatom][j]*B[i]; 
-
-          printf("ABC1 iatom=%2d j=%2d i=%2d %15.12f %15.12f %15.12f\n",
-                 iatom,j,i,GxyzHistoryIn[i][iatom][j],B[i],Gxyz[iatom][j]);
 	}
 
 
@@ -3694,10 +5364,6 @@ void GDIIS_EF(int iter, int iter0)
 	m1++;
 
 	Gxyz[iatom][j] -= scaling_factor*U[0][m1];
-
-        printf("ABC2 iatom=%2d j=%2d %15.12f %15.12f %15.12f\n",
-	       iatom,j,scaling_factor,U[0][m1],Gxyz[iatom][j]);
-
       }
     }
 
@@ -4053,7 +5719,9 @@ void NVT_VS(int iter)
   if (myid==Host_ID){  
   
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+
+    /* corrected on 2016/1/19 by ADO */
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
   
   /****************************************************
@@ -4472,7 +6140,7 @@ void NVT_Langevin(int iter)
   if (myid==Host_ID){  
 
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 }
 
@@ -4625,7 +6293,7 @@ void NVT_VS2(int iter)
   if (myid==Host_ID){  
 
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   /****************************************************
@@ -4866,7 +6534,7 @@ void NVT_VS4(int iter)
 
   if (myid==Host_ID){
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   /****************************************************
@@ -5062,7 +6730,7 @@ void NVT_NH(int iter)
     if (myid==Host_ID){  
 
       sprintf(fileE,"%s%s.ene",filepath,filename);
-      iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+      iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
 
     /****************************************************
@@ -5262,7 +6930,7 @@ void NVT_NH(int iter)
     if (myid==Host_ID){  
 
       sprintf(fileE,"%s%s.ene",filepath,filename);
-      iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+      iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
 
     /****************************************************
@@ -5365,7 +7033,7 @@ void NVT_NH(int iter)
     if (myid==Host_ID){  
 
       sprintf(fileE,"%s%s.ene",filepath,filename);
-      iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+      iterout_md(iter,MD_TimeStep*(iter-1),fileE);
     }
 
     /****************************************************
@@ -5482,7 +7150,7 @@ static void Delta_Factor(int iter)
 
   if (myid==Host_ID){  
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   /****************************************************
@@ -5505,7 +7173,7 @@ static void Delta_Factor(int iter)
     }
 
     /****************************************************
-    update cartesian coordinates
+                update cartesian coordinates
     ****************************************************/
 
     for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
@@ -5559,7 +7227,7 @@ static void EvsLC(int iter)
 
   if (myid==Host_ID){  
     sprintf(fileE,"%s%s.ene",filepath,filename);
-    iterout_md(iter+MD_Current_Iter,MD_TimeStep*(iter+MD_Current_Iter-1),fileE);
+    iterout_md(iter,MD_TimeStep*(iter-1),fileE);
   }
 
   /****************************************************
@@ -5570,6 +7238,11 @@ static void EvsLC(int iter)
     if (MD_EvsLattice_flag[i-1]==1){
       for (j=1; j<=3; j++){
         tv[i][j] += tv0[i][j]*MD_EvsLattice_Step/100.0;
+      }
+    }
+    else if (MD_EvsLattice_flag[i-1]==-1){
+      for (j=1; j<=3; j++){
+        tv[i][j] -= tv0[i][j]*MD_EvsLattice_Step/100.0;
       }
     }
   }
@@ -5705,6 +7378,13 @@ int RestartFiles4GeoOpt(char *mode)
 	  }
 	}
 
+	/* RFC */
+	if (MD_switch==18){
+	  for (i=0; i<(3*atomnum+10); i++){
+	    fwrite(Hessian[i], sizeof(double), 3*atomnum+10, fp);
+	  }
+	}
+
 	success_flag = 1;
 	fclose(fp);
       }
@@ -5768,6 +7448,13 @@ int RestartFiles4GeoOpt(char *mode)
 	}
       }
 
+      /* RFC */
+      if (MD_switch==18){
+	for (i=0; i<(3*atomnum+10); i++){
+	  fread(Hessian[i], sizeof(double), 3*atomnum+10, fp);
+	}
+      }
+
       success_flag = 1;
       fclose(fp);
 
@@ -5779,6 +7466,1220 @@ int RestartFiles4GeoOpt(char *mode)
   }
 
   return success_flag;
+}
+
+
+void Output_abc_file(int iter)
+{
+  int i,j,k;
+  FILE *fp_abc;
+  char buf[fp_bsize];          /* setvbuf */
+  char fileabc[YOUSO10]="",dotabc[YOUSO10],iter_s[YOUSO10];
+
+  printf("\nOutputing to abc file.\n");
+  snprintf(iter_s,sizeof(iter_s),"%d",iter);
+  strcpy(dotabc,".abc");
+  fnjoint(iter_s,dotabc,fileabc);
+  fnjoint(filepath,filename,fileabc);
+
+  if ((fp_abc = fopen(fileabc,"w")) != NULL){
+
+#ifdef xt3
+    setvbuf(fp_abc,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+    fprintf(fp_abc,"# Total Energy (Hartree), abc-coordinates and Lattice Parameters (Ang) #\n");
+    fprintf(fp_abc,"TotalEnergy   %18.15f\n",Utot);
+    fprintf(fp_abc,"Atoms.Number  %i\n",atomnum);
+    fprintf(fp_abc,"<Atoms.SpeciesAndCoordinates\n");
+
+    /* atomic coordinates in case of colliear non-spin polarization */
+
+    if (SpinP_switch==0){
+
+      for (k=1; k<=atomnum; k++){
+	i = WhatSpecies[k];
+	j = Spe_WhatAtom[i];
+	fprintf(fp_abc," %4d  %4s   %18.15f %18.15f %18.15f\n",
+		k,Atom_Symbol[j],
+		Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR);
+      }
+    }
+
+    /* atomic coordinates in case of colliear spin polarization */
+
+    else if (SpinP_switch==1){
+
+      for (k=1; k<=atomnum; k++){
+	i = WhatSpecies[k];
+	j = Spe_WhatAtom[i];
+
+        if ( 0.0<=(InitN_USpin[k] - InitN_DSpin[k])){
+  	   fprintf(fp_abc," %4d  %4s   %18.15f %18.15f %18.15f %18.15f %18.15f %18.14f %18.14f\n",
+		   k,Atom_Symbol[j],
+		   Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
+                   InitN_USpin[k]+InitN_DSpin[k],
+                   fabs(InitN_USpin[k]-InitN_DSpin[k]),
+                   0.0,0.0);
+	}
+        else {
+  	   fprintf(fp_abc," %4d  %4s   %18.15f %18.15f %18.15f %18.15f %18.15f %18.14f %18.14f\n",
+		   k,Atom_Symbol[j],
+		   Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
+                   InitN_USpin[k]+InitN_DSpin[k],
+                   fabs(InitN_USpin[k]-InitN_DSpin[k]),
+                   180.0,0.0);
+        }
+
+      }
+    }
+
+    /* atomic coordinates in case of non-colliear spin polarization */
+
+    else if (SpinP_switch==3){
+
+      for (k=1; k<=atomnum; k++){
+	i = WhatSpecies[k];
+	j = Spe_WhatAtom[i];
+
+	fprintf(fp_abc," %4d  %4s   %18.15f %18.15f %18.15f %18.15f %18.15f %18.14f %18.14f\n",
+		k,Atom_Symbol[j],
+		Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
+		InitN_USpin[k]+InitN_DSpin[k],
+		InitN_USpin[k]-InitN_DSpin[k],
+		Angle0_Spin[k]/PI*180.0, Angle1_Spin[k]/PI*180.0);
+
+        /* check negativity of magnetic moment */
+
+        if ( (InitN_USpin[k]-InitN_DSpin[k])<0.0 ){
+
+          printf("found an error (negativity) in writing the abc file.\n");
+          MPI_Finalize();
+          exit(1);
+        }
+
+      }
+
+      
+
+
+    }
+
+    /* cell vectors */
+
+    fprintf(fp_abc,"Atoms.SpeciesAndCoordinates>\n");
+    fprintf(fp_abc,"<Atoms.UnitVectors\n");
+    fprintf(fp_abc,"%18.15f %18.15f %18.15f\n",tv[1][1]*BohrR,tv[1][2]*BohrR,tv[1][3]*BohrR);
+    fprintf(fp_abc,"%18.15f %18.15f %18.15f\n",tv[2][1]*BohrR,tv[2][2]*BohrR,tv[2][3]*BohrR);
+    fprintf(fp_abc,"%18.15f %18.15f %18.15f\n",tv[3][1]*BohrR,tv[3][2]*BohrR,tv[3][3]*BohrR);
+    fprintf(fp_abc,"Atoms.UnitVectors>\n");
+    fprintf(fp_abc,"# End #\n");
+    fclose(fp_abc);
+  }
+  else
+    printf("error(1) in MD_pac.c\n");
 
 }
 
+
+void Estimate_Initial_Hessian(int diis_iter, int CellOpt_flag, double itv[4][4])
+{
+  int numprocs,myid,ID;
+
+  /* MPI communication */
+
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /*******************************************
+               the identity matrix 
+  *******************************************/
+
+  if (Initial_Hessian_flag==0){
+
+    int i,j;
+
+    if (CellOpt_flag==1){
+
+      for (i=1; i<=(3*atomnum+9); i++){     
+	for (j=1; j<=(3*atomnum+9); j++){     
+	  Hessian[i][j] = 0.0;
+	}
+	Hessian[i][i] = 1.0;
+      }
+    }
+
+    else{
+
+      for (i=1; i<=3*atomnum; i++){     
+	for (j=1; j<=3*atomnum; j++){     
+	  Hessian[i][j] = 0.0;
+	}
+	Hessian[i][i] = 1.0;
+      }
+    }
+  }
+
+  /**************************************************************
+      A model Hessian proposed by H.B. Schlegel
+
+      Refs.
+      H.B. Schlegel, Theo. Chim. Acta (Berl.) 66, 333 (1984).
+      J.M.Wittbrodt and H.B. Schlegel, 
+      J. Mol. Str. (Theochem) 398-399, 55 (1997).
+  **************************************************************/
+
+  else if (Initial_Hessian_flag==1){
+
+    int i,j,k;
+    int Mc_AN,Gc_AN,h_AN,Gh_AN,Rn;
+    int wsp1,wsp2,m1,m2,n1,n2;
+    double r,g[4],gr,d;
+    double *Hess_tmp;
+    double B[8][8];
+
+    B[0][0] =  0.5000; B[0][1] =  0.5000; B[0][2] =  0.5000; B[0][3] =  0.5000; B[0][4] =  0.5000; B[0][5] =  0.5000; B[0][6] =  0.5000; B[0][7] =  0.5000;
+    B[1][0] =  0.5000; B[1][1] = -0.2573; B[1][2] =  0.3401; B[1][3] =  0.6937; B[1][4] =  0.7126; B[1][5] =  0.8335; B[1][6] =  0.9491; B[1][7] =  1.0000;
+    B[2][0] =  0.5000; B[2][1] =  0.3401; B[2][2] =  0.9652; B[2][3] =  1.2843; B[2][4] =  1.4625; B[2][5] =  1.6549; B[2][6] =  1.7190; B[2][7] =  2.0000;
+    B[3][0] =  0.5000; B[3][1] =  0.6937; B[3][2] =  1.2843; B[3][3] =  1.6925; B[3][4] =  1.8238; B[3][5] =  2.1164; B[3][6] =  2.3185; B[3][7] =  2.5000;
+    B[4][0] =  0.5000; B[4][1] =  0.7126; B[4][2] =  1.4625; B[4][3] =  1.8238; B[4][4] =  2.0203; B[4][5] =  2.2137; B[4][6] =  2.5206; B[4][7] =  2.7000;
+    B[5][0] =  0.5000; B[5][1] =  0.8335; B[5][2] =  1.6549; B[5][3] =  2.1164; B[5][4] =  2.2137; B[5][5] =  2.3718; B[5][6] =  2.5110; B[5][7] =  2.7000;
+    B[6][0] =  0.5000; B[6][1] =  0.9491; B[6][2] =  1.7190; B[6][3] =  2.3185; B[6][4] =  2.5206; B[6][5] =  2.5110; B[6][6] =  2.5200; B[6][7] =  2.7000;
+    B[7][0] =  0.5000; B[7][1] =  1.0000; B[7][2] =  2.0000; B[7][3] =  2.5000; B[7][4] =  2.7000; B[7][5] =  2.7000; B[7][6] =  2.7000; B[7][7] =  2.9000;
+
+    /* initialize Hessian */
+
+    if (CellOpt_flag==1){
+
+      for (i=1; i<=(3*atomnum+9); i++){     
+	for (j=1; j<=(3*atomnum+9); j++){     
+	  Hessian[i][j] = 0.0;
+	}
+      }
+
+      for (i=1; i<=3*atomnum; i++){     
+        Hessian[i][i] = 0.1;
+      }
+
+      for (i=3*atomnum+1; i<=(3*atomnum+9); i++){     
+        Hessian[i][i] = 0.05;
+      }
+    }
+
+    else{
+
+      for (i=1; i<=3*atomnum; i++){     
+	for (j=1; j<=3*atomnum; j++){     
+	  Hessian[i][j] = 0.0;
+	}
+	Hessian[i][i] = 0.1;
+      }
+    }
+
+    /* calculate the approximate Hessian */
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = M2G[Mc_AN];    
+
+      wsp1 = WhatSpecies[Gc_AN];
+      m1 = Spe_WhatAtom[wsp1];
+      if      (m1==1)   n1 = 1;
+      else if (m1<=10)  n1 = 2;
+      else if (m1<=18)  n1 = 3;
+      else if (m1<=36)  n1 = 4;
+      else if (m1<=54)  n1 = 5;
+      else if (m1<=86)  n1 = 6;
+      else if (m1<=103) n1 = 7;
+      if (m1==2 || m1==10 || m1==18 || m1==36 || m1==54 || m1==86) n1 = 0;
+
+      for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	Gh_AN = natn[Gc_AN][h_AN];
+	wsp2 = WhatSpecies[Gh_AN];
+	m2 = Spe_WhatAtom[wsp2];
+
+	if      (m2==1)   n2 = 1;
+	else if (m2<=10)  n2 = 2;
+	else if (m2<=18)  n2 = 3;
+	else if (m2<=36)  n2 = 4;
+	else if (m2<=54)  n2 = 5;
+	else if (m2<=86)  n2 = 6;
+	else if (m2<=103) n2 = 7;
+	if (m2==2 || m2==10 || m2==18 || m2==36 || m2==54 || m2==86) n2 = 0;
+
+	Rn = ncn[Gc_AN][h_AN];
+	r = Dis[Gc_AN][h_AN];
+
+	g[1] = (Gxyz[Gc_AN][1] - Gxyz[Gh_AN][1] - atv[Rn][1])/r;
+	g[2] = (Gxyz[Gc_AN][2] - Gxyz[Gh_AN][2] - atv[Rn][2])/r;
+	g[3] = (Gxyz[Gc_AN][3] - Gxyz[Gh_AN][3] - atv[Rn][3])/r;
+
+	d = r - B[n1][n2];
+	gr = 1.734/d/d/d;
+
+	/* diagonal terms */
+   
+	for (i=1; i<=3; i++){
+	  for (j=1; j<=3; j++){
+	    Hessian[(Gc_AN-1)*3+i][(Gc_AN-1)*3+j] += g[i]*g[j]*gr;
+	  }
+	}
+      
+	/* off-diagonal terms */
+
+	for (i=1; i<=3; i++){
+	  for (j=1; j<=3; j++){
+	    Hessian[(Gc_AN-1)*3+i][(Gh_AN-1)*3+j] += -g[i]*g[j]*gr;
+	  }
+	}
+
+      } /* h_AN */
+    } /* Mc_AN */
+
+    /* MPI communication: Hessian */
+
+    Hess_tmp = (double*)malloc(sizeof(double)*(atomnum+1)*9);
+
+    for (i=1; i<=atomnum; i++){     
+
+      ID = G2ID[i];
+
+      if (myid==ID){
+	for (k=0; k<3; k++){
+	  for (j=1; j<=3*atomnum; j++){
+	    Hess_tmp[3*k*atomnum+j-1] = Hessian[(i-1)*3+k+1][j];
+	  }
+	}
+      }
+
+      MPI_Bcast(&Hess_tmp[0], atomnum*9, MPI_DOUBLE, ID, mpi_comm_level1);
+
+      if (myid!=ID){
+	for (k=0; k<3; k++){
+	  for (j=1; j<=3*atomnum; j++){
+	    Hessian[(i-1)*3+k+1][j] = Hess_tmp[3*k*atomnum+j-1];
+	  }
+	}
+      }
+    }
+
+    /**************************************************************
+                        if (CellOpt_flag==1)    
+    **************************************************************/
+
+    if (CellOpt_flag==1){
+
+      int I,J,ki,kj;
+      double sum,HesF[4][4];
+
+      /* converting Hessian w.r.t cartesian coordinate to that w.r.t. fractional coordinate */
+
+      for (I=1; I<=atomnum; I++){     
+        for (J=1; J<=atomnum; J++){     
+	  for (i=1; i<=3; i++){     
+	    for (j=1; j<=3; j++){     
+
+              sum = 0.0;
+
+	      for (ki=1; ki<=3; ki++){     
+		for (kj=1; kj<=3; kj++){     
+                  sum += Hessian[(I-1)*3+ki][(J-1)*3+kj]*tv[i][ki]*tv[j][kj];
+		}
+	      }
+
+              HesF[i][j] = sum;
+	    }
+	  }
+
+	  for (i=1; i<=3; i++){     
+	    for (j=1; j<=3; j++){     
+              Hessian[(I-1)*3+i][(J-1)*3+j] = HesF[i][j];
+	    }
+	  }
+
+        }
+      }
+
+      /* calculate d2E_de2 */
+
+      int k1,k2,l1,l2,q1,q2;
+      double d2E_de2[4][4][4][4];
+      double d2E_da2[4][4][4][4];
+
+      for (k1=1; k1<=3; k1++){
+        for (l1=1; l1<=3; l1++){
+	  for (k2=1; k2<=3; k2++){
+	    for (l2=1; l2<=3; l2++){
+              d2E_de2[k1][l1][k2][l2] = 0.0;
+	    }
+	  }
+        }
+      }
+
+      for (k1=1; k1<=3; k1++){
+        for (l1=1; l1<=3; l1++){
+	  for (k2=1; k2<=3; k2++){
+	    for (l2=1; l2<=3; l2++){
+
+              for (I=1; I<=atomnum; I++){     
+
+		wsp1 = WhatSpecies[I];
+		m1 = Spe_WhatAtom[wsp1];
+		if      (m1==1)   n1 = 1;
+		else if (m1<=10)  n1 = 2;
+		else if (m1<=18)  n1 = 3;
+		else if (m1<=36)  n1 = 4;
+		else if (m1<=54)  n1 = 5;
+		else if (m1<=86)  n1 = 6;
+		else if (m1<=103) n1 = 7;
+		if (m1==2 || m1==10 || m1==18 || m1==36 || m1==54 || m1==86) n1 = 0;
+
+
+                for (h_AN=1; h_AN<=FNAN[I]; h_AN++){
+
+		  J = natn[I][h_AN];
+		  wsp2 = WhatSpecies[J];
+		  m2 = Spe_WhatAtom[wsp2];
+
+		  if      (m2==1)   n2 = 1;
+		  else if (m2<=10)  n2 = 2;
+		  else if (m2<=18)  n2 = 3;
+		  else if (m2<=36)  n2 = 4;
+		  else if (m2<=54)  n2 = 5;
+		  else if (m2<=86)  n2 = 6;
+		  else if (m2<=103) n2 = 7;
+		  if (m2==2 || m2==10 || m2==18 || m2==36 || m2==54 || m2==86) n2 = 0;
+
+		  Rn = ncn[I][h_AN];
+		  r = Dis[I][h_AN];
+
+		  g[1] = (Gxyz[I][1] - Gxyz[J][1] - atv[Rn][1])/r;
+		  g[2] = (Gxyz[I][2] - Gxyz[J][2] - atv[Rn][2])/r;
+		  g[3] = (Gxyz[I][3] - Gxyz[J][3] - atv[Rn][3])/r;
+
+		  d = r - B[n1][n2];
+		  gr = 1.734/d/d/d;
+
+
+                  d2E_de2[k1][l1][k2][l2] += 0.5*gr*g[k1]*g[k2]*g[l1]*g[l2]*r*r;
+
+		}
+	      }
+	    }
+	  }
+        }
+      }
+
+      /* calculate d2E_da2 */
+
+      for (k1=1; k1<=3; k1++){
+        for (l1=1; l1<=3; l1++){
+	  for (k2=1; k2<=3; k2++){
+	    for (l2=1; l2<=3; l2++){
+              d2E_da2[k1][l1][k2][l2] = 0.0;
+	    }
+	  }
+        }
+      }
+
+      for (k1=1; k1<=3; k1++){
+        for (l1=1; l1<=3; l1++){
+	  for (k2=1; k2<=3; k2++){
+	    for (l2=1; l2<=3; l2++){
+
+              for (m1=1; m1<=3; m1++){
+		for (m2=1; m2<=3; m2++){
+
+		  d2E_da2[k1][l1][k2][l2] += itv[m1][k1]*itv[m2][k2]*d2E_de2[m1][l1][m2][l2];
+
+		}
+	      }
+	    }
+	  }
+	}
+      }
+
+      /* Set d2E_da2 to Hessian */
+
+      q1 = 0;
+      for (k1=1; k1<=3; k1++){
+        for (l1=1; l1<=3; l1++){
+
+          q1++;
+
+          q2 = 0;
+	  for (k2=1; k2<=3; k2++){
+	    for (l2=1; l2<=3; l2++){
+
+              q2++;
+
+	      Hessian[3*atomnum+q1][3*atomnum+q2] += d2E_da2[k1][l1][k2][l2];
+	    }
+	  }
+	}
+      }
+
+      /* calculate d2E_dqde */
+
+      for (I=1; I<=atomnum; I++){     
+        for (i=1; i<=3; i++){
+
+	  wsp1 = WhatSpecies[I];
+	  m1 = Spe_WhatAtom[wsp1];
+	  if      (m1==1)   n1 = 1;
+	  else if (m1<=10)  n1 = 2;
+	  else if (m1<=18)  n1 = 3;
+	  else if (m1<=36)  n1 = 4;
+	  else if (m1<=54)  n1 = 5;
+	  else if (m1<=86)  n1 = 6;
+	  else if (m1<=103) n1 = 7;
+	  if (m1==2 || m1==10 || m1==18 || m1==36 || m1==54 || m1==86) n1 = 0;
+
+	  for (k1=1; k1<=3; k1++){
+	    for (l1=1; l1<=3; l1++){
+
+	      for (h_AN=1; h_AN<=FNAN[I]; h_AN++){
+
+		J = natn[I][h_AN];
+		wsp2 = WhatSpecies[J];
+		m2 = Spe_WhatAtom[wsp2];
+
+		if      (m2==1)   n2 = 1;
+		else if (m2<=10)  n2 = 2;
+		else if (m2<=18)  n2 = 3;
+		else if (m2<=36)  n2 = 4;
+		else if (m2<=54)  n2 = 5;
+		else if (m2<=86)  n2 = 6;
+		else if (m2<=103) n2 = 7;
+		if (m2==2 || m2==10 || m2==18 || m2==36 || m2==54 || m2==86) n2 = 0;
+
+		Rn = ncn[I][h_AN];
+		r = Dis[I][h_AN];
+
+		g[1] = (Gxyz[I][1] - Gxyz[J][1] - atv[Rn][1])/r;
+		g[2] = (Gxyz[I][2] - Gxyz[J][2] - atv[Rn][2])/r;
+		g[3] = (Gxyz[I][3] - Gxyz[J][3] - atv[Rn][3])/r;
+
+		d = r - B[n1][n2];
+		gr = 1.734/d/d/d;
+
+                for (k=1; k<=3; k++){
+                  Hessian[3*(I-1)+i][atomnum*3+(k1-1)*3+l1] += 0.5*gr*g[k]*g[k1]*tv[i][k]*g[l1]*r;
+		}
+
+	      } /* h_AN */
+
+	    }
+	  }
+        }
+      }
+
+      /* convert d2E_dqde to d2E_dqda */
+       
+      double tmpM[4][4][4];
+   
+      for (I=1; I<=atomnum; I++){     
+        for (i=1; i<=3; i++){
+	  for (j=1; j<=3; j++){
+	    for (l1=1; l1<=3; l1++){
+
+              sum = 0.0;
+	      for (k1=1; k1<=3; k1++){
+                sum += itv[k1][j]*Hessian[3*(I-1)+i][atomnum*3+(k1-1)*3+l1];
+	      }
+
+              tmpM[i][j][l1] = sum;
+	    }
+	  }
+	}
+
+        for (i=1; i<=3; i++){
+	  for (j=1; j<=3; j++){
+	    for (l1=1; l1<=3; l1++){
+              Hessian[3*(I-1)+i][atomnum*3+(j-1)*3+l1] = tmpM[i][j][l1]; 
+              Hessian[atomnum*3+(j-1)*3+l1][3*(I-1)+i] = tmpM[i][j][l1]; 
+	    }
+	  }
+	}
+      }
+
+      /*
+      if (myid==Host_ID){
+
+      for (i=1; i<=(3*atomnum+9); i++){     
+	for (j=1; j<=(3*atomnum+9); j++){     
+	  printf("%7.4f ",Hessian[i][j]);
+	}
+	printf("\n");
+      }
+      }
+
+      MPI_Finalize();
+      exit(0);
+      */
+
+    }
+
+    /* freeing of Hess_tmp */
+
+    free(Hess_tmp);
+  }
+
+  /*******************************************
+    an approximate Hessian by force fitting
+  *******************************************/
+
+  else if (Initial_Hessian_flag==2){
+
+    int Gc_AN,Mc_AN,i,j,p,Rn;
+    int wsp1,wsp2,m1,m2;
+    int h_AN,Gh_AN,po,loopN;
+    double **ep,**sig;
+    double **dQ_dep,**dQ_dsig;
+    double ***GLJ,ELJ[20],my_ELJ[20],r,r2,r3,g[4];
+    double norm_sig,norm_ep,my_norm_sig,my_norm_ep;
+    double sr,sr2,sr4,sr5,sr6,sr11,sr12;
+    double df_dr,d2f_dr2,d2f_depdr,d2f_dsigdr;
+    double dgx,dgy,dgz,coe_ep,coe_sig;
+    double Q,Qold,My_Q,dg_dep[4],dg_dsig[4];
+    double d2r_dx1dx2[4][4],d[4];
+    double ep0[104],sig0[104];
+
+    /* set sig0 in a.u. */
+
+    sig0[  0] = 0.8908987/BohrR*0.75;
+    sig0[  1] = 0.8908987/BohrR*0.75;
+    sig0[  2] = 0.8908987/BohrR*0.64;
+    sig0[  3] = 0.8908987/BohrR*2.68;  
+    sig0[  4] = 0.8908987/BohrR*1.80;  
+    sig0[  5] = 0.8908987/BohrR*1.64; 
+    sig0[  6] = 0.8908987/BohrR*1.54; 
+    sig0[  7] = 0.8908987/BohrR*1.50; 
+    sig0[  8] = 0.8908987/BohrR*1.46; 
+    sig0[  9] = 0.8908987/BohrR*1.42; 
+    sig0[ 10] = 0.8908987/BohrR*1.38; 
+    sig0[ 11] = 0.8908987/BohrR*3.08; 
+    sig0[ 12] = 0.8908987/BohrR*2.60; 
+    sig0[ 13] = 0.8908987/BohrR*2.36; 
+    sig0[ 14] = 0.8908987/BohrR*2.22; 
+    sig0[ 15] = 0.8908987/BohrR*2.12; 
+    sig0[ 16] = 0.8908987/BohrR*2.04;
+    sig0[ 17] = 0.8908987/BohrR*1.98; 
+
+    sig0[ 18] = 0.8908987/BohrR*2.68; 
+    sig0[ 19] = 0.8908987/BohrR*2.68; 
+    sig0[ 20] = 0.8908987/BohrR*2.68; 
+    sig0[ 21] = 0.8908987/BohrR*2.68; 
+    sig0[ 22] = 0.8908987/BohrR*2.68; 
+    sig0[ 23] = 0.8908987/BohrR*2.68; 
+    sig0[ 24] = 0.8908987/BohrR*2.68; 
+    sig0[ 25] = 0.8908987/BohrR*2.68; 
+    sig0[ 26] = 0.8908987/BohrR*2.68; 
+    sig0[ 27] = 0.8908987/BohrR*2.68; 
+    sig0[ 28] = 0.8908987/BohrR*2.68; 
+    sig0[ 29] = 0.8908987/BohrR*2.68; 
+    sig0[ 30] = 0.8908987/BohrR*2.68; 
+    sig0[ 31] = 0.8908987/BohrR*2.68; 
+    sig0[ 32] = 0.8908987/BohrR*2.68; 
+    sig0[ 33] = 0.8908987/BohrR*2.68; 
+    sig0[ 34] = 0.8908987/BohrR*2.68; 
+    sig0[ 35] = 0.8908987/BohrR*2.68; 
+    sig0[ 36] = 0.8908987/BohrR*2.68; 
+    sig0[ 37] = 0.8908987/BohrR*2.68; 
+    sig0[ 38] = 0.8908987/BohrR*2.68; 
+    sig0[ 39] = 0.8908987/BohrR*2.68; 
+    sig0[ 40] = 0.8908987/BohrR*2.68; 
+    sig0[ 41] = 0.8908987/BohrR*2.68; 
+    sig0[ 42] = 0.8908987/BohrR*2.68; 
+    sig0[ 43] = 0.8908987/BohrR*2.68; 
+    sig0[ 44] = 0.8908987/BohrR*2.68; 
+    sig0[ 45] = 0.8908987/BohrR*2.68; 
+    sig0[ 46] = 0.8908987/BohrR*2.68; 
+
+    sig0[ 47] = 0.8908987/BohrR*3.06; 
+
+    sig0[ 48] = 0.8908987/BohrR*2.68; 
+    sig0[ 49] = 0.8908987/BohrR*2.68; 
+    sig0[ 50] = 0.8908987/BohrR*2.68; 
+    sig0[ 51] = 0.8908987/BohrR*2.68; 
+    sig0[ 52] = 0.8908987/BohrR*2.68; 
+    sig0[ 53] = 0.8908987/BohrR*2.68; 
+    sig0[ 54] = 0.8908987/BohrR*2.68; 
+    sig0[ 55] = 0.8908987/BohrR*2.68; 
+    sig0[ 56] = 0.8908987/BohrR*2.68; 
+    sig0[ 57] = 0.8908987/BohrR*2.68; 
+    sig0[ 58] = 0.8908987/BohrR*2.68; 
+    sig0[ 59] = 0.8908987/BohrR*2.68; 
+    sig0[ 60] = 0.8908987/BohrR*2.68; 
+    sig0[ 61] = 0.8908987/BohrR*2.68; 
+    sig0[ 62] = 0.8908987/BohrR*2.68; 
+    sig0[ 63] = 0.8908987/BohrR*2.68; 
+    sig0[ 64] = 0.8908987/BohrR*2.68; 
+    sig0[ 65] = 0.8908987/BohrR*2.68; 
+    sig0[ 66] = 0.8908987/BohrR*2.68; 
+    sig0[ 67] = 0.8908987/BohrR*2.68; 
+    sig0[ 68] = 0.8908987/BohrR*2.68; 
+    sig0[ 69] = 0.8908987/BohrR*2.68; 
+    sig0[ 70] = 0.8908987/BohrR*2.68; 
+    sig0[ 71] = 0.8908987/BohrR*2.68; 
+    sig0[ 72] = 0.8908987/BohrR*2.68; 
+    sig0[ 73] = 0.8908987/BohrR*2.68; 
+    sig0[ 74] = 0.8908987/BohrR*2.68; 
+    sig0[ 75] = 0.8908987/BohrR*2.68; 
+    sig0[ 76] = 0.8908987/BohrR*2.68; 
+    sig0[ 77] = 0.8908987/BohrR*2.68; 
+    sig0[ 78] = 0.8908987/BohrR*2.68; 
+    sig0[ 79] = 0.8908987/BohrR*2.68; 
+    sig0[ 80] = 0.8908987/BohrR*2.68; 
+    sig0[ 81] = 0.8908987/BohrR*2.68; 
+    sig0[ 82] = 0.8908987/BohrR*2.68; 
+    sig0[ 83] = 0.8908987/BohrR*2.68; 
+    sig0[ 84] = 0.8908987/BohrR*2.68; 
+    sig0[ 85] = 0.8908987/BohrR*2.68; 
+    sig0[ 86] = 0.8908987/BohrR*2.68; 
+    sig0[ 87] = 0.8908987/BohrR*2.68; 
+    sig0[ 88] = 0.8908987/BohrR*2.68; 
+    sig0[ 89] = 0.8908987/BohrR*2.68; 
+    sig0[ 90] = 0.8908987/BohrR*2.68; 
+    sig0[ 91] = 0.8908987/BohrR*2.68; 
+    sig0[ 92] = 0.8908987/BohrR*2.68; 
+    sig0[ 93] = 0.8908987/BohrR*2.68; 
+    sig0[ 94] = 0.8908987/BohrR*2.68; 
+    sig0[ 95] = 0.8908987/BohrR*2.68; 
+    sig0[ 96] = 0.8908987/BohrR*2.68; 
+    sig0[ 97] = 0.8908987/BohrR*2.68; 
+    sig0[ 98] = 0.8908987/BohrR*2.68; 
+    sig0[ 99] = 0.8908987/BohrR*2.68; 
+    sig0[100] = 0.8908987/BohrR*2.68; 
+    sig0[101] = 0.8908987/BohrR*2.68; 
+    sig0[102] = 0.8908987/BohrR*2.68; 
+    sig0[103] = 0.8908987/BohrR*2.68; 
+
+    /* set ep0 */
+
+    ep0[  0] = 0.01/eV2Hartree;
+    ep0[  1] = 0.27/eV2Hartree;
+    ep0[  2] = 0.01/eV2Hartree;  
+    ep0[  3] = 0.19/eV2Hartree;
+    ep0[  4] = 0.39/eV2Hartree;
+    ep0[  5] = 0.69/eV2Hartree;
+    ep0[  6] = 0.87/eV2Hartree;
+    ep0[  7] = 0.58/eV2Hartree;
+    ep0[  8] = 0.31/eV2Hartree;
+    ep0[  9] = 0.10/eV2Hartree;
+    ep0[ 10] = 0.01/eV2Hartree;
+    ep0[ 11] = 0.13/eV2Hartree;
+    ep0[ 12] = 0.18/eV2Hartree;
+    ep0[ 13] = 0.40/eV2Hartree;
+    ep0[ 14] = 0.55/eV2Hartree;
+    ep0[ 15] = 0.41/eV2Hartree;
+    ep0[ 16] = 0.34/eV2Hartree;
+    ep0[ 17] = 0.17/eV2Hartree;
+    ep0[ 18] = 0.01/eV2Hartree;
+    ep0[ 19] = 0.11/eV2Hartree;
+    ep0[ 20] = 0.22/eV2Hartree;
+    ep0[ 21] = 0.46/eV2Hartree;
+
+    ep0[ 22] = 0.01/eV2Hartree;
+    ep0[ 23] = 0.01/eV2Hartree;
+    ep0[ 24] = 0.01/eV2Hartree;
+    ep0[ 25] = 0.01/eV2Hartree;
+    ep0[ 26] = 0.01/eV2Hartree;
+    ep0[ 27] = 0.01/eV2Hartree;
+    ep0[ 28] = 0.01/eV2Hartree;
+    ep0[ 29] = 0.01/eV2Hartree;
+    ep0[ 30] = 0.01/eV2Hartree;
+    ep0[ 31] = 0.01/eV2Hartree;
+    ep0[ 32] = 0.01/eV2Hartree;
+    ep0[ 33] = 0.01/eV2Hartree;
+    ep0[ 34] = 0.01/eV2Hartree;
+    ep0[ 35] = 0.01/eV2Hartree;
+    ep0[ 36] = 0.01/eV2Hartree;
+    ep0[ 37] = 0.01/eV2Hartree;
+    ep0[ 38] = 0.01/eV2Hartree;
+    ep0[ 39] = 0.01/eV2Hartree;
+    ep0[ 40] = 0.01/eV2Hartree;
+    ep0[ 41] = 0.01/eV2Hartree;
+    ep0[ 42] = 0.01/eV2Hartree;
+    ep0[ 43] = 0.01/eV2Hartree;
+    ep0[ 44] = 0.01/eV2Hartree;
+    ep0[ 45] = 0.01/eV2Hartree;
+    ep0[ 46] = 0.01/eV2Hartree;
+    ep0[ 47] = 0.35/eV2Hartree;
+    ep0[ 48] = 0.01/eV2Hartree; 
+    ep0[ 49] = 0.01/eV2Hartree;
+    ep0[ 50] = 0.01/eV2Hartree;
+    ep0[ 51] = 0.01/eV2Hartree;
+    ep0[ 52] = 0.01/eV2Hartree;
+    ep0[ 53] = 0.01/eV2Hartree;
+    ep0[ 54] = 0.01/eV2Hartree;
+    ep0[ 55] = 0.01/eV2Hartree;
+    ep0[ 56] = 0.01/eV2Hartree;
+    ep0[ 57] = 0.01/eV2Hartree;
+    ep0[ 58] = 0.01/eV2Hartree;
+    ep0[ 59] = 0.01/eV2Hartree;
+    ep0[ 60] = 0.01/eV2Hartree;
+    ep0[ 61] = 0.01/eV2Hartree;
+    ep0[ 62] = 0.01/eV2Hartree;
+    ep0[ 63] = 0.01/eV2Hartree;
+    ep0[ 64] = 0.01/eV2Hartree;
+    ep0[ 65] = 0.01/eV2Hartree;
+    ep0[ 66] = 0.01/eV2Hartree;
+    ep0[ 67] = 0.01/eV2Hartree;
+    ep0[ 68] = 0.01/eV2Hartree;
+    ep0[ 69] = 0.01/eV2Hartree;
+    ep0[ 70] = 0.01/eV2Hartree;
+    ep0[ 71] = 0.01/eV2Hartree;
+    ep0[ 72] = 0.01/eV2Hartree;
+    ep0[ 73] = 0.01/eV2Hartree;
+    ep0[ 74] = 0.01/eV2Hartree;
+    ep0[ 75] = 0.01/eV2Hartree;
+    ep0[ 76] = 0.01/eV2Hartree;
+    ep0[ 77] = 0.01/eV2Hartree;
+    ep0[ 78] = 0.01/eV2Hartree;
+    ep0[ 79] = 0.01/eV2Hartree;
+    ep0[ 80] = 0.01/eV2Hartree;
+    ep0[ 81] = 0.01/eV2Hartree;
+    ep0[ 82] = 0.01/eV2Hartree;
+    ep0[ 83] = 0.01/eV2Hartree;
+    ep0[ 84] = 0.01/eV2Hartree;
+    ep0[ 85] = 0.01/eV2Hartree;
+    ep0[ 86] = 0.01/eV2Hartree;
+    ep0[ 87] = 0.01/eV2Hartree;
+    ep0[ 88] = 0.01/eV2Hartree;
+    ep0[ 89] = 0.01/eV2Hartree;
+    ep0[ 90] = 0.01/eV2Hartree;
+    ep0[ 91] = 0.01/eV2Hartree;
+    ep0[ 92] = 0.01/eV2Hartree;
+    ep0[ 93] = 0.01/eV2Hartree;
+    ep0[ 94] = 0.01/eV2Hartree;
+    ep0[ 95] = 0.01/eV2Hartree;
+    ep0[ 96] = 0.01/eV2Hartree;
+    ep0[ 97] = 0.01/eV2Hartree;
+    ep0[ 98] = 0.01/eV2Hartree;
+    ep0[ 99] = 0.01/eV2Hartree;
+    ep0[100] = 0.01/eV2Hartree;
+    ep0[101] = 0.01/eV2Hartree;
+    ep0[102] = 0.01/eV2Hartree;
+    ep0[103] = 0.01/eV2Hartree;
+
+    /* allocation of arrays */
+
+    GLJ = (double***)malloc(sizeof(double**)*(M_GDIIS_HISTORY+1));
+    for (p=0; p<(M_GDIIS_HISTORY+1); p++){
+      GLJ[p] = (double**)malloc(sizeof(double*)*(Matomnum+1));
+      for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	GLJ[p][Mc_AN] = (double*)malloc(sizeof(double)*4);
+	for (i=0; i<4; i++) GLJ[p][Mc_AN][i] = 0.0;
+      }
+    }
+
+    ep = (double**)malloc(sizeof(double*)*(Matomnum+1));
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      if (Mc_AN==0){
+        ep[Mc_AN] = (double*)malloc(sizeof(double)*1);
+        ep[Mc_AN][0] = 0.0;
+      }
+      else {
+        Gc_AN = M2G[Mc_AN];    
+        wsp1 = WhatSpecies[Gc_AN];
+        m1 = Spe_WhatAtom[wsp1];
+
+        ep[Mc_AN] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+        for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+          wsp2 = WhatSpecies[Gh_AN];
+          m2 = Spe_WhatAtom[wsp2];
+          ep[Mc_AN][h_AN] = sqrt(ep0[m1]*ep0[m2]);  /* set the initial value */
+	}
+      }
+    }
+
+    sig = (double**)malloc(sizeof(double*)*(Matomnum+1));
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      if (Mc_AN==0){
+        sig[Mc_AN] = (double*)malloc(sizeof(double)*1);
+        sig[Mc_AN][0] = 0.0;
+      }
+      else {
+        Gc_AN = M2G[Mc_AN];    
+        wsp1 = WhatSpecies[Gc_AN];
+        m1 = Spe_WhatAtom[wsp1];
+
+        sig[Mc_AN] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+        for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+          wsp2 = WhatSpecies[Gh_AN];
+          m2 = Spe_WhatAtom[wsp2];
+          sig[Mc_AN][h_AN] = 0.5*(sig0[m1]+sig0[m2]); /* set the initial value */
+	}
+      }
+    }
+
+    dQ_dep = (double**)malloc(sizeof(double*)*(Matomnum+1));
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      if (Mc_AN==0){
+        dQ_dep[Mc_AN] = (double*)malloc(sizeof(double)*1);
+      }
+      else {
+        Gc_AN = M2G[Mc_AN];    
+        dQ_dep[Mc_AN] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      }
+    }
+
+    dQ_dsig = (double**)malloc(sizeof(double*)*(Matomnum+1));
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      if (Mc_AN==0){
+        dQ_dsig[Mc_AN] = (double*)malloc(sizeof(double)*1);
+      }
+      else {
+        Gc_AN = M2G[Mc_AN];    
+        dQ_dsig[Mc_AN] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      }
+    }
+
+    /*************************************************************
+      optimization of the obeject function for gradient fitting 
+    *************************************************************/
+
+    po = 0;
+    loopN = 1;
+
+    do {
+
+      My_Q = 0.0;
+
+      for (p=0; p<diis_iter; p++) {
+
+	/* calculate the LJ total energy, the LJ gradients, and the object function Q */
+
+	my_ELJ[p] = 0.0;
+
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	  Gc_AN = M2G[Mc_AN];    
+
+	  GLJ[p][Mc_AN][1] = 0.0;
+	  GLJ[p][Mc_AN][2] = 0.0;
+	  GLJ[p][Mc_AN][3] = 0.0;
+
+	  for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Rn = ncn[Gc_AN][h_AN];
+
+            d[1] = GxyzHistoryIn[p][Gc_AN][1] - GxyzHistoryIn[p][Gh_AN][1] - atv[Rn][1];
+            d[2] = GxyzHistoryIn[p][Gc_AN][2] - GxyzHistoryIn[p][Gh_AN][2] - atv[Rn][2];
+            d[3] = GxyzHistoryIn[p][Gc_AN][3] - GxyzHistoryIn[p][Gh_AN][3] - atv[Rn][3];
+	    r = sqrt(d[1]*d[1]+d[2]*d[2]+d[3]*d[3]);
+
+	    g[1] = d[1]/r;
+	    g[2] = d[2]/r;
+	    g[3] = d[3]/r;
+
+	    sr = sig[Mc_AN][h_AN]/r;
+	    sr2 = sr*sr;
+	    sr4 = sr2*sr2;
+	    sr6 = sr2*sr4;
+	    sr12 = sr6*sr6;
+
+	    my_ELJ[p] += 2.0*ep[Mc_AN][h_AN]*(sr12 - sr6); /* The factor of 0.5 is considered. */
+         
+	    d2f_depdr = 24.0*(sr6 - 2.0*sr12)/r;
+	    df_dr = d2f_depdr*ep[Mc_AN][h_AN];
+
+	    GLJ[p][Mc_AN][1] += g[1]*df_dr;
+	    GLJ[p][Mc_AN][2] += g[2]*df_dr;
+	    GLJ[p][Mc_AN][3] += g[3]*df_dr;
+	  }
+
+	  dgx = GLJ[p][Mc_AN][1] - GxyzHistoryR[p][Gc_AN][1];
+	  dgy = GLJ[p][Mc_AN][2] - GxyzHistoryR[p][Gc_AN][2];
+	  dgz = GLJ[p][Mc_AN][3] - GxyzHistoryR[p][Gc_AN][3];
+      
+	  My_Q += 0.5*(dgx*dgx+dgy*dgy+dgz*dgz);  
+
+	} /* Mc_AN */
+      } /* p */
+
+      /* MPI of Q */ 
+
+      Qold = Q;
+      MPI_Allreduce(&My_Q, &Q, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+      for (p=0; p<diis_iter; p++) {
+        MPI_Allreduce(&my_ELJ[p], &ELJ[p], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+      }
+
+      /*
+      for (p=0; p<diis_iter; p++) {
+        printf("ELJ[%d]=%18.15f\n",p,ELJ[p]);
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	  printf("Mc_AN=%2d p=%2d GLJ=%18.15f %18.15f %18.15f\n",
+                  Gc_AN,p,GLJ[p][Mc_AN][1],GLJ[p][Mc_AN][2],GLJ[p][Mc_AN][3]); 
+	}    
+      }
+      */
+
+      /* calculate the gradients of Q with respect to ep and sig */
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	Gc_AN = M2G[Mc_AN];    
+	for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  dQ_dep[Mc_AN][h_AN]  = 0.0;
+	  dQ_dsig[Mc_AN][h_AN] = 0.0;
+	}
+      }
+
+      for (p=0; p<diis_iter; p++) {
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	  Gc_AN = M2G[Mc_AN];    
+
+	  for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Rn = ncn[Gc_AN][h_AN];
+
+            d[1] = GxyzHistoryIn[p][Gc_AN][1] - GxyzHistoryIn[p][Gh_AN][1] - atv[Rn][1];
+            d[2] = GxyzHistoryIn[p][Gc_AN][2] - GxyzHistoryIn[p][Gh_AN][2] - atv[Rn][2];
+            d[3] = GxyzHistoryIn[p][Gc_AN][3] - GxyzHistoryIn[p][Gh_AN][3] - atv[Rn][3];
+	    r = sqrt(d[1]*d[1]+d[2]*d[2]+d[3]*d[3]);
+
+	    g[1] = d[1]/r;
+	    g[2] = d[2]/r;
+	    g[3] = d[3]/r;
+
+	    sr = sig[Mc_AN][h_AN]/r;
+	    sr2 = sr*sr;
+	    sr4 = sr2*sr2;
+	    sr5 = sr*sr4;
+	    sr6 = sr2*sr4;
+	    sr11 = sr5*sr6;
+	    sr12 = sr6*sr6;
+
+	    d2f_depdr = 24.0*(sr6 - 2.0*sr12)/r;
+	    df_dr = d2f_depdr*ep[Mc_AN][h_AN];
+	    d2f_dsigdr = 144.0*ep[Mc_AN][h_AN]*(sr5 - 4.0*sr11)/r/r;
+
+	    dg_dep[1] = g[1]*d2f_depdr;
+	    dg_dep[2] = g[2]*d2f_depdr;
+	    dg_dep[3] = g[3]*d2f_depdr;
+
+	    dg_dsig[1] = g[1]*d2f_dsigdr;
+	    dg_dsig[2] = g[2]*d2f_dsigdr;
+	    dg_dsig[3] = g[3]*d2f_dsigdr;
+
+  	    dgx = GLJ[p][Mc_AN][1] - GxyzHistoryR[p][Gc_AN][1];
+	    dgy = GLJ[p][Mc_AN][2] - GxyzHistoryR[p][Gc_AN][2];
+	    dgz = GLJ[p][Mc_AN][3] - GxyzHistoryR[p][Gc_AN][3];
+
+	    dQ_dep[Mc_AN][h_AN]  += dgx*dg_dep[1] + dgy*dg_dep[2] + dgz*dg_dep[3];
+	    dQ_dsig[Mc_AN][h_AN] += dgx*dg_dsig[1] + dgy*dg_dsig[2] + dgz*dg_dsig[3];
+
+	    /*
+	      printf("Gc_AN=%2d h_AN=%2d dQ_dep=%15.12f dQ_dsig=%15.12f\n",
+	      Gc_AN,h_AN,dQ_dep[Mc_AN][h_AN],dQ_dsig[Mc_AN][h_AN]);
+	    */
+
+	  } /* h_AN */
+
+	  /*
+          printf("DDD1 p=%2d Gc_AN=%2d %15.12f %15.12f\n",
+                       p,Gc_AN,GLJ[p][Mc_AN][1],GxyzHistoryR[p][Gc_AN][1]);
+	  */
+
+	} /* Mc_AN */
+      } /* p */
+
+      /* calculate the norm of gradients */
+
+      my_norm_ep  = 0.0; 
+      my_norm_sig = 0.0; 
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	Gc_AN = M2G[Mc_AN];    
+	for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  my_norm_ep  +=  dQ_dep[Mc_AN][h_AN]*dQ_dep[Mc_AN][h_AN];
+	  my_norm_sig += dQ_dsig[Mc_AN][h_AN]*dQ_dsig[Mc_AN][h_AN];
+	}
+      }
+
+      /* MPI of Q */ 
+
+      if (loopN==1){
+
+        MPI_Allreduce(&my_norm_ep,  &norm_ep,  1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+        MPI_Allreduce(&my_norm_sig, &norm_sig, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+	norm_ep  = norm_ep/(double)atomnum;
+	norm_sig = norm_sig/(double)atomnum;
+
+        coe_ep  = 0.001/norm_ep; 
+        if (0.1<coe_ep) coe_ep = 0.1;
+
+        coe_sig = 0.001/norm_sig; 
+        if (0.1<coe_sig) coe_sig = 0.1;
+
+      }
+      else{
+
+        if (Q<Qold){
+          coe_ep  = 1.5*coe_ep;
+          coe_sig = 1.5*coe_sig;
+	}
+        else{
+          coe_ep  = coe_ep/3.0;
+          coe_sig = coe_sig/3.0;
+        }
+      }
+
+      /*
+      printf("loopN=%4d Q=%18.15f coe_ep=%15.12f coe_sig=%15.12f\n",loopN,Q,coe_ep,coe_sig);
+      */
+
+      /* update ep and sig */
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	Gc_AN = M2G[Mc_AN];    
+
+	for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+          ep[Mc_AN][h_AN]  -= coe_ep*dQ_dep[Mc_AN][h_AN]; 
+          sig[Mc_AN][h_AN] -= coe_sig*dQ_dsig[Mc_AN][h_AN]; 
+	}
+      }
+
+      if (Q<0.000000001) po = 1;
+
+      loopN++;
+
+    } while(po==0 && loopN<200);
+
+    /* initialize Hessian */
+
+    for (i=1; i<=3*atomnum; i++){     
+      for (j=1; j<=3*atomnum; j++){     
+	Hessian[i][j] = 0.0;
+      }
+      Hessian[i][i] = 0.1;
+    }
+
+    /* construct the Hessian */
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = M2G[Mc_AN];    
+
+      for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	Gh_AN = natn[Gc_AN][h_AN];
+	Rn = ncn[Gc_AN][h_AN];
+	r = Dis[Gc_AN][h_AN];
+        r2 = r*r;
+        r3 = r2*r; 
+
+	g[1] = (Gxyz[Gc_AN][1] - Gxyz[Gh_AN][1] - atv[Rn][1])/r;
+	g[2] = (Gxyz[Gc_AN][2] - Gxyz[Gh_AN][2] - atv[Rn][2])/r;
+	g[3] = (Gxyz[Gc_AN][3] - Gxyz[Gh_AN][3] - atv[Rn][3])/r;
+
+	sr = sig[Mc_AN][h_AN]/r;
+	sr2 = sr*sr;
+	sr4 = sr2*sr2;
+	sr5 = sr*sr4;
+	sr6 = sr2*sr4;
+	sr11 = sr5*sr6;
+	sr12 = sr6*sr6;
+
+	d2f_depdr = 24.0*(sr6 - 2.0*sr12)/r;
+	df_dr = d2f_depdr*ep[Mc_AN][h_AN];
+        d2f_dr2 = -ep[Mc_AN][h_AN]*(168.0*sr6-624.0*sr12)/r2;
+
+        for (i=1; i<=3; i++){
+          for (j=1; j<=3; j++){
+            d2r_dx1dx2[i][j] = -g[i]*g[j]/r;
+	  }
+          d2r_dx1dx2[i][i] += 1.0/r;
+        }
+        
+        /* diagonal block */
+
+        for (i=1; i<=3; i++){
+          for (j=1; j<=3; j++){
+	    Hessian[(Gc_AN-1)*3+i][(Gc_AN-1)*3+j] += d2r_dx1dx2[i][j]*df_dr + g[i]*g[j]*d2f_dr2;      
+	  }
+	}
+  
+        /* off-diagonal block */
+
+        for (i=1; i<=3; i++){
+          for (j=1; j<=3; j++){
+	    Hessian[(Gc_AN-1)*3+i][(Gh_AN-1)*3+j] += -d2r_dx1dx2[i][j]*df_dr - g[i]*g[j]*d2f_dr2;      
+	  }
+	}
+
+      } /* h_AN */
+    } /* Mc_AN */       
+
+    /* MPI Hessian */
+   
+    for (i=1; i<=atomnum; i++){     
+      ID = G2ID[i];
+      MPI_Bcast(&Hessian[(i-1)*3+1][1], 3*atomnum, MPI_DOUBLE, ID, mpi_comm_level1);
+      MPI_Bcast(&Hessian[(i-1)*3+2][1], 3*atomnum, MPI_DOUBLE, ID, mpi_comm_level1);
+      MPI_Bcast(&Hessian[(i-1)*3+3][1], 3*atomnum, MPI_DOUBLE, ID, mpi_comm_level1);
+    }    
+
+    /* freeing of arrays */
+
+    for (p=0; p<(M_GDIIS_HISTORY+1); p++){
+      for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	free(GLJ[p][Mc_AN]);
+      }
+      free(GLJ[p]);
+    }
+    free(GLJ);
+
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      free(ep[Mc_AN]);
+    }
+    free(ep);
+
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      free(sig[Mc_AN]);
+    }
+    free(sig);
+
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      free(dQ_dep[Mc_AN]);
+    }
+    free(dQ_dep);
+
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+      free(dQ_dsig[Mc_AN]);
+    }
+    free(dQ_dsig);
+
+  }
+
+  else{
+
+    int i,j;
+
+    for (i=1; i<=3*atomnum; i++){     
+      for (j=1; j<=3*atomnum; j++){     
+	Hessian[i][j] = 0.0;
+      }
+      Hessian[i][i] = 1.0;
+    }
+  }
+
+
+  /*
+  for (i=1; i<=3*atomnum; i++){     
+    for (j=1; j<=3*atomnum; j++){     
+      printf("%8.5f ",Hessian[i][j]);
+    }
+    printf("\n");
+  }
+
+  MPI_Finalize();
+  exit(0);
+  */
+
+}

@@ -44,6 +44,7 @@ double readfile(char *argv[])
 
     Input_std(argv[1]);
     fclose(fp);
+
   }
   else{
     printf("Failure of reading the input file.\n");

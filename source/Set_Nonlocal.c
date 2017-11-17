@@ -25,11 +25,17 @@
 #include "mpi.h"
 #include <omp.h>
 
-
+#ifdef kcomp
 static double NLRF_BesselF(int Gensi, int L, int so, double R);
 static void Nonlocal0(double *****HNL, double ******DS_NL);
 static void Multiply_DS_NL(int Mc_AN, int Mj_AN, int k, int kl, 
                            int Cwan, int Hwan, int wakg, dcomplex ***NLH);
+#else
+inline double NLRF_BesselF(int Gensi, int L, int so, double R);
+inline void Nonlocal0(double *****HNL, double ******DS_NL);
+inline void Multiply_DS_NL(int Mc_AN, int Mj_AN, int k, int kl, 
+                           int Cwan, int Hwan, int wakg, dcomplex ***NLH);
+#endif
 
 
 double Set_Nonlocal(double *****HNL, double ******DS_NL)
@@ -47,7 +53,7 @@ double Set_Nonlocal(double *****HNL, double ******DS_NL)
 
 
 
-static void Nonlocal0(double *****HNL, double ******DS_NL)
+void Nonlocal0(double *****HNL, double ******DS_NL)
 {
   /****************************************************
    Evaluate matrix elements of nonlocal potentials
@@ -173,6 +179,8 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
     dcomplex **CmatNLr;
     dcomplex **CmatNLt;
     dcomplex **CmatNLp;
+
+    if (1){
 
     /* allocation of arrays */
 
@@ -770,6 +778,8 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
     }
     free(TmpNL);
 
+    }
+
 #pragma omp flush(DS_NL)
 
   } /* #pragma omp parallel */
@@ -1103,7 +1113,7 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
 
   /* allocation of arrays */
 
-#pragma omp parallel shared(time_per_atom,HNL,iHNL,iHNL0,F_NL_flag,List_YOUSO,Dis,SpinP_switch,Spe_Total_NO,DS_NL,Spe_VPS_List,Spe_VNLE,Spe_Num_RVPS,VPS_j_dependency,Spe_Total_VPS_Pro,RMI1,F_G2M,natn,Spe_Atom_Cut1,FNAN,WhatSpecies,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop,SO_switch) 
+#pragma omp parallel shared(Matomnum,time_per_atom,HNL,iHNL,iHNL0,F_NL_flag,List_YOUSO,Dis,SpinP_switch,Spe_Total_NO,DS_NL,Spe_VPS_List,Spe_VNLE,Spe_Num_RVPS,VPS_j_dependency,Spe_Total_VPS_Pro,RMI1,F_G2M,natn,Spe_Atom_Cut1,FNAN,WhatSpecies,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop,SO_switch) 
   {
     int OMPID,Nthrds,Nprocs,Nloop;
     int Mc_AN,j,Gc_AN,Cwan,fan,jg,i1,j1,i;
@@ -1266,7 +1276,7 @@ void Multiply_DS_NL(int Mc_AN, int Mj_AN, int k, int kl,
   dcomplex sum0,sum1,sum2; 
 
   /****************************************************
-                     l-dependent non-local part
+              l-dependent non-local part
   ****************************************************/
         
   if (VPS_j_dependency[wakg]==0){
@@ -1619,7 +1629,7 @@ void Multiply_DS_NL(int Mc_AN, int Mj_AN, int k, int kl,
 
 
 
-static double NLRF_BesselF(int Gensi, int L, int so, double R)
+double NLRF_BesselF(int Gensi, int L, int so, double R)
 {
   int mp_min,mp_max,m,po;
   double h1,h2,h3,f1,f2,f3,f4;

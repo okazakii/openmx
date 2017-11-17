@@ -52,6 +52,16 @@ int neb_check(char *argv[])
   s_vec[i]="NVT_VS4";                 i_vec[i]=14; i++; /* modified by Ohwaki */
   s_vec[i]="NVT_Langevin";            i_vec[i]=15; i++; /* modified by Ohwaki */
   s_vec[i]="DF";                      i_vec[i]=16; i++; /* delta-factor */
+  s_vec[i]="OptC1";                   i_vec[i]=17; i++; /* cell opt with fixed fractional coordinates by SD */
+  s_vec[i]="OptC2";                   i_vec[i]=18; i++; /* cell opt with fixed fractional coordinates and angles fixed by SD */
+  s_vec[i]="OptC3";                   i_vec[i]=19; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|=|a3| by SD */
+  s_vec[i]="OptC4";                   i_vec[i]=20; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|!=|a3| by SD */
+  s_vec[i]="OptC5";                   i_vec[i]=21; i++; /* cell opt with no constraint for cell and coordinates by SD */
+  s_vec[i]="RFC1";                    i_vec[i]=22; i++; /* cell opt with fixed fractional coordinates by RF */
+  s_vec[i]="RFC2";                    i_vec[i]=23; i++; /* cell opt with fixed fractional coordinates and angles fixed by RF */
+  s_vec[i]="RFC3";                    i_vec[i]=24; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|=|a3| by RF */
+  s_vec[i]="RFC4";                    i_vec[i]=25; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|!=|a3| by RF */
+  s_vec[i]="RFC5";                    i_vec[i]=26; i++; /* cell opt with no constraint for cell and coordinates by RF */
 
   j = input_string2int("MD.Type",&MD_switch, i, s_vec,i_vec);
   if (j==-1){
@@ -63,7 +73,7 @@ int neb_check(char *argv[])
 
   flag = 0;
   if (MD_switch==13) flag = 1;
-   
+
   return flag;
 }
 

@@ -42,7 +42,7 @@ int TRAN_Check_Region_Lead(int atomnum,
 
   /* this routine only in the case of TRAN_output_hks!=0 */
 
-  if ( TRAN_output_hks==0 ) {
+  if ( TRAN_output_hks==0 && TRAN_output_TranMain==0 ) {
     return 1;
   }
 

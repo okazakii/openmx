@@ -6,7 +6,7 @@
 
   Log of Make_InputFile_with_FinalCoord.c:
 
-     19/Sep./2007  Released by T.Ozaki
+     19/Sep./2007  Released by T. Ozaki
 
 ***********************************************************************/
 
@@ -46,10 +46,13 @@ void Make_InputFile_with_FinalCoord(char *file, int MD_iter)
 
 void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
 {
-  int i,Gc_AN,c,n1,k;
+  int i,j,Gc_AN,c,n1,k;
   int restart_flag,fixed_flag;
   int geoopt_restart_flag;
   int velocity_flag;
+  int MD_Current_Iter_flag;
+  int Atoms_UnitVectors_flag;
+  int Atoms_UnitVectors_Unit_flag;
   int rstfile_num;
   double c1,c2,c3;
   double vx,vy,vz;
@@ -76,6 +79,9 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
     geoopt_restart_flag = 0;
     fixed_flag = 0;
     velocity_flag = 0; 
+    MD_Current_Iter_flag = 0;
+    Atoms_UnitVectors_flag = 0;
+    Atoms_UnitVectors_Unit_flag = 0;
 
     /* the new input file */    
 
@@ -193,7 +199,6 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
         else if (strncmp(st1,"geoopt.restart",11)==0){
           fprintf(fp1,"geoopt.restart    on\n");
           geoopt_restart_flag = 1;
-          fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
 	}
 
         /* scf.fixed.grid */
@@ -227,12 +232,44 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
           fprintf(fp1,"MD.Init.Velocity>\n");
 
           velocity_flag = 1;
-
-          /* MD.Current.Iter */
-
-          fprintf(fp1,"\n\n");
-          fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
         }  
+
+        /* MD.Current.Iter */
+
+        else if (strncmp(st1,"md.current.iter",15)==0){
+          fprintf(fp1,"\n\nMD.Current.Iter  %2d\n",MD_iter);
+          MD_Current_Iter_flag = 1;
+	}
+
+        /* Atoms.UnitVectors */
+
+        else if (strncmp(st1,"<atoms.unitvectors",18)==0){
+
+          for (i=1; i<=4; i++){
+            fgets(st,800,fp2);
+	  }
+
+          fprintf(fp1,"<Atoms.UnitVectors\n");
+
+          for (i=1; i<=3; i++){
+            for (j=1; j<=3; j++){
+              fprintf(fp1," %18.15f ",tv[i][j]);
+            }
+            fprintf(fp1,"\n");
+          }
+
+          fprintf(fp1,"Atoms.UnitVectors>\n");
+
+          Atoms_UnitVectors_flag = 1;
+	}
+
+        /* Atoms.UnitVectors.Unit */
+
+        else if (strncmp(st1,"atoms.unitvectors.unit",22)==0){
+
+          fprintf(fp1,"Atoms.UnitVectors.Unit  AU\n");
+          Atoms_UnitVectors_Unit_flag = 1;
+	}
 
         else{
           fprintf(fp1,"%s",st);
@@ -253,7 +290,6 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
     if (geoopt_restart_flag==0 &&
        (MD_switch==3 || MD_switch==4 || MD_switch==5 || MD_switch==6 || MD_switch==7) ){
       fprintf(fp1,"\n\ngeoopt.restart    on\n");
-      fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
     }
 
     /* add scf.fixed.grid if it was not found. */
@@ -280,10 +316,37 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
 
       fprintf(fp1,"MD.Init.Velocity>\n");
 
-      /* MD.Current.Iter */
+    }
+
+    /* add MD.Current.Iter if it was not found. */
+
+    if (MD_Current_Iter_flag==0){
+      fprintf(fp1,"\n\nMD.Current.Iter  %2d\n",MD_iter);
+    }
+
+    /* add Atoms.UnitVectors if it was not found. */
+
+    if (Atoms_UnitVectors_flag==0){
 
       fprintf(fp1,"\n\n");
-      fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
+      fprintf(fp1,"<Atoms.UnitVectors\n");
+
+      for (i=1; i<=3; i++){
+	for (j=1; j<=3; j++){
+	  fprintf(fp1," %18.15f ",tv[i][j]);
+	}
+	fprintf(fp1,"\n");
+      }
+
+      fprintf(fp1,"Atoms.UnitVectors>\n");
+    }
+
+    /* add Atoms.UnitVectors if it was not found. */
+
+    if (Atoms_UnitVectors_Unit_flag==0){
+
+      fprintf(fp1,"\n\n");
+      fprintf(fp1,"Atoms.UnitVectors.Unit  AU\n");
     }
 
     /* fclose */

@@ -1216,7 +1216,8 @@ double Species_Opt_Contraction_DIIS(
 
     Mc_AN = 1;
     po = 0;
-    do {
+
+    while (po==0 && Mc_AN<=Matomnum){
 
       Gc_AN = M2G[Mc_AN];
       Cwan = WhatSpecies[Gc_AN];
@@ -1227,8 +1228,7 @@ double Species_Opt_Contraction_DIIS(
       }
 
       Mc_AN++;
-
-    } while (po==0 && Mc_AN<=Matomnum);
+    } 
 
     my_po = po*(myid+1);
     MPI_Allreduce(&my_po, &po, 1, MPI_INT, MPI_MAX, mpi_comm_level1);    

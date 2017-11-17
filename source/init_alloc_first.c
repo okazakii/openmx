@@ -16,7 +16,7 @@
 
 void init_alloc_first()
 {
-
+  
   /***********************************************
    truncation.c
 
@@ -257,5 +257,22 @@ void init_alloc_first()
    Index_Rcv_Grid_B2D
   ***********************************************/
   alloc_first[30] = 1;
+
+  /***********************************************
+   Index_Snd_Grid_B_AB2C
+   Index_Rcv_Grid_B_AB2C
+  ***********************************************/
+  /* added by mari 05.12.2014 */
+  alloc_first[31] = 1;
+
+  /***********************************************
+   Allocate_Arrays(4);
+   GridX_EH0
+   GridY_EH0
+   GridZ_EH0
+   Arho_EH0
+   Wt_EH0  
+  ***********************************************/
+  alloc_first[32] = 1;
 
 }

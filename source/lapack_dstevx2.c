@@ -59,7 +59,7 @@ void lapack_dstevx2(INTEGER N, INTEGER EVmax, double *D, double *E, double *W, d
 
   /* store eigenvectors */
 
-  if (ev_flag){
+  if (ev_flag==1){
     for (i=0; i<EVmax; i++) {
       for (j=0; j<N; j++) {
         ev[i+1][j+1].r = Z[i*N+j];

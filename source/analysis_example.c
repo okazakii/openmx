@@ -44,7 +44,35 @@ int main(int argc, char *argv[])
   static double *a;
   static FILE *fp;
 
+  double Ebond[30],Es,Ep;
+
   read_scfout(argv);
+
+  /*
+  for (spin=0; spin<=SpinP_switch; spin++){
+    for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
+      TNO1 = Total_NumOrbs[ct_AN];
+      for (i=0; i<TNO1; i++) Ebond[i] = 0.0; 
+      for (i=0; i<TNO1; i++){
+	for (h_AN=0; h_AN<=FNAN[ct_AN]; h_AN++){
+	  Gh_AN = natn[ct_AN][h_AN];
+	  Rn = ncn[ct_AN][h_AN];
+	  TNO2 = Total_NumOrbs[Gh_AN];
+          for (j=0; j<TNO2; j++){
+            Ebond[i] += DM[spin][ct_AN][h_AN][i][j]*Hks[spin][ct_AN][h_AN][i][j];
+	  }
+	}
+        printf("spin=%2d ct_AN=%2d i=%2d Ebond=%15.12f\n",spin,ct_AN,i,Ebond[i]);
+      }
+
+      Es = Ebond[0] + Ebond[1] + Ebond[2] + Ebond[3] + Ebond[5] + Ebond[6] + Ebond[9] + Ebond[10];
+      Ep = Ebond[4] + Ebond[7] + Ebond[8] + Ebond[11] + + Ebond[12];
+
+      printf("%15.12f %15.12f\n",4.0*Es,4.0*Ep);
+
+    }
+  }
+  */
 
   /**********************************************************************
    Example 1:

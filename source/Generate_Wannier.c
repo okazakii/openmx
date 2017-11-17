@@ -7,6 +7,7 @@
 
      24/Mar/2008   Started by Hongming Weng
      06/Jun/2008   Start the coding for disentangling of mixed bands
+     23/Sep/2015   Interface with wannier90 is added by Fumiyuki Ishii
 ***********************************************************************/
 
 #include <stdio.h>
@@ -1193,7 +1194,7 @@ void Wannier(int Solver,
   int fsize,fsize2,fsize3,fsize4;
   int spin,spinsize,diag_flag;
   int i,j,k,l,hos,po,wan,hog2,valnonmag;
-  int n1,n2,n3,i1,i2,i3;
+  int n1,n2,n3,i1,i2,i3,itmp;
   int itmp1,itmp2,itmp3,itmp4,m,n,m1;
   int kloop[4][4];
   int pflag[4];
@@ -1226,6 +1227,7 @@ void Wannier(int Solver,
   double psi,sumpsi[2];
   double detr;
   double TZ;
+  double Cxyz[4];
   int ct_AN,h_AN;
   char *s_vec[20];
   int *MP;  
@@ -1261,9 +1263,12 @@ void Wannier(int Solver,
   int sec_step, sec_max ;
 
   /* for file operation*/
-  FILE *fp,*fpkpt,*fptmp;
+  FILE *fp,*fpkpt,*fpkpt2,*fpwn90, *fptmp,*fptmp2;
   char  *dumy;
   char fname[300];
+  char fname2[300];
+  char fname3[300];
+  char fname4[300];
 
   int BANDNUM, MkNUM;
   int kpt_num, ki, kj, kk, fband_num;
@@ -1404,6 +1409,12 @@ void Wannier(int Solver,
   }
 
   po = 0;
+/* for Wannier90, F.Ishii*/ 
+  if(Wannier90_fileout){
+  Wannier_Dis_SCF_Max_Steps=0;
+  Wannier_Minimizing_Max_Steps=0;
+  }
+
 
   /* show and set parameters */
 
@@ -1565,6 +1576,9 @@ void Wannier(int Solver,
       }
     }
   } 
+
+
+
 
   /* Find the bvectors */
 
@@ -2354,19 +2368,27 @@ void Wannier(int Solver,
 
   /***************************************************
               save EigenValall and Wkall
+              "*.eig" is added for wannier90 by F. Ishii
   ***************************************************/
   
   if (lreadMmnk==0 && myid==Host_ID){
 
     sprintf(fname,"%s%s.eigen",filepath,filename);
+    sprintf(fname2,"%s%s.eig",filepath,filename);
 
     if((fptmp=fopen(fname,"wt"))==NULL){
       printf("Error in opening %s for writing eigenvalues.\n",fname);
       exit(0);
     }
+    if((fptmp2=fopen(fname2,"wt"))==NULL){
+      printf("Error in opening %s for writing eigenvalues.\n",fname2);
+      exit(0);
+    }
 
     fprintf(fptmp,"Fermi level %lf\n",ChemP);
+    //fprintf(fptmp2,"Fermi level %lf\n",ChemP*eV2Hartree);
     fprintf(fptmp,"Number of bands %i\n",BANDNUM);
+    //fprintf(fptmp2,"Number of bands %i\n",BANDNUM);
 
     for(spin=0; spin<spinsize; spin++){
       for(k=0; k<kpt_num; k++){
@@ -2375,11 +2397,13 @@ void Wannier(int Solver,
 
           if ( (i+Nk[spin][k][0])<fsize3 && (i+Nk[spin][k][0])<=Nk[spin][k][1]){
             fprintf(fptmp,"%5d%5d%18.12f\n",i,k+1,EigenValall[k][spin][i+Nk[spin][k][0]]);
+            fprintf(fptmp2,"%5d%5d%18.12f\n",i,k+1,(EigenValall[k][spin][i+Nk[spin][k][0]]-ChemP)*eV2Hartree);
 	  }
           else {
             double dtmp;
             dtmp = 10000.0;  
             fprintf(fptmp,"%5d%5d  %18.10f\n",i,k+1,dtmp);
+            fprintf(fptmp2,"%5d%5d  %18.10f\n",i,k+1,dtmp);
           }
         }
       }
@@ -2390,6 +2414,8 @@ void Wannier(int Solver,
 
         fprintf(fptmp, "WF kpt %i (%10.8f,%10.8f,%10.8f)\n",
                         k+1,kg[k][0],kg[k][1],kg[k][2]);
+        //fprintf(fptmp2, "WF kpt %i (%10.8f,%10.8f,%10.8f)\n",
+        //                k+1,kg[k][0],kg[k][1],kg[k][2]);
 
         for(i=1; i<BANDNUM+1; i++){
           for(j=1; j<fsize3; j++){
@@ -2399,6 +2425,9 @@ void Wannier(int Solver,
               fprintf(fptmp,"%i %i %14.10f %14.10f\n",
                              i,j,Wkall[k][spin][i+Nk[spin][k][0]][j].r,
                                  Wkall[k][spin][i+Nk[spin][k][0]][j].i); 
+          //    fprintf(fptmp2,"%i %i %14.10f %14.10f\n",
+           //                  i,j,Wkall[k][spin][i+Nk[spin][k][0]][j].r,
+           //                      Wkall[k][spin][i+Nk[spin][k][0]][j].i); 
 	    }
             else {
 
@@ -2407,6 +2436,7 @@ void Wannier(int Solver,
               dtmp2 = 0.0;
 
               fprintf(fptmp,"%i %i %14.10f %14.10f\n",i,j,dtmp1,dtmp2);
+            //  fprintf(fptmp2,"%i %i %14.10f %14.10f\n",i,j,dtmp1,dtmp2);
             }
 	  }
         }
@@ -2414,7 +2444,109 @@ void Wannier(int Solver,
     } 
 
     fclose(fptmp);
+    fclose(fptmp2);
   }
+
+/* fpwn90 is added for wannier90 input *.win file by  F. Ishii*/
+    if (myid==Host_ID){
+      //sprintf(fname3,"%s%s.kptwin",filepath,filename);
+      sprintf(fname4,"%s%s.win",filepath,filename);
+      //if((fpkpt2=fopen(fname3,"wt"))==NULL){
+      //  printf("Error in opening %s for writing k point for wannier90.\n",fname3);
+      //  exit(0);
+      //}
+      if((fpwn90=fopen(fname4,"wt"))==NULL){
+        printf("Error in opening %s for input file for wannier90.\n",fname4);
+        exit(0);
+      }
+     // i=0;
+      fprintf(fpwn90, "num_bands %d\n", BANDNUM);
+      fprintf(fpwn90, "num_wann %d\n", Wannier_Func_Num);
+      fprintf(fpwn90, "num_iter 15000\n");
+      fprintf(fpwn90, "begin unit_cell_cart\n");
+      fprintf(fpwn90, "Ang\n");
+      for (i=1; i<=3; i++){
+        fprintf(fpwn90,"%lf %lf %lf\n",tv[i][1]*BohrR_Wannier,tv[i][2]*BohrR_Wannier,tv[i][3]*BohrR_Wannier);
+     }
+      fprintf(fpwn90, "end unit_cell_cart\n");
+      fprintf(fpwn90, "begin atoms_frac\n");
+      
+      for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+        /* The zero is taken as the origin of the unit cell. */
+
+	Cxyz[1] = Gxyz[Gc_AN][1];
+	Cxyz[2] = Gxyz[Gc_AN][2];
+	Cxyz[3] = Gxyz[Gc_AN][3];
+
+	Cell_Gxyz[Gc_AN][1] = Dot_Product(Cxyz,rtv[1])*0.5/PI;
+	Cell_Gxyz[Gc_AN][2] = Dot_Product(Cxyz,rtv[2])*0.5/PI;
+	Cell_Gxyz[Gc_AN][3] = Dot_Product(Cxyz,rtv[3])*0.5/PI;
+
+        /* The fractional coordinates are kept within 0 to 1. */
+
+        for (i=1; i<=3; i++){
+
+          itmp = (int)Cell_Gxyz[Gc_AN][i]; 
+
+	  if (1.0<Cell_Gxyz[Gc_AN][i]){
+	    Cell_Gxyz[Gc_AN][i] = fabs(Cell_Gxyz[Gc_AN][i] - (double)itmp);
+	  }
+	  else if (Cell_Gxyz[Gc_AN][i]<-1.0e-13){
+	    Cell_Gxyz[Gc_AN][i] = fabs(Cell_Gxyz[Gc_AN][i] + (double)(abs(itmp)+1));
+	  }
+	}
+
+        k = WhatSpecies[Gc_AN];
+
+//        fprintf(fp,"%4s   %18.14f %18.14f %18.14f\n",
+        fprintf(fpwn90,"%4s %18.14f %18.14f %18.14f\n",
+                SpeName[k],
+               Cell_Gxyz[Gc_AN][1],
+               Cell_Gxyz[Gc_AN][2],
+               Cell_Gxyz[Gc_AN][3]);
+      }
+
+
+
+      fprintf(fpwn90, "end atoms_frac\n");
+      fprintf(fpwn90, "dis_win_min =%18.14f\n",Wannier_Outer_Window_Bottom); 
+      fprintf(fpwn90, "dis_win_max =%18.14f\n",Wannier_Outer_Window_Top); 
+      fprintf(fpwn90, "dis_froz_min =%18.14f\n",Wannier_Inner_Window_Bottom); 
+      fprintf(fpwn90, "dis_froz_max =%18.14f\n",Wannier_Inner_Window_Top); 
+      fprintf(fpwn90, "mp_grid %d %d %d\n",knum_i, knum_j, knum_k);
+      fprintf(fpwn90, "begin_kpoints\n");
+      for(k=0;k<kpt_num;k++){
+        //fprintf(fpkpt2, "%12.8f%12.8f%12.8f\n",kg[k][0],kg[k][1],kg[k][2]);
+        fprintf(fpwn90, "%12.8f%12.8f%12.8f\n",kg[k][0],kg[k][1],kg[k][2]);
+      }
+      fprintf(fpwn90, "end_kpoints\n");
+      fprintf(fpwn90, "!spinors T\n");
+      fprintf(fpwn90, "bands_plot T\n");
+      fprintf(fpwn90, "begin kpoint_path\n");
+       for (i=1;i<=Band_Nkpath;i++) {
+         fprintf(fpwn90,"%s %lf %lf %lf %s %lf %lf %lf\n",
+                 Band_kname[i][1],
+                 Band_kpath[i][1][1], Band_kpath[i][1][2], Band_kpath[i][1][3],
+                 Band_kname[i][2],
+                 Band_kpath[i][2][1], Band_kpath[i][2][2], Band_kpath[i][2][3]);
+       }
+      fprintf(fpwn90, "end kpoint_path\n");
+      fprintf(fpwn90, "bands_plot_dim 2\n");
+      fprintf(fpwn90, "bands_num_points 100\n");
+      fprintf(fpwn90, "!fermi_energy_min =-3.0\n");
+      fprintf(fpwn90, "!fermi_energy_max =3.0\n");
+      fprintf(fpwn90, "!fermi_energy_step = 0.1\n");
+      fprintf(fpwn90, "fermi_energy = 0.0\n");
+      fprintf(fpwn90, "berry T\n");
+      fprintf(fpwn90, "!berry_task ahc\n");
+      fprintf(fpwn90, "berry_task kubo\n");
+      fprintf(fpwn90, "kubo_freq_max = 7.0\n");
+      fprintf(fpwn90, "kmesh 100\n");
+      fprintf(fpwn90, "berry_curv_adpt_kmesh 3\n");
+
+    }
+
 
   /* Now calculate the overlap matrix Mmn(k,b) for each k point */
   /* Mmnkb:
@@ -8433,11 +8565,22 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
       */
     }/* iteration */
     if(iter>=dis_max_iter && fabs(delta_OI)>dis_conv_tol){
+      if(Wannier90_fileout==0){
       if (myid==Host_ID){
         printf("**************************** WARNNING ****************************\n");
         printf(" Iteration for minimizing Omega_I is not converged. Please change \n");
         printf(" the parameters and try again.\n");
         printf("**************************** WARNNING ****************************\n");
+      }
+      } else {
+      if (myid==Host_ID){
+         printf("\nThe input files for Wannier90,\n"); 
+         printf("\nSystem.Name.amn\n"); 
+         printf("System.Name.mmn\n"); 
+         printf("System.Name.eig\n"); 
+         printf("System.Name.win\n"); 
+         printf("\nare successfully generated.\n"); 
+          }
       }
       MPI_Finalize();
       exit(0);

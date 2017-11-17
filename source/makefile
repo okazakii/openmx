@@ -13,17 +13,59 @@
 # module load PrgEnv-gnu
 # module load fftw
 #
-# CC      = cc -Dxt3 -march=corei7-avx -Ofast -fsignaling-nans -funroll-all-loops -fopenmp -I/work/t-ozaki/ACML5.3.0/gfortran64_mp/include
-# FC      = ftn -Dxt3 -march=corei7-avx -Ofast -fsignaling-nans -funroll-all-loops -fopenmp -mfpmath=sse -I/work/t-ozaki/ACML5.3.0/gfortran64_mp/include
-# LIB     = -L/work/t-ozaki/ACML5.3.0/gfortran64_mp/lib -lacml_mp -Wl,-rpath=/work/t-ozaki/ACML5.3.0/gfortran64_mp/lib -Wl,-rpath=/work/t-ozaki/ACML5.3.0/gfortran64_mp/lib
+# CC      = cc -Dxt3 -Ofast -march=haswell -mtune=haswell -mno-avx -mno-aes -fsignaling-nans -funroll-all-loops -fopenmp                  
+# or                                                                                                                                      
+# CC      = cc -Dxt3 -Dscalapack -Ofast -march=haswell -mtune=haswell -mno-avx -mno-aes -fsignaling-nans -funroll-all-loops -fopenmp      
+# FC      = ftn -Dxt3 -Ofast -march=haswell -mtune=haswell -mno-avx -mno-aes -fsignaling-nans -funroll-all-loops -mfpmath=sse -fopenmp    
+# LIB     =                                                                                                                               
+
+#
+# hster (Intel Xeon E5-2680v2, 2.80GHz)
+#
+# MKLROOT = /opt/intel/mkl
+# FFTW = -I/work/t-ozaki/fftw-3.3.4
+# LIB= -L/$(MKLROOT)/lib/intel64/ -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -L/work/t-ozaki/fftw-3.3.4/lib -lfftw3 -liomp5 -lifcore -lmpi
+# CC = icc -openmp -O3 -xAVX -ip -no-prec-div $(FFTW) 
+# FC = ifort -openmp -O3 -xAVX -ip -no-prec-div $(FFTW) 
 #
 
 #
-# mx73-vtpcc01 (Intel(R) Xeon(R) CPU E5-2670 @ 2.60GHz)
+# NO ScaLAPACK version for mx73-vtpcc01 (Intel(R) Xeon(R) CPU E5-2670 @ 2.60GHz)
+#
+# CC = mpicc -O3 -xHOST -ip -no-prec-div -openmp -I/opt/intel/mkl/include/fftw
+# FC = mpif90 -O3 -xHOST -ip -no-prec-div -openmp
+# LIB= -L/opt/intel/mkl/lib -mkl=parallel -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lifcore -lmpi -lmpi_f90 -lmpi_f77
+#
+# or 
 #
 # CC	= /usr/local/openmpi-1.4.5/bin/mpicc -O3 -xHOST -ip -no-prec-div -openmp -I/home/ozaki/include -I/home/ozaki/ACML5.3.0/ifort64_mp/include
-# FC	= /usr/local/openmpi-1.4.5/bin/mpif90 -O3 -xHOST -ip -no-prec-div -openmp 
+# FC	= /usr/local/openmpi-1.4.5/bin/mpif90 -O3 -xHOST -ip -no-prec-div -openmp -static
 # LIB	= -L/usr/local/openmpi-1.4.5/lib -lmpi_f77 -lmpi_f90 /home/ozaki/lib/libfftw3.a -L/home/ozaki/ACML5.3.0/ifort64_mp/lib -lacml_mp -Wl,-rpath=/home/ozaki/ACML5.3.0/ifort64_mp/lib -Wl,-rpath=/home/ozaki/ACML5.3.0/ifort64_mp/lib 
+#
+
+#
+# ScaLAPACK version for mx73-vtpcc01 (Intel(R) Xeon(R) CPU E5-2670 @ 2.60GHz)
+#
+# CC = mpicc -O3 -Dscalapack -xHOST -ip -no-prec-div -openmp -I/opt/intel/mkl/include/fftw
+# FC = mpif90 -O3 -xHOST -ip -no-prec-div -openmp
+# LIB= -L/opt/intel/mkl/lib -mkl=parallel -lmkl_scalapack_lp64 -lmkl_blacs_openmpi_lp64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lifcore -lmpi -lmpi_f90 -lmpi_f77
+#
+
+#
+# macloud (Intel(R) Xeon(R) CPU E5-2670 v3 @ 2.30GHz) 
+#
+# FFTW_ROOT = /share/materiapps/fftw/fftw-3.3.4-1
+# CC    = mpicc -Dxt3 -Ofast -fsignaling-nans -funroll-all-loops -mfpmath=sse -fopenmp -I${FFTW_ROOT}/include
+# FC    = mpif90 -Dxt3 -Ofast -fsignaling-nans -funroll-all-loops -mfpmath=sse -fopenmp -I${FFTW_ROOT}/include
+# LIB   = -L${FFTW_ROOT}/lib -lfftw3 -L/usr/local/lib -llapack -lblas -lgfortran -L/usr/lib64/openmpi/lib -lmpi_mpifh
+#
+
+#
+# phi at CMSI-Kobe (Intel Xeon E5-2670, 2.6GHz)
+#
+# CC      = mpicc -O3 -xHOST -ip -no-prec-div -openmp -I/home/ozaki/include -I/home/ozaki/ACML5.3.0/ifort64_mp/include
+# FC      = mpifort -O3 -xHOST -ip -no-prec-div -openmp
+# LIB     = /home/ozaki/fftw-3.3.4/lib/libfftw3.a -L/home/ozaki/ACML5.3.0/ifort64_mp/lib -lacml_mp -Wl,-rpath=/home/ozaki/ACML5.3.0/ifort64_mp/lib -Wl,-rpath=/home/ozaki/ACML5.3.0/ifort64_mp/lib -L/home/issp/usr/lib -lmpichf90 -lmpich -lifcore -limf
 #
 
 #
@@ -94,9 +136,11 @@
 #
 
 
-CC    = mpicc -openmp -O3 -I/usr/local/include
-FC    = mpif90 -openmp -O3 -I/usr/local/include
-LIB   = -L/usr/local/lib -lfftw3 -llapack -lblas -lg2c -static
+CC = mpicc -O3 -xHOST -ip -no-prec-div -openmp -I/opt/intel/mkl/include/fftw
+FC = mpif90 -O3 -xHOST -ip -no-prec-div -openmp
+LIB= -L/opt/intel/mkl/lib -mkl=parallel -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lifcore -lmpi -lmpi_f90 -lmpi_f77
+
+
 
 
 
@@ -106,14 +150,14 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
           init.o LU_inverse.o ReLU_inverse.o \
           truncation.o readfile.o FT_PAO.o FT_NLP.o \
           FT_ProExpn_VNA.o FT_VNA.o FT_ProductPAO.o \
-          Hamiltonian_Cluster.o Overlap_Cluster.o Hamiltonian_Band.o \
+          Hamiltonian_Cluster.o Hamiltonian_Cluster_Hs.o Overlap_Cluster.o Hamiltonian_Band.o \
           Overlap_Band.o Hamiltonian_Cluster_NC.o Hamiltonian_Band_NC.o \
           Hamiltonian_Cluster_SO.o Get_OneD_HS_Col.o SetPara_DFT.o \
           XC_Ceperly_Alder.o XC_CA_LSDA.o XC_PW92C.o XC_PBE.o XC_EX.o \
-          DFT.o Mixing_DM.o Force.o Poisson.o Poisson_ESM.o \
-          Cluster_DFT.o Cluster_DFT_Dosout.o Cluster_DFT_ON2.o \
-          Band_DFT_Col.o  Band_DFT_NonCol.o Band_DFT_kpath.o \
-          Band_DFT_MO.o Band_DFT_Dosout.o Set_Density_Grid.o \
+          DFT.o Mixing_DM.o Mixing_H.o Force.o Stress.o Poisson.o Poisson_ESM.o \
+          Cluster_DFT.o Cluster_DFT_ScaLAPACK.o Cluster_DFT_Dosout.o Cluster_DFT_ON2.o \
+          Band_DFT_Col.o Band_DFT_Col_ScaLAPACK.o Band_DFT_NonCol.o Band_DFT_kpath.o \
+          Band_DFT_MO.o Unfolding_Bands.o Band_DFT_Dosout.o Set_Density_Grid.o \
           Set_Orbitals_Grid.o Set_Aden_Grid.o \
           Gauss_Legendre.o zero_cfrac.o xyz2spherical.o AngularF.o \
           RadialF.o Dr_RadialF.o PhiF.o  VNAF.o Dr_VNAF.o VH_AtomF.o \
@@ -122,7 +166,7 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
           Occupation_Number_LDA_U.o Eff_Hub_Pot.o \
           EulerAngle_Spin.o Smoothing_Func.o Orbital_Moment.o \
           Pot_NeutralAtom.o \
-          Simple_Mixing_DM.o DIIS_Mixing_DM.o GR_Pulay_DM.o \
+          Simple_Mixing_DM.o DIIS_Mixing_DM.o ADIIS_Mixing_DM.o GR_Pulay_DM.o \
           Kerker_Mixing_Rhok.o DIIS_Mixing_Rhok.o \
           Total_Energy.o Contract_Hamiltonian.o Contract_iHNL.o \
           Cont_Matrix0.o Cont_Matrix1.o Cont_Matrix2.o Cont_Matrix3.o Cont_Matrix4.o \
@@ -130,10 +174,10 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
           Get_Orbitals.o Get_dOrbitals.o Get_Cnt_Orbitals.o \
           Get_Cnt_dOrbitals.o Gaunt.o Find_CGrids.o MD_pac.o \
           RestartFileDFT.o Output_CompTime.o Merge_LogFile.o Make_FracCoord.o \
-          Make_InputFile_with_FinalCoord.o \
-          Divide_Conquer.o Krylov.o \
+          Make_InputFile_with_FinalCoord.o Output_Energy_Decomposition.o \
+          Divide_Conquer.o Krylov.o EC.o \
           Divide_Conquer_Dosout.o \
-          Eigen_lapack.o Eigen_lapack2.o EigenBand_lapack.o \
+          Eigen_lapack.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
           Eigen_PReHH.o BroadCast_ReMatrix.o \
           Eigen_PHH.o BroadCast_ComplexMatrix.o \
           lapack_dstedc1.o lapack_dstedc2.o lapack_dstedc3.o\
@@ -151,7 +195,7 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
           SCF2File.o mimic_sse.o Make_Comm_Worlds.o \
           Set_Allocate_Atom2CPU.o Cutoff.o Generating_MP_Special_Kpt.o \
           Maketest.o Runtest.o Memory_Leak_test.o \
-          Force_test.o Show_DFT_DATA.o Generate_Wannier.o \
+          Force_test.o Stress_test.o Show_DFT_DATA.o Generate_Wannier.o \
           TRAN_Allocate.o TRAN_DFT.o TRAN_DFT_Dosout.o TRAN_Apply_Bias2e.o \
           TRAN_Deallocate_Electrode_Grid.o TRAN_Deallocate_RestartFile.o \
           TRAN_RestartFile.o TRAN_Calc_CentGreen.o TRAN_Input_std.o \
@@ -164,10 +208,13 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
           TRAN_Poisson.o TRAN_adjust_Ngrid.o TRAN_Print.o TRAN_Print_Grid.o \
           Lapack_LU_inverse.o TRAN_Distribute_Node.o TRAN_Output_HKS_Write_Grid.o \
           TRAN_Credit.o TRAN_Check_Region_Lead.o TRAN_Check_Region.o TRAN_Check_Input.o \
-          DFTDvdW_init.o neb.o neb_run.o neb_check.o \
+          DFTDvdW_init.o DFTD3vdW_init.o neb.o neb_run.o neb_check.o cellopt.o \
           TRAN_Allocate_NC.o TRAN_DFT_NC.o TRAN_Set_CentOverlap_NC.o TRAN_Set_SurfOverlap_NC.o \
+          TRAN_Calc_OneTransmission.o TRAN_Main_Analysis.o TRAN_Main_Analysis_NC.o \
+          MTRAN_EigenChannel.o TRAN_Channel_Functions.o TRAN_Channel_Output.o \
+          TRAN_Calc_CurrentDensity.o TRAN_CDen_Main.o \
           elpa1.o solve_evp_real.o solve_evp_complex.o \
-
+          NBO_Cluster.o NBO_Krylov.o \
 
 # PROG    = openmx.exe
 # PROG    = openmx
@@ -196,13 +243,23 @@ CC      += -I$(LIBERIDIR)
 
 PROG    = openmx
 DESTDIR = ../work
+UTIL 	= DosMain jx analysis_example esp polB bandgnu13 bin2txt cube2xsf intensity_map md2axsf
 
+#
 # OpenMX
-
-All:	$(PROG)
+#
 
 openmx:	$(OBJS)
 	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+
+#
+#
+# all
+#
+#
+
+all: $(PROG) $(UTIL)
+	cp $(PROG) $(UTIL) $(DESTDIR)/
 
 openmx.o: openmx.c openmx_common.h tran_variables.h tran_prototypes.h
 	$(CC) -c openmx.c
@@ -230,6 +287,8 @@ readfile.o: readfile.c openmx_common.h
 #
 Hamiltonian_Cluster.o: Hamiltonian_Cluster.c openmx_common.h
 	$(CC) -c Hamiltonian_Cluster.c
+Hamiltonian_Cluster_Hs.o: Hamiltonian_Cluster_Hs.c openmx_common.h
+	$(CC) -c Hamiltonian_Cluster_Hs.c
 Overlap_Cluster.o: Overlap_Cluster.c openmx_common.h
 	$(CC) -c Overlap_Cluster.c
 Hamiltonian_Band.o: Hamiltonian_Band.c openmx_common.h
@@ -267,24 +326,34 @@ DFT.o: DFT.c openmx_common.h tran_prototypes.h
 	$(CC) -c DFT.c
 Cluster_DFT.o: Cluster_DFT.c openmx_common.h
 	$(CC) -c Cluster_DFT.c
+Cluster_DFT_ScaLAPACK.o: Cluster_DFT_ScaLAPACK.c openmx_common.h
+	$(CC) -c Cluster_DFT_ScaLAPACK.c
 Cluster_DFT_Dosout.o: Cluster_DFT_Dosout.c openmx_common.h
 	$(CC) -c Cluster_DFT_Dosout.c
 Cluster_DFT_ON2.o: Cluster_DFT_ON2.c openmx_common.h
 	$(CC) -c Cluster_DFT_ON2.c
 Band_DFT_Col.o: Band_DFT_Col.c openmx_common.h
 	$(CC) -c Band_DFT_Col.c
+Band_DFT_Col_ScaLAPACK.o: Band_DFT_Col_ScaLAPACK.c openmx_common.h
+	$(CC) -c Band_DFT_Col_ScaLAPACK.c
 Band_DFT_NonCol.o: Band_DFT_NonCol.c openmx_common.h
 	$(CC) -c Band_DFT_NonCol.c
 Band_DFT_kpath.o: Band_DFT_kpath.c openmx_common.h
 	$(CC) -c Band_DFT_kpath.c
 Band_DFT_MO.o: Band_DFT_MO.c openmx_common.h
 	$(CC) -c Band_DFT_MO.c
+Unfolding_Bands.o: Unfolding_Bands.c openmx_common.h
+	$(CC) -c Unfolding_Bands.c
 Band_DFT_Dosout.o: Band_DFT_Dosout.c openmx_common.h
 	$(CC) -c Band_DFT_Dosout.c
 Mixing_DM.o: Mixing_DM.c openmx_common.h
 	$(CC) -c Mixing_DM.c
+Mixing_H.o: Mixing_H.c openmx_common.h
+	$(CC) -c Mixing_H.c
 Force.o: Force.c openmx_common.h
 	$(CC) -c Force.c
+Stress.o: Stress.c openmx_common.h
+	$(CC) -c Stress.c
 Poisson.o: Poisson.c openmx_common.h
 	$(CC) -c Poisson.c
 Poisson_ESM.o: Poisson_ESM.c openmx_common.h
@@ -346,6 +415,8 @@ Simple_Mixing_DM.o: Simple_Mixing_DM.c openmx_common.h
 	$(CC) -c Simple_Mixing_DM.c
 DIIS_Mixing_DM.o: DIIS_Mixing_DM.c openmx_common.h
 	$(CC) -c DIIS_Mixing_DM.c
+ADIIS_Mixing_DM.o: ADIIS_Mixing_DM.c openmx_common.h
+	$(CC) -c ADIIS_Mixing_DM.c
 GR_Pulay_DM.o: GR_Pulay_DM.c openmx_common.h
 	$(CC) -c GR_Pulay_DM.c
 Kerker_Mixing_Rhok.o: Kerker_Mixing_Rhok.c openmx_common.h
@@ -392,6 +463,8 @@ RestartFileDFT.o: RestartFileDFT.c openmx_common.h
 	$(CC) -c RestartFileDFT.c
 Output_CompTime.o: Output_CompTime.c openmx_common.h
 	$(CC) -c Output_CompTime.c
+Output_Energy_Decomposition.o: Output_Energy_Decomposition.c openmx_common.h
+	$(CC) -c Output_Energy_Decomposition.c
 Merge_LogFile.o: Merge_LogFile.c openmx_common.h
 	$(CC) -c Merge_LogFile.c
 Make_FracCoord.o: Make_FracCoord.c openmx_common.h
@@ -407,6 +480,8 @@ Eigen_lapack.o: Eigen_lapack.c openmx_common.h lapack_prototypes.h
 	$(CC) -c Eigen_lapack.c
 Eigen_lapack2.o: Eigen_lapack2.c openmx_common.h lapack_prototypes.h
 	$(CC) -c Eigen_lapack2.c
+Eigen_lapack3.o: Eigen_lapack3.c openmx_common.h lapack_prototypes.h
+	$(CC) -c Eigen_lapack3.c
 EigenBand_lapack.o: EigenBand_lapack.c openmx_common.h lapack_prototypes.h
 	$(CC) -c EigenBand_lapack.c
 Eigen_PReHH.o: Eigen_PReHH.c openmx_common.h
@@ -475,6 +550,8 @@ Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
 	$(CC) -c Divide_Conquer_Dosout.c
 Krylov.o: Krylov.c openmx_common.h
 	$(CC) -c Krylov.c
+EC.o: EC.c openmx_common.h
+	$(CC) -c EC.c
 #
 #
 #
@@ -533,12 +610,20 @@ Generate_Wannier.o: Generate_Wannier.c openmx_common.h
 	$(CC) -c Generate_Wannier.c
 DFTDvdW_init.o: DFTDvdW_init.c openmx_common.h
 	$(CC) -c DFTDvdW_init.c
+DFTD3vdW_init.o: DFTD3vdW_init.c openmx_common.h
+	$(CC) -c DFTD3vdW_init.c
 neb.o:	neb.c openmx_common.h Inputtools.h lapack_prototypes.h
 	$(CC) -c neb.c
 neb_run.o: neb_run.c openmx_common.h
 	$(CC) -c neb_run.c
 neb_check.o: neb_check.c openmx_common.h Inputtools.h 
 	$(CC) -c neb_check.c
+cellopt.o: cellopt.c openmx_common.h
+	$(CC) -c cellopt.c
+NBO_Cluster.o: NBO_Cluster.c openmx_common.h Inputtools.h
+	$(CC) -c NBO_Cluster.c
+NBO_Krylov.o: NBO_Krylov.c openmx_common.h Inputtools.h
+	$(CC) -c NBO_Krylov.c
 
 #
 #
@@ -564,11 +649,11 @@ Memory_Leak_test.o: Memory_Leak_test.c openmx_common.h Inputtools.h
 	$(CC) -c Memory_Leak_test.c
 Force_test.o: Force_test.c openmx_common.h Inputtools.h
 	$(CC) -c Force_test.c
+Stress_test.o: Stress_test.c openmx_common.h Inputtools.h
+	$(CC) -c Stress_test.c
 Show_DFT_DATA.o: Show_DFT_DATA.c openmx_common.h Inputtools.h
 	$(CC) -c Show_DFT_DATA.c
 
-
-#
 #
 # install
 #
@@ -585,7 +670,7 @@ install: $(PROG)
 #
 
 clean:
-	rm -f $(PROG) $(OBJS) DosMain jx analysis_example esp polB TranMain *.o
+	rm -f $(PROG) $(OBJS) $(UTIL) *.o elpa1.mod
 
 #
 #
@@ -695,38 +780,13 @@ test_mpi: test_mpi.o
 test_mpi.o: test_mpi.c
 	$(CC) -c test_mpi.c
 
-
-#
-#
-# transport calculation using non-equilibrium Green's function method
-#
-#
-
-TranMain_OBJ = \
-   TranMain.o TRAN_Read.o Inputtools.o TRAN_Set_Value.o \
-   TRAN_Calc_SurfGreen.o TRAN_Calc_SelfEnergy.o TRAN_Calc_CentGreen.o \
-   TRAN_Calc_OneTransmission.o Lapack_LU_inverse.o \
-   TRAN_Print.o TRAN_Distribute_Node.o Make_Comm_Worlds.o
-
-TranMain: $(TranMain_OBJ)
-	$(CC) $(TranMain_OBJ) $(LIB) -lm -o $@ 
-
-# revised by Y. Xiao for Noncollinear NEGF calculations
-
-TranMain_NC_OBJ = \
-   TranMain_NC.o TRAN_Read.o Inputtools.o TRAN_Set_Value.o \
-   TRAN_Calc_SurfGreen.o TRAN_Calc_SelfEnergy.o TRAN_Calc_CentGreen.o \
-   TRAN_Calc_OneTransmission.o Lapack_LU_inverse.o \
-   TRAN_Print.o TRAN_Distribute_Node.o Make_Comm_Worlds.o
-
-TranMain_NC: $(TranMain_NC_OBJ)
-	$(CC) $(TranMain_NC_OBJ) $(LIB) -lm -o $@
-
-# until here by Y. Xiao for Noncollinear NEGF calculations
-
 MAIN_TRAN_Display_Gridvalue: MAIN_TRAN_Display_Gridvalue.o TRAN_Read.o TRAN_Print.o
 	$(CC) -o $@  MAIN_TRAN_Display_Gridvalue.o TRAN_Read.o TRAN_Print.o -lm $(LIB)  
 
+TRAN_Main_Analysis.o: TRAN_Main_Analysis.c tran_variables.h tran_prototypes.h
+	$(CC) -c TRAN_Main_Analysis.c
+TRAN_Main_Analysis_NC.o: TRAN_Main_Analysis_NC.c tran_variables.h tran_prototypes.h
+	$(CC) -c TRAN_Main_Analysis_NC.c
 
 TRAN_Allocate.o: TRAN_Allocate.c tran_variables.h tran_prototypes.h
 	$(CC) -c TRAN_Allocate.c
@@ -764,8 +824,6 @@ TRAN_adjust_Ngrid.o: TRAN_adjust_Ngrid.c tran_variables.h tran_prototypes.h
 	$(CC) -c TRAN_adjust_Ngrid.c
 Lapack_LU_inverse.o: Lapack_LU_inverse.c tran_prototypes.h lapack_prototypes.h
 	$(CC) -c Lapack_LU_inverse.c
-TranMain.o: TranMain.c tran_prototypes.h Inputtools.h
-	$(CC) -c TranMain.c
 TRAN_Deallocate_Electrode_Grid.o: TRAN_Deallocate_Electrode_Grid.c tran_variables.h 
 	$(CC) -c TRAN_Deallocate_Electrode_Grid.c
 TRAN_Deallocate_RestartFile.o: TRAN_Deallocate_RestartFile.c tran_variables.h 
@@ -814,7 +872,19 @@ TRAN_Set_CentOverlap_NC.o: TRAN_Set_CentOverlap_NC.c tran_variables.h tran_proto
 	$(CC) -c TRAN_Set_CentOverlap_NC.c
 TRAN_Set_SurfOverlap_NC.o: TRAN_Set_SurfOverlap_NC.c tran_variables.h tran_prototypes.h
 	$(CC) -c TRAN_Set_SurfOverlap_NC.c
-
+# S MitsuakiKAWAMURA                                                                     
+MTRAN_EigenChannel.o: MTRAN_EigenChannel.c tran_prototypes.h \
+	TRAN_Calc_SurfGreen.o TRAN_Calc_SelfEnergy.o TRAN_Calc_CentGreen.o
+	$(CC) -c MTRAN_EigenChannel.c
+TRAN_Channel_Functions.o: TRAN_Channel_Functions.c lapack_prototypes.h
+	$(CC) -c TRAN_Channel_Functions.c
+TRAN_Channel_Output.o: TRAN_Channel_Output.c openmx_common.h
+	$(CC) -c TRAN_Channel_Output.c
+TRAN_Calc_CurrentDensity.o: TRAN_Calc_CurrentDensity.c tran_prototypes.h lapack_prototypes.h
+	$(CC) -c TRAN_Calc_CurrentDensity.c
+TRAN_CDen_Main.o: TRAN_CDen_Main.c openmx_common.h lapack_prototypes.h tran_prototypes.h tran_variables.h
+	$(CC) -c TRAN_CDen_Main.c
+# E MitsuakiKAWAMURA                       
 
 
 elpa1.o: elpa1.f90 
@@ -823,3 +893,24 @@ solve_evp_real.o: solve_evp_real.f90
 	$(FC) -c solve_evp_real.f90 
 solve_evp_complex.o: solve_evp_complex.f90 
 	$(FC) -c solve_evp_complex.f90
+
+
+#
+#
+# bandgnu13
+#
+#
+
+bandgnu13: bandgnu13.c
+	   gcc bandgnu13.c -lm -o bandgnu13
+bin2txt: bin2txt.c
+	   gcc bin2txt.c -lm -o bin2txt
+cube2xsf: cube2xsf.c
+	   gcc cube2xsf.c -lm -o cube2xsf
+intensity_map: intensity_map.c
+	   gcc intensity_map.c -lm -o intensity_map
+md2axsf: md2axsf.c
+	   gcc md2axsf.c -lm -o md2axsf
+
+
+

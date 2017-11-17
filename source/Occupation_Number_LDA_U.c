@@ -41,7 +41,8 @@ static void make_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele);
 static void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double ECE[]);
 static void Output_Collinear_OcpN();
 static void Output_NonCollinear_OcpN();
-static void Calc_dTN( dcomplex TN[2][2],
+static void Calc_dTN( int constraint_flag, 
+                      dcomplex TN[2][2],
                       dcomplex dTN[2][2][2][2],
                       dcomplex U[2][2],
                       double theta[2], double phi[2] );
@@ -3167,9 +3168,10 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
   double *tmp_array;
   double *tmp_array2;
   double *tmp_array0;
-  double Stime_atom, Etime_atom,tmp1,tmp2;
+  double Stime_atom, Etime_atom;
   double Uvalue,Nup[2],Ndn[2],theta[2],phi[2];
-  double A,B,C,L,Lx,Ly,Lz,tmp;
+  double Nup0,Ndn0;
+  double A,B,C,L,Lx,Ly,Lz,tmp,tmp1,tmp2;
   double sit,cot,sip,cop,Bx,By,Bz,lx,ly,lz,sx,sy,sz;
   double My_Ucs,My_Uzs,My_Uzo;
   double theta0,phi0;
@@ -3281,25 +3283,18 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
       }  /* m1 */
     } /* l1 */
 
-
-
-
     /************************************************************
      *********************************************************** 
      *********************************************************** 
      *********************************************************** 
 
-                calculate veff by the constraint DFT 
+       calculate veff by the constraint DFT which controls 
+       the spin direction but not the magnitude.
 
      *********************************************************** 
      *********************************************************** 
      *********************************************************** 
     ************************************************************/
-     
-
-
-
-
 
     if (Constraint_NCS_switch==1 && Constraint_SpinAngle[Gc_AN]==1 ){
 
@@ -3402,7 +3397,7 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
 
       /* calculate dTN */
 
-      Calc_dTN( TN, dTN, U, theta, phi );
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
 
       
 
@@ -3486,7 +3481,7 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
                    + Ndn[1]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
 
 
-      Calc_dTN( TN, dTN, U, theta, phi );
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
 
       printf("1 TN0.r\n");
       for (i=0; i<2; i++){
@@ -3574,7 +3569,7 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
 
 
 
-      Calc_dTN( TN, dTN, U, theta, phi );
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
 
       printf("\nanalytical dTN.r\n");      
       for (i=0; i<2; i++){
@@ -3662,7 +3657,7 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
 
 
 
-      Calc_dTN( TN, dTN, U, theta, phi );
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
 
 
 
@@ -3716,19 +3711,6 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
       MPI_Finalize();
       exit(0);
       */
-
-
-
-
-
-
-
-
-
-
-
-
-
 
       for (i=0; i<Spe_Total_NO[wan1]; i++){
         for (j=0; j<Spe_Total_NO[wan1]; j++){
@@ -3792,11 +3774,539 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
 
       My_Ucs += Constraint_NCS_V*tmp1;
 
+      /* energy decomposition */
+
+      if (Energy_Decomposition_flag==1){
+
+        tmp = Constraint_NCS_V*tmp1/(2.0*(double)Spe_Total_NO[wan1]);
+
+        for (i=0; i<Spe_Total_NO[wan1]; i++){
+           DecEcs[0][Mc_AN][i] = tmp; 
+           DecEcs[1][Mc_AN][i] = tmp; 
+	}
+      }    
+
+
     } /* if (Constraint_NCS_switch==1 && Constraint_SpinAngle[Gc_AN]==1 ) */
 
 
+    /************************************************************
+     *********************************************************** 
+     *********************************************************** 
+     *********************************************************** 
+
+      calculate veff by the constraint DFT which controls 
+      both the direction and the magnitude of spin.
+
+     *********************************************************** 
+     *********************************************************** 
+     *********************************************************** 
+    ************************************************************/
+
+    if (Constraint_NCS_switch==2 && Constraint_SpinAngle[Gc_AN]==1 ){
+
+      /* calculate TN */
+
+      TN[0][0].r = 0.0;
+      TN[0][1].r = 0.0;
+      TN[1][0].r = 0.0;
+      TN[1][1].r = 0.0;
+      TN[0][0].i = 0.0;
+      TN[0][1].i = 0.0;
+      TN[1][0].i = 0.0;
+      TN[1][1].i = 0.0;
+
+      for (i=0; i<Spe_Total_NO[wan1]; i++){
+
+	TN[0][0].r += NC_OcpN[0][0][0][Mc_AN][i][i].r;
+	TN[0][1].r += NC_OcpN[0][0][1][Mc_AN][i][i].r;
+	TN[1][0].r += NC_OcpN[0][1][0][Mc_AN][i][i].r;
+	TN[1][1].r += NC_OcpN[0][1][1][Mc_AN][i][i].r;
+
+        /*
+        conjugate complex of TN due to difference
+        in the definition between density matrix
+        and charge density
+        */
+
+	TN[0][0].i -= NC_OcpN[0][0][0][Mc_AN][i][i].i;
+	TN[0][1].i -= NC_OcpN[0][0][1][Mc_AN][i][i].i;
+	TN[1][0].i -= NC_OcpN[0][1][0][Mc_AN][i][i].i;
+	TN[1][1].i -= NC_OcpN[0][1][1][Mc_AN][i][i].i;
+      }
 
 
+      /*
+      printf("TN.r Mc_AN=%2d\n",Mc_AN); 
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",TN[i][j].r);     
+        }
+        printf("\n");
+      }
+
+      printf("TN.i Mc_AN=%2d\n",Mc_AN); 
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",TN[i][j].i);     
+        }
+        printf("\n");
+      }
+      */
+
+      EulerAngle_Spin( 1,
+                       TN[0][0].r, TN[1][1].r,
+                       TN[0][1].r, TN[0][1].i,
+                       TN[1][0].r, TN[1][0].i,
+                       Nup, Ndn, theta, phi );
+      
+      /**********************
+           calculate TN0 
+      **********************/
+
+      /*
+      printf("Nup=%15.12f Ndn=%15.12f theta=%15.12f phi=%15.12f\n",Nup[0],Ndn[0],theta[0],phi[0]);
+      printf("theta =%15.12f phi =%15.12f\n",theta[0]/PI*180.0,phi[0]/PI*180.0);
+
+      printf("theta0=%15.12f phi0=%15.12f\n",InitAngle0_Spin[Gc_AN]/PI*180.0,
+                                             InitAngle1_Spin[Gc_AN]/PI*180.0);
+      */
+
+      /* constraint which trys to keep the initial magnetic moment */
+
+      Nup0 = Nup[0]; 
+      Ndn0 = Ndn[0]; 
+
+      Nup[0] = 0.5*(Nup0 + Ndn0 + InitMagneticMoment[Gc_AN]);
+      Ndn[0] = 0.5*(Nup0 + Ndn0 - InitMagneticMoment[Gc_AN]);
+
+      /* calculaion of TN0 */
+
+      sit = sin(0.5*InitAngle0_Spin[Gc_AN]);
+      cot = cos(0.5*InitAngle0_Spin[Gc_AN]);
+      sip = sin(0.5*InitAngle1_Spin[Gc_AN]);
+      cop = cos(0.5*InitAngle1_Spin[Gc_AN]);
+
+      U[0][0].r = cop*cot;  U[0][0].i = sip*cot;
+      U[0][1].r = cop*sit;  U[0][1].i =-sip*sit;
+      U[1][0].r =-cop*sit;  U[1][0].i =-sip*sit;
+      U[1][1].r = cop*cot;  U[1][1].i =-sip*cot;
+
+      TN0[0][0].r =    Nup[0]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                     + Ndn[0]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      TN0[0][0].i = 0.0;
+
+      TN0[0][1].r =    Nup[0]*( U[0][0].r*U[0][1].r + U[0][0].i*U[0][1].i )
+                     + Ndn[0]*( U[1][0].r*U[1][1].r + U[1][0].i*U[1][1].i );
+
+      TN0[0][1].i =    Nup[0]*(-U[0][0].i*U[0][1].r + U[0][0].r*U[0][1].i )
+                     + Ndn[0]*(-U[1][0].i*U[1][1].r + U[1][0].r*U[1][1].i );
+
+      TN0[1][0].r =    Nup[0]*( U[0][1].r*U[0][0].r + U[0][1].i*U[0][0].i )
+                     + Ndn[0]*( U[1][1].r*U[1][0].r + U[1][1].i*U[1][0].i );
+
+      TN0[1][0].i =    Nup[0]*(-U[0][1].i*U[0][0].r + U[0][1].r*U[0][0].i )
+                     + Ndn[0]*(-U[1][1].i*U[1][0].r + U[1][1].r*U[1][0].i );
+
+      TN0[1][1].r =    Nup[0]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                     + Ndn[0]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+      TN0[1][1].i = 0.0;
+
+      /* calculate dTN */
+
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
+      
+            
+      
+      
+
+
+
+
+
+      /*
+
+      {
+
+
+	dcomplex TNA[10][10];
+	dcomplex TNB[10][10];
+	dcomplex TNC[10][10];
+
+        dcomplex ctmp1,ctmp2;
+
+
+
+      l1 = 1;
+      l2 = 0;
+      tmp1 = 0.0001;
+      tmp2 = 0.01;
+
+
+      EulerAngle_Spin( 0,
+                       TN[0][0].r, TN[1][1].r,
+                       TN[0][1].r, TN[0][1].i,
+                       TN[1][0].r, TN[1][0].i,
+                       Nup, Ndn, theta, phi );
+
+      printf("V0 Nup.r=%15.12f Nup.i=%15.12f\n",Nup[0],Nup[1]);
+      printf("V0 Ndn.r=%15.12f Ndn.i=%15.12f\n",Ndn[0],Ndn[1]);
+      
+
+      sit = sin(0.5*InitAngle0_Spin[Gc_AN]);
+      cot = cos(0.5*InitAngle0_Spin[Gc_AN]);
+      sip = sin(0.5*InitAngle1_Spin[Gc_AN]);
+      cop = cos(0.5*InitAngle1_Spin[Gc_AN]);
+
+      U[0][0].r = cop*cot;  U[0][0].i = sip*cot;
+      U[0][1].r = cop*sit;  U[0][1].i =-sip*sit;
+      U[1][0].r =-cop*sit;  U[1][0].i =-sip*sit;
+      U[1][1].r = cop*cot;  U[1][1].i =-sip*cot;
+
+      TN0[0][0].r =    Nup[0]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                     + Ndn[0]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      TN0[0][0].i =    Nup[1]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                     + Ndn[1]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      ctmp1.r = U[0][0].r*U[0][1].r + U[0][0].i*U[0][1].i;
+      ctmp1.i =-U[0][0].i*U[0][1].r + U[0][0].r*U[0][1].i;
+      ctmp2.r = U[1][0].r*U[1][1].r + U[1][0].i*U[1][1].i;
+      ctmp2.i =-U[1][0].i*U[1][1].r + U[1][0].r*U[1][1].i;  
+
+      TN0[0][1].r = Nup[0]*ctmp1.r - Nup[1]*ctmp1.i 
+                  + Ndn[0]*ctmp2.r - Ndn[1]*ctmp2.i;  
+
+      TN0[0][1].i = Nup[0]*ctmp1.i + Nup[1]*ctmp1.r 
+                  + Ndn[0]*ctmp2.i + Ndn[1]*ctmp2.r;
+
+      ctmp1.r =  U[0][1].r*U[0][0].r + U[0][1].i*U[0][0].i;
+      ctmp1.i = -U[0][1].i*U[0][0].r + U[0][1].r*U[0][0].i; 
+      ctmp2.r =  U[1][1].r*U[1][0].r + U[1][1].i*U[1][0].i;
+      ctmp2.i = -U[1][1].i*U[1][0].r + U[1][1].r*U[1][0].i; 
+
+      TN0[1][0].r = Nup[0]*ctmp1.r - Nup[1]*ctmp1.i 
+                  + Ndn[0]*ctmp2.r - Ndn[1]*ctmp2.i;  
+
+      TN0[1][0].i = Nup[0]*ctmp1.i + Nup[1]*ctmp1.r 
+                  + Ndn[0]*ctmp2.i + Ndn[1]*ctmp2.r;
+
+      TN0[1][1].r =  Nup[0]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                   + Ndn[0]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+      TN0[1][1].i =  Nup[1]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                   + Ndn[1]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
+
+      printf("1 TN0.r\n");
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",TN0[i][j].r);     
+
+          TNA[i][j] = TN0[i][j];
+        }
+        printf("\n");
+      }
+
+      printf("1 TN0.i\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",TN0[i][j].i);     
+        }
+        printf("\n");
+      }
+
+
+
+
+      TN[l1][l2].r += tmp1;
+      TN[l1][l2].i += tmp2;
+
+      EulerAngle_Spin( 0,
+                       TN[0][0].r, TN[1][1].r,
+                       TN[0][1].r, TN[0][1].i,
+                       TN[1][0].r, TN[1][0].i,
+                       Nup, Ndn, theta, phi );
+
+      printf("V1 Nup.r=%15.12f Nup.i=%15.12f\n",Nup[0],Nup[1]);
+      printf("V1 Ndn.r=%15.12f Ndn.i=%15.12f\n",Ndn[0],Ndn[1]);
+      
+
+      sit = sin(0.5*InitAngle0_Spin[Gc_AN]);
+      cot = cos(0.5*InitAngle0_Spin[Gc_AN]);
+      sip = sin(0.5*InitAngle1_Spin[Gc_AN]);
+      cop = cos(0.5*InitAngle1_Spin[Gc_AN]);
+
+      U[0][0].r = cop*cot;  U[0][0].i = sip*cot;
+      U[0][1].r = cop*sit;  U[0][1].i =-sip*sit;
+      U[1][0].r =-cop*sit;  U[1][0].i =-sip*sit;
+      U[1][1].r = cop*cot;  U[1][1].i =-sip*cot;
+
+
+
+      TN0[0][0].r =    Nup[0]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                   + Ndn[0]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      TN0[0][0].i =    Nup[1]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                   + Ndn[1]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      ctmp1.r = U[0][0].r*U[0][1].r + U[0][0].i*U[0][1].i;
+      ctmp1.i =-U[0][0].i*U[0][1].r + U[0][0].r*U[0][1].i;
+      ctmp2.r = U[1][0].r*U[1][1].r + U[1][0].i*U[1][1].i;
+      ctmp2.i =-U[1][0].i*U[1][1].r + U[1][0].r*U[1][1].i;  
+
+      TN0[0][1].r = Nup[0]*ctmp1.r - Nup[1]*ctmp1.i 
+                  + Ndn[0]*ctmp2.r - Ndn[1]*ctmp2.i;  
+
+      TN0[0][1].i = Nup[0]*ctmp1.i + Nup[1]*ctmp1.r 
+                  + Ndn[0]*ctmp2.i + Ndn[1]*ctmp2.r;
+
+      ctmp1.r =  U[0][1].r*U[0][0].r + U[0][1].i*U[0][0].i;
+      ctmp1.i = -U[0][1].i*U[0][0].r + U[0][1].r*U[0][0].i; 
+      ctmp2.r =  U[1][1].r*U[1][0].r + U[1][1].i*U[1][0].i;
+      ctmp2.i = -U[1][1].i*U[1][0].r + U[1][1].r*U[1][0].i; 
+
+      TN0[1][0].r = Nup[0]*ctmp1.r - Nup[1]*ctmp1.i 
+                  + Ndn[0]*ctmp2.r - Ndn[1]*ctmp2.i;  
+
+      TN0[1][0].i = Nup[0]*ctmp1.i + Nup[1]*ctmp1.r 
+                  + Ndn[0]*ctmp2.i + Ndn[1]*ctmp2.r;
+
+      TN0[1][1].r =    Nup[0]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                   + Ndn[0]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+      TN0[1][1].i =    Nup[1]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                   + Ndn[1]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+
+
+
+
+
+
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
+
+      printf("\nanalytical dTN.r\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",dTN[l1][l2][i][j].r);     
+        }
+        printf("\n");
+      }
+
+      printf("analytical dTN.i\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",dTN[l1][l2][i][j].i);     
+        }
+        printf("\n");
+      }
+
+
+
+
+
+
+      TN[l1][l2].r += tmp1;
+      TN[l1][l2].i += tmp2;
+
+      EulerAngle_Spin( 0,
+                       TN[0][0].r, TN[1][1].r,
+                       TN[0][1].r, TN[0][1].i,
+                       TN[1][0].r, TN[1][0].i,
+                       Nup, Ndn, theta, phi );
+
+      printf("V2 Nup.r=%15.12f Nup.i=%15.12f\n",Nup[0],Nup[1]);
+      printf("V2 Ndn.r=%15.12f Ndn.i=%15.12f\n",Ndn[0],Ndn[1]);
+
+
+      sit = sin(0.5*InitAngle0_Spin[Gc_AN]);
+      cot = cos(0.5*InitAngle0_Spin[Gc_AN]);
+      sip = sin(0.5*InitAngle1_Spin[Gc_AN]);
+      cop = cos(0.5*InitAngle1_Spin[Gc_AN]);
+
+      U[0][0].r = cop*cot;  U[0][0].i = sip*cot;
+      U[0][1].r = cop*sit;  U[0][1].i =-sip*sit;
+      U[1][0].r =-cop*sit;  U[1][0].i =-sip*sit;
+      U[1][1].r = cop*cot;  U[1][1].i =-sip*cot;
+
+
+
+
+      TN0[0][0].r =    Nup[0]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                   + Ndn[0]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      TN0[0][0].i =    Nup[1]*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
+                   + Ndn[1]*( U[1][0].r*U[1][0].r + U[1][0].i*U[1][0].i );
+
+      ctmp1.r = U[0][0].r*U[0][1].r + U[0][0].i*U[0][1].i;
+      ctmp1.i =-U[0][0].i*U[0][1].r + U[0][0].r*U[0][1].i;
+      ctmp2.r = U[1][0].r*U[1][1].r + U[1][0].i*U[1][1].i;
+      ctmp2.i =-U[1][0].i*U[1][1].r + U[1][0].r*U[1][1].i;  
+
+      TN0[0][1].r = Nup[0]*ctmp1.r - Nup[1]*ctmp1.i 
+                  + Ndn[0]*ctmp2.r - Ndn[1]*ctmp2.i;  
+
+      TN0[0][1].i = Nup[0]*ctmp1.i + Nup[1]*ctmp1.r 
+                  + Ndn[0]*ctmp2.i + Ndn[1]*ctmp2.r;
+
+      ctmp1.r =  U[0][1].r*U[0][0].r + U[0][1].i*U[0][0].i;
+      ctmp1.i = -U[0][1].i*U[0][0].r + U[0][1].r*U[0][0].i; 
+      ctmp2.r =  U[1][1].r*U[1][0].r + U[1][1].i*U[1][0].i;
+      ctmp2.i = -U[1][1].i*U[1][0].r + U[1][1].r*U[1][0].i; 
+
+      TN0[1][0].r = Nup[0]*ctmp1.r - Nup[1]*ctmp1.i 
+                  + Ndn[0]*ctmp2.r - Ndn[1]*ctmp2.i;  
+
+      TN0[1][0].i = Nup[0]*ctmp1.i + Nup[1]*ctmp1.r 
+                  + Ndn[0]*ctmp2.i + Ndn[1]*ctmp2.r;
+
+      TN0[1][1].r =    Nup[0]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                   + Ndn[0]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+      TN0[1][1].i =    Nup[1]*( U[0][1].r*U[0][1].r + U[0][1].i*U[0][1].i )
+                   + Ndn[1]*( U[1][1].r*U[1][1].r + U[1][1].i*U[1][1].i );
+
+
+
+
+
+
+      Calc_dTN( Constraint_NCS_switch, TN, dTN, U, theta, phi );
+
+
+
+
+      printf("2 TN0.r\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",TN0[i][j].r);     
+          TNB[i][j] = TN0[i][j];
+
+        }
+        printf("\n");
+      }
+
+      printf("2 TN0.i\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ",TN0[i][j].i);     
+        }
+        printf("\n");
+      }
+
+
+
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          TNC[i][j].r = 0.5*(TNB[i][j].r - TNA[i][j].r)/( tmp1*tmp1 + tmp2*tmp2 );     
+          TNC[i][j].i = 0.5*(TNB[i][j].i - TNA[i][j].i)/( tmp1*tmp1 + tmp2*tmp2 );     
+        }
+      }
+
+      printf("\nnumerical dTN0.r\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ", tmp1*TNC[i][j].r + tmp2*TNC[i][j].i );
+        }
+        printf("\n");
+      }
+
+      printf("numerical dTN0.i\n");      
+      for (i=0; i<2; i++){
+        for (j=0; j<2; j++){
+          printf("%15.12f ", tmp1*TNC[i][j].i - tmp2*TNC[i][j].r );
+        }
+        printf("\n");
+      }
+
+
+      }
+
+      MPI_Finalize();
+      exit(0);
+      */
+
+      for (i=0; i<Spe_Total_NO[wan1]; i++){
+        for (j=0; j<Spe_Total_NO[wan1]; j++){
+
+          if (i==j){
+        
+            for (s1=0; s1<2; s1++){
+              for (s2=0; s2<2; s2++){
+
+                csum1 = Complex(0.0,0.0);
+
+		for (s3=0; s3<2; s3++){
+		  for (s4=0; s4<2; s4++){
+
+                    if (s1==s3 && s2==s4){
+
+                      ctmp1.r = TN[s3][s4].r - TN0[s3][s4].r;
+                      ctmp1.i = TN[s3][s4].i - TN0[s3][s4].i;
+                      ctmp2.r = 1.0 - dTN[s1][s2][s4][s3].r; 
+                      ctmp2.i =     - dTN[s1][s2][s4][s3].i; 
+
+                      csum1.r += ctmp1.r*ctmp2.r - ctmp1.i*ctmp2.i; 
+                      csum1.i += ctmp1.r*ctmp2.i + ctmp1.i*ctmp2.r; 
+                    } 
+                    else{
+
+                      ctmp1.r = TN[s3][s4].r - TN0[s3][s4].r;
+                      ctmp1.i = TN[s3][s4].i - TN0[s3][s4].i;
+                      ctmp2.r = -dTN[s1][s2][s4][s3].r; 
+                      ctmp2.i = -dTN[s1][s2][s4][s3].i; 
+
+                      csum1.r += ctmp1.r*ctmp2.r - ctmp1.i*ctmp2.i; 
+                      csum1.i += ctmp1.r*ctmp2.i + ctmp1.i*ctmp2.r; 
+                    } 
+
+		  }  /* s4 */
+		}    /* s3 */
+                
+
+		NC_v_eff[s1][s2][Mc_AN][i][j].r += 2.0*Constraint_NCS_V*csum1.r;
+		NC_v_eff[s1][s2][Mc_AN][i][j].i += 2.0*Constraint_NCS_V*csum1.i;
+
+              }  
+            } 
+          }
+        }
+      }
+
+      /* calculate the penalty functional, Ucs */
+
+      tmp1 = 0.0;
+
+      for (s1=0; s1<2; s1++){
+        for (s2=0; s2<2; s2++){
+
+          ctmp1.r = TN[s1][s2].r - TN0[s1][s2].r;
+          ctmp1.i = TN[s1][s2].i - TN0[s1][s2].i;
+          tmp1 += ctmp1.r*ctmp1.r + ctmp1.i*ctmp1.i;           
+	}
+      }
+
+      My_Ucs += Constraint_NCS_V*tmp1;
+
+      /* energy decomposition */
+
+      if (Energy_Decomposition_flag==1){
+
+        tmp = Constraint_NCS_V*tmp1/(2.0*(double)Spe_Total_NO[wan1]);
+
+        for (i=0; i<Spe_Total_NO[wan1]; i++){
+           DecEcs[0][Mc_AN][i] = tmp; 
+           DecEcs[1][Mc_AN][i] = tmp; 
+	}
+      }    
+
+
+    } /* if (Constraint_NCS_switch==2 && Constraint_SpinAngle[Gc_AN]==1 ) */
 
     /************************************************************
      *********************************************************** 
@@ -3965,6 +4475,18 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
 
       My_Uzs += sx*Bx + sy*By + sz*Bz;
 
+      /* energy decomposition */
+
+      if (Energy_Decomposition_flag==1){
+
+        tmp = (sx*Bx + sy*By + sz*Bz)/(2.0*(double)Spe_Total_NO[wan1]);
+
+        for (i=0; i<Spe_Total_NO[wan1]; i++){
+           DecEzs[0][Mc_AN][i] = tmp; 
+           DecEzs[1][Mc_AN][i] = tmp; 
+	}
+      }    
+
       /*
       printf("Uzs=%15.12f\n",sx*Bx + sy*By + sz*Bz);
 
@@ -4062,6 +4584,18 @@ void make_NC_v_eff(int SCF_iter, int SucceedReadingDMfile, double dUele, double 
       }
 
       My_Uzo += A*Lx + B*Ly + C*Lz;
+
+      /* energy decomposition */
+
+      if (Energy_Decomposition_flag==1){
+
+        tmp = (A*Lx + B*Ly + C*Lz)/(2.0*(double)Spe_Total_NO[wan1]);
+
+        for (i=0; i<Spe_Total_NO[wan1]; i++){
+           DecEzo[0][Mc_AN][i] = tmp; 
+           DecEzo[1][Mc_AN][i] = tmp; 
+	}
+      }
 
     } /* if (Zeeman_NCO_switch==1 && Constraint_SpinAngle[Gc_AN]==1 ) */
 
@@ -4715,7 +5249,8 @@ void Output_NonCollinear_OcpN()
 
 
 
-void Calc_dTN( dcomplex TN[2][2],
+void Calc_dTN( int constraint_flag,
+               dcomplex TN[2][2],
                dcomplex dTN[2][2][2][2],
                dcomplex U[2][2],
                double theta[2], double phi[2] )
@@ -4744,7 +5279,6 @@ void Calc_dTN( dcomplex TN[2][2],
   dcomplex dNup11,dNup12,dNup21,dNup22;
   dcomplex dNdn11,dNdn12,dNdn21,dNdn22;
 #endif
-
 
   dcomplex ctmp4,ctmp5,ctmp6,ctmp7;
   dcomplex coe0;
@@ -4778,13 +5312,6 @@ void Calc_dTN( dcomplex TN[2][2],
   sip = Csin(cphi);
 #endif
 
-
-
-
-
-
-
-
   /* calculate dphi */
 
 #ifdef c_complex
@@ -4812,9 +5339,6 @@ void Calc_dTN( dcomplex TN[2][2],
   dphi12 = Cmul( ctmp1, Cdiv(d21,ctmp3) );
   dphi21 = Cmul( ctmp2, Cdiv(d12,ctmp3) );
   */
-
-
-
 
   /* calculate dtheta */
 
@@ -4920,11 +5444,6 @@ void Calc_dTN( dcomplex TN[2][2],
   ctmp7 = Cdiv(ctmp3, Csub(d11,d22));
   dtheta21 = Cmul(ctmp7, Csub(Cadd(ctmp4,ctmp5),ctmp6));
   */
-
-
-
-
-
 
   /* calculate dNup */
 
@@ -5275,7 +5794,6 @@ void Calc_dTN( dcomplex TN[2][2],
   dNdn21 = RCmul(0.5,Csub(Csub(Csub(ctmp2,ctmp1),ctmp4),ctmp6));
   */
 
-
   /*
   printf("dNdn11.r=%15.12f dNdn11.i=%15.12f\n",creal(dNdn11),cimag(dNdn11));
   printf("dNdn22.r=%15.12f dNdn22.i=%15.12f\n",creal(dNdn22),cimag(dNdn22));
@@ -5283,19 +5801,36 @@ void Calc_dTN( dcomplex TN[2][2],
   printf("dNdn21.r=%15.12f dNdn21.i=%15.12f\n",creal(dNdn21),cimag(dNdn21));
   */
 
-
-
-
   /* calculate dTN11 */
 
 #ifdef c_complex
-  Nup.r = creal(dNup11);
-  Nup.i = cimag(dNup11);
-  Ndn.r = creal(dNdn11);
-  Ndn.i = cimag(dNdn11);
+
+  if (constraint_flag==1){
+    Nup.r = creal(dNup11);
+    Nup.i = cimag(dNup11);
+    Ndn.r = creal(dNdn11);
+    Ndn.i = cimag(dNdn11);
+  }
+  else if (constraint_flag==2){
+    Nup.r = creal(0.5*(dNup11 + dNdn11));
+    Nup.i = cimag(0.5*(dNup11 + dNdn11));
+    Ndn.r = creal(0.5*(dNup11 + dNdn11));
+    Ndn.i = cimag(0.5*(dNup11 + dNdn11));
+  }
+
 #else
-  Nup = dNup11;
-  Ndn = dNdn11;
+
+  if (constraint_flag==1){
+    Nup = dNup11;
+    Ndn = dNdn11;
+  }
+  else if (constraint_flag==2){
+    Nup.r = 0.5*(dNup11.r + dNdn11.r);
+    Nup.i = 0.5*(dNup11.i + dNdn11.i);
+    Ndn.r = 0.5*(dNup11.r + dNdn11.r);
+    Ndn.i = 0.5*(dNup11.i + dNdn11.i);
+  }
+
 #endif
 
   dTN[0][0][0][0].r = Nup.r*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
@@ -5323,13 +5858,33 @@ void Calc_dTN( dcomplex TN[2][2],
   /* calculate dTN22 */
 
 #ifdef c_complex
-  Nup.r = creal(dNup22);
-  Nup.i = cimag(dNup22);
-  Ndn.r = creal(dNdn22);
-  Ndn.i = cimag(dNdn22);
+
+  if (constraint_flag==1){
+    Nup.r = creal(dNup22);
+    Nup.i = cimag(dNup22);
+    Ndn.r = creal(dNdn22);
+    Ndn.i = cimag(dNdn22);
+  }
+  else if (constraint_flag==2){
+    Nup.r = creal(0.5*(dNup22 + dNdn22));
+    Nup.i = cimag(0.5*(dNup22 + dNdn22));
+    Ndn.r = creal(0.5*(dNup22 + dNdn22));
+    Ndn.i = cimag(0.5*(dNup22 + dNdn22));
+  }  
+
 #else
-  Nup = dNup22;
-  Ndn = dNdn22;
+
+  if (constraint_flag==1){
+    Nup = dNup22;
+    Ndn = dNdn22;
+  }
+  else if (constraint_flag==2){
+    Nup.r = 0.5*(dNup22.r + dNdn22.r);
+    Nup.i = 0.5*(dNup22.i + dNdn22.i);
+    Ndn.r = 0.5*(dNup22.r + dNdn22.r);
+    Ndn.i = 0.5*(dNup22.i + dNdn22.i);
+  }
+
 #endif
 
 
@@ -5358,13 +5913,33 @@ void Calc_dTN( dcomplex TN[2][2],
   /* calculate dTN12 */
 
 #ifdef c_complex
-  Nup.r = creal(dNup12);
-  Nup.i = cimag(dNup12);
-  Ndn.r = creal(dNdn12);
-  Ndn.i = cimag(dNdn12);
+
+  if (constraint_flag==1){
+    Nup.r = creal(dNup12);
+    Nup.i = cimag(dNup12);
+    Ndn.r = creal(dNdn12);
+    Ndn.i = cimag(dNdn12);
+  }
+  else if (constraint_flag==2){
+    Nup.r = creal(0.5*(dNup12 + dNdn12));
+    Nup.i = cimag(0.5*(dNup12 + dNdn12));
+    Ndn.r = creal(0.5*(dNup12 + dNdn12));
+    Ndn.i = cimag(0.5*(dNup12 + dNdn12));
+  }
+
 #else
-  Nup = dNup12;
-  Ndn = dNdn12;
+
+  if (constraint_flag==1){
+    Nup = dNup12;
+    Ndn = dNdn12;
+  }
+  else if (constraint_flag==2){
+    Nup.r = 0.5*(dNup12.r + dNdn12.r);
+    Nup.i = 0.5*(dNup12.i + dNdn12.i);
+    Ndn.r = 0.5*(dNup12.r + dNdn12.r);
+    Ndn.i = 0.5*(dNup12.i + dNdn12.i);
+  }  
+
 #endif  
    
   dTN[0][1][0][0].r = Nup.r*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )
@@ -5404,13 +5979,32 @@ void Calc_dTN( dcomplex TN[2][2],
   /* calculate dTN21 */
 
 #ifdef c_complex
-  Nup.r = creal(dNup21);
-  Nup.i = cimag(dNup21);
-  Ndn.r = creal(dNdn21);
-  Ndn.i = cimag(dNdn21);
+
+  if (constraint_flag==1){
+    Nup.r = creal(dNup21);
+    Nup.i = cimag(dNup21);
+    Ndn.r = creal(dNdn21);
+    Ndn.i = cimag(dNdn21);
+  }
+  else if (constraint_flag==2){
+    Nup.r = creal(0.5*(dNup21 + dNdn21));
+    Nup.i = cimag(0.5*(dNup21 + dNdn21));
+    Ndn.r = creal(0.5*(dNup21 + dNdn21));
+    Ndn.i = cimag(0.5*(dNup21 + dNdn21));
+  }
+
 #else
-  Nup = dNup21;
-  Ndn = dNdn21;
+  if (constraint_flag==1){
+    Nup = dNup21;
+    Ndn = dNdn21;
+  }
+  else if (constraint_flag==2){
+    Nup.r = 0.5*(dNup21.r + dNdn21.r);
+    Nup.i = 0.5*(dNup21.i + dNdn21.i);
+    Ndn.r = 0.5*(dNup21.r + dNdn21.r);
+    Ndn.i = 0.5*(dNup21.i + dNdn21.i);
+  }
+
 #endif
 
   dTN[1][0][0][0].r = Nup.r*( U[0][0].r*U[0][0].r + U[0][0].i*U[0][0].i )

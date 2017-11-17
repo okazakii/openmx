@@ -7,6 +7,7 @@
   Log of Set_OLP_Kin.c:
 
      15/Oct./2002  Released by T.Ozaki
+     25/Nov./2014  Memory allocation modified by A.M. Ito (AITUNE)
 
 ***********************************************************************/
  
@@ -17,6 +18,25 @@
 #include "openmx_common.h"
 #include "mpi.h"
 #include <omp.h>
+
+
+#ifdef kcomp
+dcomplex****** Allocate6D_dcomplex(int size_1, int size_2, int size_3, 
+                                          int size_4, int size_5, int size_6);
+double**** Allocate4D_double(int size_1, int size_2, int size_3, int size_4);
+dcomplex** Allocate2D_dcomplex(int size_1, int size_2);
+void Free6D_dcomplex(dcomplex****** buffer);
+void Free4D_double(double**** buffer);
+void Free2D_dcomplex(dcomplex** buffer);
+#else
+inline dcomplex****** Allocate6D_dcomplex(int size_1, int size_2, int size_3, 
+                                          int size_4, int size_5, int size_6);
+inline double**** Allocate4D_double(int size_1, int size_2, int size_3, int size_4);
+inline dcomplex** Allocate2D_dcomplex(int size_1, int size_2);
+inline void Free6D_dcomplex(dcomplex****** buffer);
+inline void Free4D_double(double**** buffer);
+inline void Free2D_dcomplex(dcomplex** buffer);
+#endif
 
 
 double Set_OLP_Kin(double *****OLP, double *****H0)
@@ -92,9 +112,10 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
     }
   }
 
+
   /* OpenMP */
 
-#pragma omp parallel shared(time_per_atom,H0,OLP,OLP_L,Comp2Real,OneD_Grid,List_YOUSO,Spe_Num_Basis,Spe_MaxL_Basis,PAO_Nkmax,atv,Gxyz,ncn,natn,WhatSpecies,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop) 
+#pragma omp parallel
   {
 
     int Nloop;
@@ -150,247 +171,29 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
     /****************************************************************
                           allocation of arrays:
     ****************************************************************/
-    
-    TmpOLP = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpOLP[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpOLP[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpOLP[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpOLP[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpOLP[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpOLP[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
 
-    TmpOLPr = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpOLPr[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpOLPr[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpOLPr[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpOLPr[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpOLPr[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpOLPr[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
+    TmpOLP  = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpOLPr = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpOLPt = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpOLPp = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpKin  = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpKinr = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpKint = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
+    TmpKinp = Allocate6D_dcomplex(List_YOUSO[25]+1, List_YOUSO[24], (2*(List_YOUSO[25]+1)+1), (List_YOUSO[25]+1), List_YOUSO[24], (2*(List_YOUSO[25]+1)+1));
 
-    TmpOLPt = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpOLPt[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpOLPt[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpOLPt[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpOLPt[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpOLPt[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpOLPt[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
-
-    TmpOLPp = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpOLPp[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpOLPp[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpOLPp[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpOLPp[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpOLPp[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpOLPp[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
-
-    TmpKin = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpKin[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpKin[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpKin[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpKin[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpKin[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpKin[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
-
-    TmpKinr = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpKinr[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpKinr[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpKinr[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpKinr[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpKinr[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpKinr[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
-
-    TmpKint = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpKint[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpKint[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpKint[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpKint[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpKint[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpKint[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
-
-    TmpKinp = (dcomplex******)malloc(sizeof(dcomplex*****)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      TmpKinp[i] = (dcomplex*****)malloc(sizeof(dcomplex****)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	TmpKinp[i][j] = (dcomplex****)malloc(sizeof(dcomplex***)*(2*(List_YOUSO[25]+1)+1));
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  TmpKinp[i][j][k] = (dcomplex***)malloc(sizeof(dcomplex**)*(List_YOUSO[25]+1));
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    TmpKinp[i][j][k][l] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[24]);
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      TmpKinp[i][j][k][l][m] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-	      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) TmpKinp[i][j][k][l][m][p] = Complex(0.0,0.0);
-	    }
-	  }
-	}
-      }
-    }
-
-    SumS0 = (double****)malloc(sizeof(double***)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      SumS0[i] = (double***)malloc(sizeof(double**)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	SumS0[i][j] = (double**)malloc(sizeof(double*)*(List_YOUSO[25]+1));
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  SumS0[i][j][k] = (double*)malloc(sizeof(double)*List_YOUSO[24]);
-	  for (m=0; m<List_YOUSO[24]; m++) SumS0[i][j][k][m] = 0.0;       
-	}
-      }
-    }
-
-    SumK0 = (double****)malloc(sizeof(double***)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      SumK0[i] = (double***)malloc(sizeof(double**)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	SumK0[i][j] = (double**)malloc(sizeof(double*)*(List_YOUSO[25]+1));
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  SumK0[i][j][k] = (double*)malloc(sizeof(double)*List_YOUSO[24]);
-	  for (m=0; m<List_YOUSO[24]; m++) SumK0[i][j][k][m] = 0.0;
-	}
-      }
-    }
-
-
-    SumSr0 = (double****)malloc(sizeof(double***)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      SumSr0[i] = (double***)malloc(sizeof(double**)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	SumSr0[i][j] = (double**)malloc(sizeof(double*)*(List_YOUSO[25]+1));
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  SumSr0[i][j][k] = (double*)malloc(sizeof(double)*List_YOUSO[24]);
-	  for (m=0; m<List_YOUSO[24]; m++) SumSr0[i][j][k][m] = 0.0;
-	}
-      }
-    }
-
-    SumKr0 = (double****)malloc(sizeof(double***)*(List_YOUSO[25]+1));
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      SumKr0[i] = (double***)malloc(sizeof(double**)*List_YOUSO[24]);
-      for (j=0; j<List_YOUSO[24]; j++){
-	SumKr0[i][j] = (double**)malloc(sizeof(double*)*(List_YOUSO[25]+1));
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  SumKr0[i][j][k] = (double*)malloc(sizeof(double)*List_YOUSO[24]);
-	  for (m=0; m<List_YOUSO[24]; m++) SumKr0[i][j][k][m] = 0.0;
-	}
-      }
-    }
-    
-    CmatS0 = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatS0[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatS0[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatSr = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatSr[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatSr[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatSt = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatSt[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatSt[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatSp = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatSp[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatSp[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatK0 = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatK0[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatK0[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatKr = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatKr[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatKr[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatKt = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatKt[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatKt[i][p] = Complex(0.0,0.0);
-    }
-
-    CmatKp = (dcomplex**)malloc(sizeof(dcomplex*)*(2*(List_YOUSO[25]+1)+1));
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      CmatKp[i] = (dcomplex*)malloc(sizeof(dcomplex)*(2*(List_YOUSO[25]+1)+1));
-      for (p=0; p<(2*(List_YOUSO[25]+1)+1); p++) CmatKp[i][p] = Complex(0.0,0.0);
-    }
+    SumS0  = Allocate4D_double(List_YOUSO[25]+1, List_YOUSO[24], (List_YOUSO[25]+1), List_YOUSO[24]);
+    SumK0  = Allocate4D_double(List_YOUSO[25]+1, List_YOUSO[24], (List_YOUSO[25]+1), List_YOUSO[24]);
+    SumSr0 = Allocate4D_double(List_YOUSO[25]+1, List_YOUSO[24], (List_YOUSO[25]+1), List_YOUSO[24]);
+    SumKr0 = Allocate4D_double(List_YOUSO[25]+1, List_YOUSO[24], (List_YOUSO[25]+1), List_YOUSO[24]);
+	
+    CmatS0 = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatSr = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatSt = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatSp = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatK0 = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatKr = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatKt = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
+    CmatKp = Allocate2D_dcomplex((2*(List_YOUSO[25]+1)+1), (2*(List_YOUSO[25]+1)+1));
 
     /* get info. on OpenMP */ 
 
@@ -987,274 +790,35 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
 
       dtime(&Etime_atom);
       time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-    }
+    } /* end of loop for Nloop */
+
 
     /* freeing of arrays */
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpOLP[i][j][k][l][m]);
-	    }
-	    free(TmpOLP[i][j][k][l]);
-	  }
-	  free(TmpOLP[i][j][k]);
-	}
-	free(TmpOLP[i][j]);
-      }
-      free(TmpOLP[i]);
-    }
-    free(TmpOLP);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpOLPr[i][j][k][l][m]);
-	    }
-	    free(TmpOLPr[i][j][k][l]);
-	  }
-	  free(TmpOLPr[i][j][k]);
-	}
-	free(TmpOLPr[i][j]);
-      }
-      free(TmpOLPr[i]);
-    }
-    free(TmpOLPr);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpOLPt[i][j][k][l][m]);
-	    }
-	    free(TmpOLPt[i][j][k][l]);
-	  }
-	  free(TmpOLPt[i][j][k]);
-	}
-	free(TmpOLPt[i][j]);
-      }
-      free(TmpOLPt[i]);
-    }
-    free(TmpOLPt);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpOLPp[i][j][k][l][m]);
-	    }
-	    free(TmpOLPp[i][j][k][l]);
-	  }
-	  free(TmpOLPp[i][j][k]);
-	}
-	free(TmpOLPp[i][j]);
-      }
-      free(TmpOLPp[i]);
-    }
-    free(TmpOLPp);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpKin[i][j][k][l][m]);
-	    }
-	    free(TmpKin[i][j][k][l]);
-	  }
-	  free(TmpKin[i][j][k]);
-	}
-	free(TmpKin[i][j]);
-      }
-      free(TmpKin[i]);
-    }
-    free(TmpKin);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpKinr[i][j][k][l][m]);
-	    }
-	    free(TmpKinr[i][j][k][l]);
-	  }
-	  free(TmpKinr[i][j][k]);
-	}
-	free(TmpKinr[i][j]);
-      }
-      free(TmpKinr[i]);
-    }
-    free(TmpKinr);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpKint[i][j][k][l][m]);
-	    }
-	    free(TmpKint[i][j][k][l]);
-	  }
-	  free(TmpKint[i][j][k]);
-	}
-	free(TmpKint[i][j]);
-      }
-      free(TmpKint[i]);
-    }
-    free(TmpKint);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<(List_YOUSO[25]+1); l++){
-	    for (m=0; m<List_YOUSO[24]; m++){
-	      free(TmpKinp[i][j][k][l][m]);
-	    }
-	    free(TmpKinp[i][j][k][l]);
-	  }
-	  free(TmpKinp[i][j][k]);
-	}
-	free(TmpKinp[i][j]);
-      }
-      free(TmpKinp[i]);
-    }
-    free(TmpKinp);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  free(SumS0[i][j][k]);
-	}
-	free(SumS0[i][j]);
-      }
-      free(SumS0[i]);
-    }
-    free(SumS0);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  free(SumK0[i][j][k]);
-	}
-	free(SumK0[i][j]);
-      }
-      free(SumK0[i]);
-    }
-    free(SumK0);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  free(SumSr0[i][j][k]);
-	}
-	free(SumSr0[i][j]);
-      }
-      free(SumSr0[i]);
-    }
-    free(SumSr0);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(List_YOUSO[25]+1); k++){
-	  free(SumKr0[i][j][k]);
-	}
-	free(SumKr0[i][j]);
-      }
-      free(SumKr0[i]);
-    }
-    free(SumKr0);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatS0[i]);
-    }
-    free(CmatS0);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatSr[i]);
-    }
-    free(CmatSr);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatSt[i]);
-    }
-    free(CmatSt);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatSp[i]);
-    }
-    free(CmatSp);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatK0[i]);
-    }
-    free(CmatK0);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatKr[i]);
-    }
-    free(CmatKr);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatKt[i]);
-    }
-    free(CmatKt);
-
-    for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
-      free(CmatKp[i]);
-    }
-    free(CmatKp);
-
+    Free6D_dcomplex(TmpOLP);
+    Free6D_dcomplex(TmpOLPr);
+    Free6D_dcomplex(TmpOLPt);
+    Free6D_dcomplex(TmpOLPp);
+    Free6D_dcomplex(TmpKin);
+    Free6D_dcomplex(TmpKinr);
+    Free6D_dcomplex(TmpKint);
+    Free6D_dcomplex(TmpKinp);
+	
+    Free4D_double(SumS0);
+    Free4D_double(SumK0);
+    Free4D_double(SumSr0);
+    Free4D_double(SumKr0);
+	
+    Free2D_dcomplex(CmatS0);
+    Free2D_dcomplex(CmatSr);
+    Free2D_dcomplex(CmatSt);
+    Free2D_dcomplex(CmatSp);
+    Free2D_dcomplex(CmatK0);
+    Free2D_dcomplex(CmatKr);
+    Free2D_dcomplex(CmatKt);
+    Free2D_dcomplex(CmatKp);
+	
   } /* #pragma omp parallel */
-
-
-  /*
-  printf("OLP_Lx\n");
-  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
-    Gc_AN = M2G[Mc_AN];    
-    Cwan = WhatSpecies[Gc_AN];
-
-    for (i=0; i<Spe_Total_NO[Cwan]; i++){
-      for (j=0; j<Spe_Total_NO[Cwan]; j++){
-        printf("%7.4f ",OLP_L[0][Mc_AN][0][i][j]);
-      }
-      printf("\n");
-    }
-  }
-
-  printf("OLP_Ly\n");
-  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
-    Gc_AN = M2G[Mc_AN];    
-    Cwan = WhatSpecies[Gc_AN];
-
-    for (i=0; i<Spe_Total_NO[Cwan]; i++){
-      for (j=0; j<Spe_Total_NO[Cwan]; j++){
-        printf("%7.4f ",OLP_L[1][Mc_AN][0][i][j]);
-      }
-      printf("\n");
-    }
-  }
-
-  printf("OLP_Lz\n");
-  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
-    Gc_AN = M2G[Mc_AN];    
-    Cwan = WhatSpecies[Gc_AN];
-
-    for (i=0; i<Spe_Total_NO[Cwan]; i++){
-      for (j=0; j<Spe_Total_NO[Cwan]; j++){
-        printf("%7.4f ",OLP_L[2][Mc_AN][0][i][j]);
-      }
-      printf("\n");
-    }
-  }
-  */
-
+  
   /****************************************************
                    freeing of arrays:
   ****************************************************/
@@ -1268,5 +832,104 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
 
   return time0;
 }
+
+
+inline dcomplex****** Allocate6D_dcomplex(int size_1, int size_2, int size_3, int size_4, int size_5, int size_6)
+{ 
+  int i, j, k, l, m, p;
+
+  dcomplex****** buffer = (dcomplex******)malloc(sizeof(dcomplex*****)*size_1);
+  buffer[0] = (dcomplex*****)malloc(sizeof(dcomplex****)*size_1*size_2);
+  buffer[0][0] = (dcomplex****)malloc(sizeof(dcomplex***)*size_1*size_2*size_3);
+  buffer[0][0][0] = (dcomplex***)malloc(sizeof(dcomplex**)*size_1*size_2*size_3*size_4);
+  buffer[0][0][0][0] = (dcomplex**)malloc(sizeof(dcomplex*)*size_1*size_2*size_3*size_4*size_5);
+  buffer[0][0][0][0][0] = (dcomplex*)malloc(sizeof(dcomplex)*size_1*size_2*size_3*size_4*size_5*size_6);
+		
+  for (i=0; i<size_1; i++){
+    buffer[i] = buffer[0] + i * size_2;
+    for (j=0; j<size_2; j++){
+      buffer[i][j] = buffer[0][0] + (i * size_2 + j) * size_3;
+      for (k=0; k<size_3; k++){
+	buffer[i][j][k] = buffer[0][0][0] + ((i * size_2 + j) * size_3 + k) * size_4;
+	for (l=0; l<size_4; l++){
+	  buffer[i][j][k][l] = buffer[0][0][0][0] + (((i * size_2 + j) * size_3 + k) * size_4 + l) * size_5;
+	  for (m=0; m<size_5; m++){
+	    buffer[i][j][k][l][m] = buffer[0][0][0][0][0] + ((((i * size_2 + j) * size_3 + k) * size_4 + l) * size_5 + m) * size_6;
+	    for (p=0; p<size_6; p++) buffer[i][j][k][l][m][p] = Complex(0.0,0.0);
+	  }
+	}
+      }
+    }
+  }
+
+  return buffer;
+}
+
+inline double**** Allocate4D_double(int size_1, int size_2, int size_3, int size_4)
+{ 
+  int i, j, k, l;
+
+  double**** buffer = (double****)malloc(sizeof(double***)*size_1);
+  buffer[0] = (double***)malloc(sizeof(double**)*size_1*size_2);
+  buffer[0][0] = (double**)malloc(sizeof(double*)*size_1*size_2*size_3);
+  buffer[0][0][0] = (double*)malloc(sizeof(double)*size_1*size_2*size_3*size_4);
+		
+  for (i=0; i<size_1; i++){
+    buffer[i] = buffer[0] + i * size_2;
+    for (j=0; j<size_2; j++){
+      buffer[i][j] = buffer[0][0] + (i * size_2 + j) * size_3;
+      for (k=0; k<size_3; k++){
+	buffer[i][j][k] = buffer[0][0][0] + ((i * size_2 + j) * size_3 + k) * size_4;
+	for (l=0; l<size_4; l++){
+	  buffer[i][j][k][l] = 0.0;
+	}
+      }
+    }
+  }
+
+  return buffer;
+}
+
+inline dcomplex** Allocate2D_dcomplex(int size_1, int size_2)
+{ 
+  int i, j;
+
+  dcomplex** buffer = (dcomplex**)malloc(sizeof(dcomplex*)*size_1);
+  buffer[0] = (dcomplex*)malloc(sizeof(dcomplex)*size_1*size_2);
+
+  for (i=0; i<size_1; i++){
+    buffer[i] = buffer[0] + i * size_2;
+    for (j=0; j<size_2; j++){
+      buffer[i][j] = Complex(0.0,0.0);
+    }
+  }
+
+  return buffer;
+}
+
+inline void Free6D_dcomplex(dcomplex****** buffer)
+{ 
+  free(buffer[0][0][0][0][0]);
+  free(buffer[0][0][0][0]);
+  free(buffer[0][0][0]);
+  free(buffer[0][0]);
+  free(buffer[0]);
+  free(buffer);
+}
+
+inline void Free4D_double(double**** buffer)
+{ 
+  free(buffer[0][0][0]);
+  free(buffer[0][0]);
+  free(buffer[0]);
+  free(buffer);
+}
+
+inline void Free2D_dcomplex(dcomplex** buffer)
+{ 
+  free(buffer[0]);
+  free(buffer);
+}
+
 
 

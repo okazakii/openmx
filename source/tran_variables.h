@@ -40,6 +40,7 @@ int TRAN_integration;
 int TRAN_Poisson_flag;
 int TRAN_FFTE_CpyNum;
 int TRAN_SCF_Iter_Band;
+int TRAN_analysis,TRAN_SCF_skip;
 double TRAN_Poisson_Gpara_Scaling;
  
 double ScaleSize_e[2];
@@ -78,6 +79,8 @@ double *ElectrodeADensity_Grid[2];
 double *ElectrodedVHart_Grid[2];
 dcomplex ***VHart_Boundary[2];
 dcomplex ***dDen_IntBoundary[2];
+/* added by mari 09.12.2014 */
+dcomplex *VHart_Boundary_G[2];
 
 dcomplex **S00_e;
 dcomplex **S01_e;
@@ -153,7 +156,8 @@ dcomplex **tran_transmission_iv;
 
 int tran_bias_apply;      /* =1:NEGF  =0:no bias voltage */
 double tran_biasvoltage_e[2];   /* bias voltage 0:left and 1:right */
-double tran_gate_voltage;
+/* modified by mari 12.22.2014 */
+double tran_gate_voltage[2];
 double Tran_bias_neq_im_energy;
 double Tran_bias_neq_energy_step;
 double Tran_bias_neq_cutoff;

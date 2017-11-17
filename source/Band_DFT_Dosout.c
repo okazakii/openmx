@@ -137,6 +137,7 @@ static double Band_DFT_DosoutGauss_Col(
   double ****Dummy_ImNL;
   double snum_i, snum_j, snum_k; 
   double k1,k2,k3;
+  double Dos_Erange_Tmp[2];
   double *r_energy;
   double time1,time2,time3;
   double time4,time5,time6;
@@ -332,12 +333,12 @@ static double Band_DFT_DosoutGauss_Col(
 
   /* set up energies where DOS is calculated */
 
-  Dos_Erange[0] += ChemP;
-  Dos_Erange[1] += ChemP;
+  Dos_Erange_Tmp[0] = Dos_Erange[0] + ChemP;
+  Dos_Erange_Tmp[1] = Dos_Erange[1] + ChemP;
 
-  de = (Dos_Erange[1]-Dos_Erange[0])/(double)DosGauss_Num_Mesh;
+  de = (Dos_Erange_Tmp[1]-Dos_Erange_Tmp[0])/(double)DosGauss_Num_Mesh;
   for (i=0; i<DosGauss_Num_Mesh; i++) {
-    r_energy[i] = Dos_Erange[0] + de*(double)i;
+    r_energy[i] = Dos_Erange_Tmp[0] + de*(double)i;
   }
 
   /* no spin-orbit coupling */
@@ -733,7 +734,7 @@ static double Band_DFT_DosoutGauss_Col(
 	  }
 	}
 
-#pragma omp parallel shared(C,S,H2,n) private(OMPID,Nthrds,Nprocs,i1,j1,sum,sumi,l)
+#pragma omp parallel shared(C,S,H2,n,n1,spin) private(OMPID,Nthrds,Nprocs,i1,j1,sum,sumi,l) 
 	{ 
 
 	  /* get info. on OpenMP */ 
@@ -839,7 +840,7 @@ static double Band_DFT_DosoutGauss_Col(
 
           /*  calculate contribution to Gaussian DOS */
 
-#pragma omp parallel shared(pi2,SD,factor,Dos,r_energy,DosGauss_Width,DosGauss_Num_Mesh,Dos_Erange,l,kloop,spin,EIGEN,atomnum) private(OMPID,Nthrds,Nprocs,GA_AN,wanA,tnoA,Anum,eg,x,iecenter,iewidth,iemin,iemax,ie,xa,i1)
+#pragma omp parallel shared(MP,Spe_Total_CNO,WhatSpecies,pi2,SD,factor,Dos,r_energy,DosGauss_Width,DosGauss_Num_Mesh,Dos_Erange_Tmp,l,kloop,spin,EIGEN,atomnum) private(OMPID,Nthrds,Nprocs,GA_AN,wanA,tnoA,Anum,eg,x,iecenter,iewidth,iemin,iemax,ie,xa,i1)
 	  { 
 
 	    /* get info. on OpenMP */ 
@@ -861,10 +862,10 @@ static double Band_DFT_DosoutGauss_Col(
 	      **************************/
 
 	      eg = EIGEN[spin][kloop][l];
-	      x = (eg-Dos_Erange[0])/(Dos_Erange[1]-Dos_Erange[0])*(DosGauss_Num_Mesh-1);
+	      x = (eg-Dos_Erange_Tmp[0])/(Dos_Erange_Tmp[1]-Dos_Erange_Tmp[0])*(DosGauss_Num_Mesh-1);
 	      iecenter = (int)x ; 
 
-	      iewidth = DosGauss_Width*3.0/(Dos_Erange[1]-Dos_Erange[0])*(DosGauss_Num_Mesh-1)+3;
+	      iewidth = DosGauss_Width*3.0/(Dos_Erange_Tmp[1]-Dos_Erange_Tmp[0])*(DosGauss_Num_Mesh-1)+3;
 
 	      iemin = iecenter - iewidth;
 	      iemax = iecenter + iewidth;
@@ -1473,6 +1474,7 @@ static double Band_DFT_DosoutGauss_NonCol(
   double *ko; int N_ko, i_ko[10];
   double *koS;
   double *r_energy;
+  double Dos_Erange_Tmp[2];
   dcomplex **H;  int N_H,  i_H[10];
   dcomplex **S;  int N_S,  i_S[10];
   dcomplex Ctmp1,Ctmp2;
@@ -1585,12 +1587,12 @@ static double Band_DFT_DosoutGauss_NonCol(
 
   /* set up energies where DOS is calculated */
 
-  Dos_Erange[0] += ChemP;
-  Dos_Erange[1] += ChemP;
+  Dos_Erange_Tmp[0] = Dos_Erange[0] + ChemP;
+  Dos_Erange_Tmp[1] = Dos_Erange[1] + ChemP;
 
-  de = (Dos_Erange[1]-Dos_Erange[0])/(double)DosGauss_Num_Mesh;
+  de = (Dos_Erange_Tmp[1]-Dos_Erange_Tmp[0])/(double)DosGauss_Num_Mesh;
   for (i=0; i<DosGauss_Num_Mesh; i++) {
-    r_energy[i] = Dos_Erange[0] + de*(double)i;
+    r_energy[i] = Dos_Erange_Tmp[0] + de*(double)i;
   }
 
   /* non-spin-orbit coupling and non-LDA+U */
@@ -2229,16 +2231,16 @@ static double Band_DFT_DosoutGauss_NonCol(
 	  Anum = MP[GA_AN];
 
 	  /*************************
-                  exp( -(x/a)^2 ) 
-                  a= DosGauss_Width
-	          x=-3a : 3a is counted 
+             exp( -(x/a)^2 ) 
+             a= DosGauss_Width
+             x=-3a : 3a is counted 
 	  **************************/
 
 	  eg = EIGEN[kloop][l];
-	  x = (eg-Dos_Erange[0])/(Dos_Erange[1]-Dos_Erange[0])*(DosGauss_Num_Mesh-1);
+	  x = (eg-Dos_Erange_Tmp[0])/(Dos_Erange_Tmp[1]-Dos_Erange_Tmp[0])*(DosGauss_Num_Mesh-1);
 	  iecenter = (int)x ; 
 
-	  iewidth = DosGauss_Width*3.0/(Dos_Erange[1]-Dos_Erange[0])*(DosGauss_Num_Mesh-1)+3;
+	  iewidth = DosGauss_Width*3.0/(Dos_Erange_Tmp[1]-Dos_Erange_Tmp[0])*(DosGauss_Num_Mesh-1)+3;
 
 	  iemin = iecenter - iewidth;
 	  iemax = iecenter + iewidth;

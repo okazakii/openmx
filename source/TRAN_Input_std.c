@@ -42,6 +42,9 @@ void TRAN_Input_std(
   char *s_vec[20];
   char buf[MAXBUF];
   int myid;
+  /* S MitsuakiKAWAMURA*/
+  int TRAN_Analysis_Dummy;
+  /* E MitsuakiKAWAMURA*/
 
   MPI_Comm_rank(comm1,&myid);
 
@@ -115,7 +118,7 @@ void TRAN_Input_std(
   input_double("NEGF.Surfgreen.convergeeps", &tran_surfgreen_eps, 1.0e-12); 
 
   /****  k-points parallel to the layer, which are used for the SCF calc. ****/
-  
+
   i_vec2[0]=1;
   i_vec2[1]=1;
   input_intv("NEGF.scf.Kgrid",2,i_vec,i_vec2);
@@ -145,10 +148,12 @@ void TRAN_Input_std(
 
   TRAN_Poisson_flag = 1;
 
-  s_vec[0]="FD";  s_vec[1]="FFT"; 
-  i_vec[0]=1   ;  i_vec[1]=2    ; 
+  /* beginning added by mari 07.23.2014 */
+  s_vec[0]="FD";  s_vec[1]="FFT";  s_vec[2]="FDG";
+  i_vec[0]=1   ;  i_vec[1]=2    ;  i_vec[2]=3    ;
 
-  input_string2int("NEGF.Poisson.Solver", &TRAN_Poisson_flag, 2, s_vec,i_vec);
+  input_string2int("NEGF.Poisson.Solver", &TRAN_Poisson_flag, 3, s_vec,i_vec);
+  /* end added by mari 07.23.2014 */
 
   /* parameter to scale terms with Gpara=0 */
 
@@ -170,10 +175,44 @@ void TRAN_Input_std(
   i_vec[0]=0    ; i_vec[1]=1    ;
   input_string2int("NEGF.Integration", &TRAN_integration, 2, s_vec,i_vec);
 
+  /* check whether analysis is made or not */
+
+  input_logical("NEGF.tran.analysis",&TRAN_analysis,1);
+
+  /* S MitsuakiKAWAMURA*/
+  input_logical("NEGF.tran.channel", &TRAN_Analysis_Dummy, 1);
+  if (TRAN_Analysis_Dummy == 1 && TRAN_analysis != 1){
+    TRAN_analysis = 1;
+    if (myid == Host_ID)
+      printf("Since NEGF.tran.channel is on, NEGF.tran.analysis is automatically set to on.\n");
+  }
+  input_logical("NEGF.tran.CurrentDensity", &TRAN_Analysis_Dummy, 1);
+  if (TRAN_Analysis_Dummy == 1 && TRAN_analysis != 1){
+    TRAN_analysis = 1;
+    if (myid == Host_ID)
+      printf("Since NEGF.tran.CurrentDensity is on, NEGF.tran.analysis is automatically set to on.\n");
+  }
+  input_logical("NEGF.OffDiagonalCurrent", &TRAN_Analysis_Dummy, 0);
+  if (TRAN_Analysis_Dummy == 1 && TRAN_analysis != 1) {
+    TRAN_analysis = 1;
+    if (myid == Host_ID)
+      printf("Since NEGF.OffDiagonalCurrent is on, NEGF.tran.analysis is automatically set to on.\n");
+  }
+  /* E MitsuakiKAWAMURA*/
+
+  /* check whether the SCF calcultion is skipped or not */
+
+  i = 0;
+  s_vec[i] = "OFF";         i_vec[i] = 0;  i++;
+  s_vec[i] = "ON";          i_vec[i] = 1;  i++;
+  s_vec[i] = "Periodic";  i_vec[i] = 2;  i++;
+
+  input_string2int("NEGF.tran.SCF.skip", &TRAN_SCF_skip, i, s_vec, i_vec);
+
   /****  k-points parallel to the layer, which are used for the transmission calc. ****/
   
-  i_vec2[0]=1;
-  i_vec2[1]=1;
+  i_vec2[0]=TRAN_Kspace_grid2;
+  i_vec2[1]=TRAN_Kspace_grid3;
   input_intv("NEGF.tran.Kgrid",2,i_vec,i_vec2);
   TRAN_TKspace_grid2 = i_vec[0];
   TRAN_TKspace_grid3 = i_vec[1];
@@ -234,8 +273,19 @@ void TRAN_Input_std(
 
   /**** gate voltage ****/
 
-  input_double("NEGF.gate.voltage", &tran_gate_voltage, 0.0); 
-  tran_gate_voltage /= TRAN_eV2Hartree; 
+  /* beginning added by mari 07.30.2014 */
+  if(TRAN_Poisson_flag == 3) {
+    r_vec[0] = 0.0;
+    r_vec[1] = 0.0;
+    input_doublev("NEGF.gate.voltage", 2, tran_gate_voltage, r_vec); 
+    tran_gate_voltage[0] /= TRAN_eV2Hartree; 
+    tran_gate_voltage[1] /= TRAN_eV2Hartree; 
+  } else {
+    r_vec[0] = 0.0;
+    input_doublev("NEGF.gate.voltage", 1, tran_gate_voltage, r_vec); 
+    tran_gate_voltage[0] /= TRAN_eV2Hartree; 
+  }
+  /* end added by mari 07.30.2014 */
 
   /******************************************************
             parameters for the DOS calculation         

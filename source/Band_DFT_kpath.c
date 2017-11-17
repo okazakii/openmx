@@ -198,7 +198,7 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
   if (myid==Host_ID && 0<level_stdout){
     printf("kpath\n");
     for (ik=1;ik<=nkpath; ik++) {
-      printf("%d (%lf %lf %lf)->(%lf %lf %lf)\n", ik,
+      printf("%d (%18.15f %18.15f %18.15f)->(%18.15f %18.15f %18.15f)\n", ik,
               kpath[ik][1][1],kpath[ik][1][2],kpath[ik][1][3],
               kpath[ik][2][1],kpath[ik][2][2],kpath[ik][2][3]);fflush(stdout);
     }
@@ -260,14 +260,6 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
       MPI_Bcast(&arpo[ID], 1, MPI_INT, ID, mpi_comm_level1);
     }
 
-    /*
-    if (myid==Host_ID){
-      printf("%d (%lf %lf %lf)->(%lf %lf %lf)\n", ik,
-              kpath[ik][1][1],kpath[ik][1][2],kpath[ik][1][3],
-              kpath[ik][2][1],kpath[ik][2][2],kpath[ik][2][3]);fflush(stdout);
-    }
-    */
-
     /* set S and diagonalize it */
     
     for (ID=0; ID<numprocs; ID++){
@@ -281,13 +273,13 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
 
         id=1;
         k1 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=2;
         k2 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) - Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=3;
         k3 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + 2.0*Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 
         Overlap_Band(ID,CntOLP,TmpM,MP,k1,k2,k3);
         n = TmpM[0][0].r;
@@ -356,13 +348,13 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
 
 	  id=1;
 	  k1 = kpath[ik][1][id]+
-	    (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + Shift_K_Point;
+	    (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 	  id=2;
 	  k2 = kpath[ik][1][id]+
-	    (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) - Shift_K_Point;
+	    (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 	  id=3;
 	  k3 = kpath[ik][1][id]+
-	    (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + 2.0*Shift_K_Point;
+	    (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 
           Hamiltonian_Band(ID, nh[spin], TmpM, MP, k1, k2, k3);
 
@@ -534,6 +526,14 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
         /* solve eigenvalue problem */
         EigenBand_lapack(C,ko[spin],n,n,0);
 
+	if (3<=level_stdout){
+	  printf(" myid=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
+		 myid,kloop,k1,k2,k3);
+	  for (i1=1; i1<=n; i1++){
+	    printf("  Eigenvalues of Hks  %2d  %15.12f\n",i1,ko[spin][i1]);
+	  }
+	}
+
 	for (l=1; l<=n; l++){
 	  EigenVal[ik][i_perk][spin][l-1] = ko[spin][l];
 	}
@@ -599,15 +599,15 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
       return;
     }
 
-    fprintf(fp_Band," %d  %d  %lf\n",n,SpinP_switch,ChemP);
+    fprintf(fp_Band," %d  %d  %18.15f\n",n,SpinP_switch,ChemP);
     for (i=1;i<=3;i++) 
       for (j=1;j<=3;j++) {
-	fprintf(fp_Band,"%lf ", rtv[i][j]);
+	fprintf(fp_Band,"%18.15f ", rtv[i][j]);
       }
     fprintf(fp_Band,"\n");
     fprintf(fp_Band,"%d\n",nkpath);
     for (i=1;i<=nkpath;i++) {
-      fprintf(fp_Band,"%d %lf %lf %lf  %lf %lf %lf  %s %s\n",
+      fprintf(fp_Band,"%d %18.15f %18.15f %18.15f  %18.15f %18.15f %18.15f  %s %s\n",
 	      n_perk[i],
 	      kpath[i][1][1], kpath[i][1][2], kpath[i][1][3],
 	      kpath[i][2][1], kpath[i][2][2], kpath[i][2][3],
@@ -619,17 +619,17 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
 
         id=1;
         k1 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=2;
         k2 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) - Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=3;
         k3 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + 2.0*Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 
         for (spin=0; spin<=SpinP_switch; spin++){
 
-	  fprintf(fp_Band,"%d %lf %lf %lf\n", n,k1,k2,k3);
+	  fprintf(fp_Band,"%d %18.15f %18.15f %18.15f\n", n,k1,k2,k3);
 
 	  for (l=0; l<n; l++) {
 	    fprintf(fp_Band,"%18.15f ",EigenVal[ik][i_perk][spin][l]);
@@ -853,7 +853,7 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
   if (myid==Host_ID && 0<level_stdout){
     printf("kpath\n");
     for (ik=1; ik<=nkpath; ik++) {
-      printf("%d (%lf %lf %lf)->(%lf %lf %lf)\n", ik,
+      printf("%d (%18.15f %18.15f %18.15f)->(%18.15f %18.15f %18.15f)\n", ik,
               kpath[ik][1][1],kpath[ik][1][2],kpath[ik][1][3],
               kpath[ik][2][1],kpath[ik][2][2],kpath[ik][2][3]);fflush(stdout);
     }
@@ -928,13 +928,13 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
 
         id=1;
         k1 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=2;
         k2 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) - Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=3;
         k3 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + 2.0*Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 
         Overlap_Band(ID,CntOLP,TmpM,MP,k1,k2,k3);
         n = TmpM[0][0].r;
@@ -1000,13 +1000,13 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
 
 	id=1;
 	k1 = kpath[ik][1][id]+
-	  (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + Shift_K_Point;
+	  (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 	id=2;
 	k2 = kpath[ik][1][id]+
-	  (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) - Shift_K_Point;
+	  (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 	id=3;
 	k3 = kpath[ik][1][id]+
-	  (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + 2.0*Shift_K_Point;
+	  (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 
         /****************************************************
                    make a full Hamiltonian matrix
@@ -1218,15 +1218,15 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
       return;
     }
 
-    fprintf(fp_Band," %d  %d  %lf\n",2*n,0,ChemP);  /* set SpinP_switch==0 */
+    fprintf(fp_Band," %d  %d  %18.15f\n",2*n,0,ChemP);  /* set SpinP_switch==0 */
     for (i=1;i<=3;i++) 
       for (j=1;j<=3;j++) {
-	fprintf(fp_Band,"%lf ", rtv[i][j]);
+	fprintf(fp_Band,"%18.15f ", rtv[i][j]);
       }
     fprintf(fp_Band,"\n");
     fprintf(fp_Band,"%d\n",nkpath);
     for (i=1;i<=nkpath;i++) {
-      fprintf(fp_Band,"%d %lf %lf %lf  %lf %lf %lf  %s %s\n",
+      fprintf(fp_Band,"%d %18.15f %18.15f %18.15f  %18.15f %18.15f %18.15f  %s %s\n",
 	      n_perk[i],
 	      kpath[i][1][1], kpath[i][1][2], kpath[i][1][3],
 	      kpath[i][2][1], kpath[i][2][2], kpath[i][2][3],
@@ -1238,15 +1238,15 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
 
         id=1;
         k1 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=2;
         k2 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) - Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
         id=3;
         k3 = kpath[ik][1][id]+
-          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1) + 2.0*Shift_K_Point;
+          (kpath[ik][2][id]-kpath[ik][1][id])*(i_perk-1)/(n_perk[ik]-1);
 
-	fprintf(fp_Band,"%d %lf %lf %lf\n", 2*n,k1,k2,k3);
+	fprintf(fp_Band,"%d %18.15f %18.15f %18.15f\n", 2*n,k1,k2,k3);
 
 	for (l=0; l<2*n; l++) {
 	  fprintf(fp_Band,"%18.15f ",EigenVal[ik][i_perk][l]);

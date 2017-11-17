@@ -105,6 +105,10 @@ void zgtsv_(INTEGER *n, INTEGER *nrhs, dcomplex *dl,
 	    dcomplex *d__, dcomplex *du, dcomplex *b, INTEGER *ldb,
 	    INTEGER *info);
 
+/* added by mari 08.12.2014 */
+void zgesv_(INTEGER *n, INTEGER *nrhs, dcomplex *a, INTEGER *lda,
+	    INTEGER *ipiv, dcomplex *b, INTEGER *ldb, INTEGER *info);
+
 void dpotrf_(char *uplo, INTEGER *n, double *a, INTEGER *lda, INTEGER *info);
 void dpotri_(char *uplo, INTEGER *n, double *a, INTEGER *lda, INTEGER *info);
 void dggevx_(char *balanc, char *jobvl, char *jobvr, char *sense,

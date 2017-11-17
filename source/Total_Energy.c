@@ -27,9 +27,10 @@ static double Calc_EH0(int MD_iter);
 static double Calc_Ekin();
 static double Calc_Ena();
 static double Calc_Enl();
-static void Calc_EXC_EH1(double ECE[]);
-static double Calc_Ehub();  /* --- added by MJ  */
-static double Calc_EdftD(); /* added by okuno */
+static void Calc_EXC_EH1(double ECE[],double *****CDM);
+static double Calc_Ehub();   /* --- added by MJ  */
+static double Calc_EdftD();  /* added by okuno */
+static double Calc_EdftD3(); /* added by Ellner */
 static void EH0_TwoCenter(int Gc_AN, int h_AN, double VH0ij[4]);
 static void EH0_TwoCenter_at_Cutoff(int wan1, int wan2, double VH0ij[4]);
 static void Set_Lebedev_Grid();
@@ -148,15 +149,13 @@ double Total_Energy(int MD_iter, double *****CDM, double ECE[])
   } 
 
   /****************************************************
-     EXC = \sum_{\sigma}
-           n_{\sigma}(\epsilon_{xc}-\mu_{xc,\sigma})
-
-     EH1 = -1/2\int {n(r)+n^a(r)} \delta V_H dr
+     EXC = \sum_{\sigma} (n_{\sigma}(r)+n_pcc(r)\epsilon_{xc}
+     EH1 = -1/2\int {n(r)-n_a(r)} \delta V_H dr
   ****************************************************/
 
   dtime(&stime);
 
-  Calc_EXC_EH1(ECE);
+  Calc_EXC_EH1(ECE,CDM);
 
   dtime(&etime);
   if(myid==0 && measure_time){
@@ -172,13 +171,79 @@ double Total_Energy(int MD_iter, double *****CDM, double ECE[])
     else                  ECE[8] = 0.0;
   }
 
-  /****************************************************
-
-  ****************************************************/
+  /*********************************************************
+   DFT-D2 and D3 by Grimme (implemented by Okuno and Ellner)
+  *********************************************************/
 
   if(F_dftD_flag==1){
-    if(dftD_switch==1) ECE[13] = Calc_EdftD();
-    else               ECE[13] = 0.0;
+    if(dftD_switch==1){
+      if(version_dftD==2) ECE[13] = Calc_EdftD(); 
+      if(version_dftD==3) ECE[13] = Calc_EdftD3(); 
+    }
+    else ECE[13] = 0.0;
+  }
+
+  /****************************************************
+    Stress coming from volume terms
+          
+    ECE[3]; Una
+    ECE[5]; UH1
+
+    The volume term coming from Exc is added in 
+    Calc_EXC_EH1 
+  ****************************************************/
+
+  if (scf_stress_flag){
+
+    if (ProExpn_VNA==0){
+      double s3,s5;
+
+      s3 = (double)F_VNA_flag*ECE[3]; 
+      s5 = (double)F_dVHart_flag*ECE[5];
+
+      Stress_Tensor[0] += s3 + s5;
+      Stress_Tensor[4] += s3 + s5;
+      Stress_Tensor[8] += s3 + s5;
+    }
+    else{
+      double s5;
+
+      s5 = (double)F_dVHart_flag*ECE[5];
+      Stress_Tensor[0] += s5;
+      Stress_Tensor[4] += s5;
+      Stress_Tensor[8] += s5;
+    }
+
+    {
+      int i,j;
+      double tmp;
+
+      /* symmetrization of stress tensor */
+
+      for (i=0; i<3; i++){
+	for (j=(i+1); j<3; j++){
+	  tmp = 0.5*(Stress_Tensor[3*i+j]+Stress_Tensor[3*j+i]);
+	  Stress_Tensor[3*i+j] = tmp;
+	  Stress_Tensor[3*j+i] = tmp;
+	}
+      }
+
+      /* show the stress tensor including all the contributions */
+
+      if (myid==Host_ID && 0<level_stdout){
+
+	printf("\n*******************************************************\n"); fflush(stdout);
+	printf("               Stress tensor (Hartree/bohr^3)            \n"); fflush(stdout);
+	printf("*******************************************************\n\n"); fflush(stdout);
+
+	for (i=0; i<3; i++){
+	  for (j=0; j<3; j++){
+	    printf("%17.8f ", Stress_Tensor[3*i+j]/Cell_Volume);
+	  }
+	  printf("\n");fflush(stdout);
+	}
+      }
+    }
   }
 
   /****************************************************
@@ -208,7 +273,7 @@ double Calc_Ekin()
           calculate the kinetic energy, Ekin
   ****************************************************/
 
-  int i,j,spin;
+  int i,j,spin,spinmax;
   int Mc_AN,Gc_AN,Cwan,Rn,h_AN,Gh_AN,Hwan;
   double My_Ekin,Ekin,Zc,Zh,dum,dum2;
   int numprocs,myid;
@@ -220,6 +285,10 @@ double Calc_Ekin()
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /****************************************************
+      conventional calculation of kinetic energy
+  ****************************************************/
 
   /* get Nthrds0 */  
 #pragma omp parallel shared(Nthrds0)
@@ -349,6 +418,57 @@ double Calc_Ekin()
   /* freeing of array */
   free(My_Ekin_threads);
 
+  /****************************************************
+            decomposition of kinetic energy
+  ****************************************************/
+
+  if (Energy_Decomposition_flag==1){
+
+    if      (SpinP_switch==0) spinmax = 0;
+    else if (SpinP_switch==1) spinmax = 1;
+    else if (SpinP_switch==3) spinmax = 1;
+
+    for (spin=0; spin<=spinmax; spin++){
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	dtime(&Stime_atom);
+
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+
+        for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+          DecEkin[spin][Mc_AN][i] = 0.0;
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+
+	    for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+	      DecEkin[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*H0[0][Mc_AN][h_AN][i][j];
+	    }
+
+	  } /* h_AN */ 
+
+	  /*
+          printf("ABC1 spin=%2d Gc_AN=%2d i=%2d Kin=%15.12f\n",spin,Gc_AN,i,DecEkin[spin][Mc_AN][i]);
+	  */
+
+	} /* i */
+
+        dtime(&Etime_atom);
+        time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+      } /* Mc_AN */
+    } /* spin */ 
+
+  } /* if (Energy_Decomposition_flag==1) */
+
+  /****************************************************
+                      return Ekin
+  ****************************************************/
+
   return Ekin;  
 }
 
@@ -362,7 +482,7 @@ double Calc_Ena()
      calculate the neutral atom potential energy, Ena
   ****************************************************/
 
-  int i,j,spin;
+  int i,j,spin,spinmax;
   int Mc_AN,Gc_AN,Cwan,Rn,h_AN,Gh_AN,Hwan;
   double My_Ena,Ena,Zc,Zh,dum,dum2;
   int numprocs,myid;
@@ -374,6 +494,10 @@ double Calc_Ena()
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /**********************************************************
+   conventional calculation of neutral atom potential energy
+  **********************************************************/
 
   /* get Nthrds0 */  
 #pragma omp parallel shared(Nthrds0)
@@ -394,7 +518,7 @@ double Calc_Ena()
 
     for (spin=0; spin<=SpinP_switch; spin++){
 
-#pragma omp parallel shared(SpinP_switch,time_per_atom,CntH0,HVNA,DM,My_Ena_threads,Spe_Total_CNO,Cnt_switch,natn,WhatSpecies,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop) private(OMPID,Nthrds,Nprocs,Nloop,Stime_atom,Mc_AN,h_AN,Gc_AN,Cwan,Gh_AN,Hwan,i,j,Etime_atom)
+#pragma omp parallel shared(spin,SpinP_switch,time_per_atom,CntH0,HVNA,DM,My_Ena_threads,Spe_Total_CNO,Cnt_switch,natn,WhatSpecies,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop) private(OMPID,Nthrds,Nprocs,Nloop,Stime_atom,Mc_AN,h_AN,Gc_AN,Cwan,Gh_AN,Hwan,i,j,Etime_atom)
       {
 
 	/* get info. on OpenMP */ 
@@ -509,6 +633,53 @@ double Calc_Ena()
   /* freeing of array */
   free(My_Ena_threads);
 
+  /****************************************************
+     decomposition of neutral atom potential energy
+  ****************************************************/
+
+  if (Energy_Decomposition_flag==1){
+
+    if      (SpinP_switch==0) spinmax = 0;
+    else if (SpinP_switch==1) spinmax = 1;
+    else if (SpinP_switch==3) spinmax = 1;
+
+    for (spin=0; spin<=spinmax; spin++){
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	dtime(&Stime_atom);
+
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+
+        for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+          DecEna[spin][Mc_AN][i] = 0.0;
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+
+	    for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+	      DecEna[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*HVNA[Mc_AN][h_AN][i][j];
+	    }
+
+	  } /* h_AN */ 
+
+	} /* i */
+
+        dtime(&Etime_atom);
+        time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+      } /* Mc_AN */
+    } /* spin */ 
+
+  } /* if (Energy_Decomposition_flag==1) */
+
+  /****************************************************
+                      return Ena
+  ****************************************************/
+
   return Ena;  
 }
 
@@ -522,7 +693,7 @@ double Calc_Enl()
      calculate the non-local pseudo potential energy
   ****************************************************/
 
-  int i,j,spin;
+  int i,j,spin,spinmax;
   int Mc_AN,Gc_AN,Cwan,Rn,h_AN,Gh_AN,Hwan;
   double My_Enl,Enl,Zc,Zh,dum,dum2;
   int numprocs,myid;
@@ -534,6 +705,10 @@ double Calc_Enl()
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /*******************************************************************
+   conventional calculation of the non-local pseudo potential energy
+  *******************************************************************/
 
   /* get Nthrds0 */  
 #pragma omp parallel shared(Nthrds0)
@@ -676,6 +851,94 @@ double Calc_Enl()
   /* freeing of array */
   free(My_Enl_threads);
 
+  /*******************************************************************
+        decomposition of the non-local pseudo potential energy
+  *******************************************************************/
+
+  if (Energy_Decomposition_flag==1){
+
+    if (SpinP_switch==0 || SpinP_switch==1){
+
+      if      (SpinP_switch==0) spinmax = 0;
+      else if (SpinP_switch==1) spinmax = 1;
+
+      for (spin=0; spin<=spinmax; spin++){
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	  dtime(&Stime_atom);
+
+	  Gc_AN = M2G[Mc_AN];
+	  Cwan = WhatSpecies[Gc_AN];
+
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+	    DecEnl[spin][Mc_AN][i] = 0.0;
+
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      Gh_AN = natn[Gc_AN][h_AN];
+	      Hwan = WhatSpecies[Gh_AN];
+
+	      for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+		DecEnl[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*HNL[spin][Mc_AN][h_AN][i][j];
+	      }
+
+	    } /* h_AN */ 
+
+	  } /* i */
+
+	  dtime(&Etime_atom);
+	  time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+	} /* Mc_AN */
+      } /* spin */ 
+    } /* if (SpinP_switch==0 || SpinP_switch==1) */
+
+    else if (SpinP_switch==3){
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	dtime(&Stime_atom);
+
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+
+	for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+	  DecEnl[0][Mc_AN][i] = 0.0;
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+
+	    for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+              DecEnl[0][Mc_AN][i] += 
+                    DM[0][0][Mc_AN][h_AN][i][j]*  HNL[0][Mc_AN][h_AN][i][j]
+                 - iDM[0][0][Mc_AN][h_AN][i][j]*iHNL0[0][Mc_AN][h_AN][i][j]
+                 +  DM[0][1][Mc_AN][h_AN][i][j]*  HNL[1][Mc_AN][h_AN][i][j]
+                 - iDM[0][1][Mc_AN][h_AN][i][j]*iHNL0[1][Mc_AN][h_AN][i][j]
+              + 2.0*DM[0][2][Mc_AN][h_AN][i][j]*  HNL[2][Mc_AN][h_AN][i][j] 
+              - 2.0*DM[0][3][Mc_AN][h_AN][i][j]*iHNL0[2][Mc_AN][h_AN][i][j];
+	    }
+
+	  } /* h_AN */ 
+
+	} /* i */
+
+	dtime(&Etime_atom);
+	time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+      } /* Mc_AN */
+
+    } /* else if (SpinP_switch==3) */
+
+  } /* if (Energy_Decomposition_flag==1) */
+
+  /****************************************************
+                      return Enl
+  ****************************************************/
+
   return Enl;  
 }
 
@@ -691,9 +954,10 @@ double Calc_Ecore()
   ****************************************************/
 
   int Mc_AN,Gc_AN,Cwan,Rn,h_AN,Gh_AN,Hwan;
+  int i,spin,spinmax;
   double My_Ecore,Ecore,Zc,Zh,dum,dum2;
   double *My_Ecore_threads;
-  double dEx,dEy,dEz,r,lx,ly,lz;
+  double TmpEcore,dEx,dEy,dEz,r,lx,ly,lz;
   int numprocs,myid;
   double Stime_atom,Etime_atom;
   /* for OpenMP */
@@ -717,7 +981,7 @@ double Calc_Ecore()
   My_Ecore_threads = (double*)malloc(sizeof(double)*Nthrds0);
   for (Nloop=0; Nloop<Nthrds0; Nloop++) My_Ecore_threads[Nloop] = 0.0;
 
-#pragma omp parallel shared(level_stdout,time_per_atom,atv,Gxyz,Dis,ncn,natn,FNAN,Spe_Core_Charge,WhatSpecies,M2G,Matomnum,My_Ecore_threads) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Gc_AN,Cwan,Zc,dEx,dEy,dEz,h_AN,Gh_AN,Rn,Hwan,Zh,r,lx,ly,lz,dum,dum2,Etime_atom)
+#pragma omp parallel shared(level_stdout,time_per_atom,atv,Gxyz,Dis,ncn,natn,FNAN,Spe_Core_Charge,WhatSpecies,M2G,Matomnum,My_Ecore_threads,DecEscc) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Gc_AN,Cwan,Zc,dEx,dEy,dEz,h_AN,Gh_AN,Rn,Hwan,Zh,r,lx,ly,lz,dum,dum2,Etime_atom,TmpEcore)
   {
 
     /* get info. on OpenMP */ 
@@ -736,6 +1000,7 @@ double Calc_Ecore()
       dEx = 0.0;
       dEy = 0.0;
       dEz = 0.0;
+      TmpEcore = 0.0;       
 
       for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
 
@@ -753,20 +1018,37 @@ double Calc_Ecore()
 	lz = (Gxyz[Gc_AN][3] - Gxyz[Gh_AN][3] - atv[Rn][3])/r;
 	dum = Zc*Zh/r;
 	dum2 = dum/r;
-	My_Ecore_threads[OMPID] += dum;
+        TmpEcore += dum; 
 	dEx = dEx - lx*dum2;
 	dEy = dEy - ly*dum2;
 	dEz = dEz - lz*dum2;
-      }
+
+      } /* h_AN */
 
       /****************************************************
                         #6 of force
          Contribution from the core-core repulsions
       ****************************************************/
 
+      My_Ecore_threads[OMPID] += TmpEcore;
       Gxyz[Gc_AN][17] += dEx;
       Gxyz[Gc_AN][18] += dEy;
       Gxyz[Gc_AN][19] += dEz;
+
+      if (Energy_Decomposition_flag==1){
+
+        if      (SpinP_switch==0) spinmax = 0;
+        else if (SpinP_switch==1) spinmax = 1;
+        else if (SpinP_switch==3) spinmax = 1;
+
+        TmpEcore = 0.5*TmpEcore/(2.0*(double)Spe_Total_CNO[Cwan]);
+
+        for (spin=0; spin<=spinmax; spin++){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecEscc[spin][Mc_AN][i] = TmpEcore;     
+	  }
+        }
+      } 
 
       if (2<=level_stdout){
 	printf("<Total_Ene>  force(6) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
@@ -807,10 +1089,10 @@ double Calc_EH0(int MD_iter)
               EH0 = -1/2\int n^a(r) V^a_H dr
   ****************************************************/
 
-  int Mc_AN,Gc_AN,h_AN,Gh_AN,num,gnum;
-  int wan,wan1,wan2,Nd,n1,n2,n3;
+  int Mc_AN,Gc_AN,h_AN,Gh_AN,num,gnum,i;
+  int wan,wan1,wan2,Nd,n1,n2,n3,spin,spinmax;
   double bc,dx,x,y,z,r1,r2,rho0,xx;
-  double Scale_Grid_Ecut;
+  double Scale_Grid_Ecut,TmpEH0;
   double EH0ij[4],My_EH0,EH0,tmp0;
   double *Fx,*Fy,*Fz,*g0;
   double dEx,dEy,dEz,Dx,Sx;
@@ -847,7 +1129,7 @@ double Calc_EH0(int MD_iter)
 
     dtime(&stime);
 
-    Scale_Grid_Ecut = 16.0*Grid_Ecut;
+    Scale_Grid_Ecut = 16.0*600.0;
 
     /* estimate the size of an array g0 */
 
@@ -984,7 +1266,6 @@ double Calc_EH0(int MD_iter)
 	Z2 = Spe_Core_Charge[wan2];
 	tmp0 = Z1*Z2/(r1+r2);
 
-
 	if (1.0e-20<fabs(EH0ij[0])){ 
 	  EH0_scaling[wan1][wan2] = tmp0/EH0ij[0];
 	}
@@ -1018,8 +1299,10 @@ double Calc_EH0(int MD_iter)
   My_EH0_threads = (double*)malloc(sizeof(double)*Nthrds0);
   for (Nloop=0; Nloop<Nthrds0; Nloop++) My_EH0_threads[Nloop] = 0.0;
 
-#pragma omp parallel shared(time_per_atom,RMI1,EH0_scaling,natn,FNAN,WhatSpecies,M2G,Matomnum,My_EH0_threads) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Gc_AN,wan1,h_AN,Gh_AN,wan2,factor,EH0ij,Etime_atom)
+#pragma omp parallel shared(time_per_atom,RMI1,EH0_scaling,natn,FNAN,WhatSpecies,M2G,Matomnum,My_EH0_threads,DecEscc) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Gc_AN,wan1,h_AN,Gh_AN,wan2,factor,Etime_atom,TmpEH0)
   {
+
+    double EH0ij[4];    
 
     /* get info. on OpenMP */ 
 
@@ -1033,6 +1316,7 @@ double Calc_EH0(int MD_iter)
 
       Gc_AN = M2G[Mc_AN];
       wan1 = WhatSpecies[Gc_AN];
+      TmpEH0 = 0.0; 
 
       for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
 
@@ -1043,8 +1327,7 @@ double Calc_EH0(int MD_iter)
 	else         factor = EH0_scaling[wan1][wan2];
 
 	EH0_TwoCenter(Gc_AN, h_AN, EH0ij);
-
-	My_EH0_threads[OMPID] -= 0.250*factor*EH0ij[0];
+        TmpEH0 -= 0.250*factor*EH0ij[0];
 	Fx[Mc_AN] = Fx[Mc_AN] - 0.5*factor*EH0ij[1];
 	Fy[Mc_AN] = Fy[Mc_AN] - 0.5*factor*EH0ij[2];
 	Fz[Mc_AN] = Fz[Mc_AN] - 0.5*factor*EH0ij[3];
@@ -1053,13 +1336,29 @@ double Calc_EH0(int MD_iter)
 	else         factor = EH0_scaling[wan2][wan1];
 
 	EH0_TwoCenter(Gh_AN, RMI1[Mc_AN][h_AN][0], EH0ij);
-
-	My_EH0_threads[OMPID] -= 0.250*factor*EH0ij[0];
+        TmpEH0 -= 0.250*factor*EH0ij[0];
 	Fx[Mc_AN] = Fx[Mc_AN] + 0.5*factor*EH0ij[1];
 	Fy[Mc_AN] = Fy[Mc_AN] + 0.5*factor*EH0ij[2];
 	Fz[Mc_AN] = Fz[Mc_AN] + 0.5*factor*EH0ij[3];
 
       } /* h_AN */
+
+      My_EH0_threads[OMPID] += TmpEH0;
+
+      if (Energy_Decomposition_flag==1){
+
+        if      (SpinP_switch==0) spinmax = 0;
+        else if (SpinP_switch==1) spinmax = 1;
+        else if (SpinP_switch==3) spinmax = 1;
+
+        TmpEH0 = TmpEH0/(2.0*(double)Spe_Total_CNO[wan1]);
+
+        for (spin=0; spin<=spinmax; spin++){
+	  for (i=0; i<Spe_Total_CNO[wan1]; i++){
+	    DecEscc[spin][Mc_AN][i] += TmpEH0;     
+	  }
+	}
+      }
 
       dtime(&Etime_atom);
       time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
@@ -1084,11 +1383,11 @@ double Calc_EH0(int MD_iter)
     printf("Time for part2 of EH0=%18.5f\n",etime-stime);fflush(stdout);
   } 
 
-  /****************************************************
+  /*******************************************************
                       #7 of force
-     contribution from the Hartree energy between
+   contribution from the classical Coulomb energy between
    the neutral atomic charge and the neutral potential 
-  ****************************************************/
+  *******************************************************/
 
   if (myid==Host_ID && 0<level_stdout){
     printf("  Force calculation #7\n");fflush(stdout);
@@ -1134,30 +1433,31 @@ double Calc_EH0(int MD_iter)
 }
 
 
-void Calc_EXC_EH1(double ECE[])
+void Calc_EXC_EH1(double ECE[],double *****CDM)
 {
-  /****************************************************
-     EXC = \sum_{\sigma}
-           n_{\sigma}(\epsilon_{xc}-\mu_{xc,\sigma})
-
-     EH1 = -1/2\int {n(r)+n^a(r)} \delta V_H dr
-  ****************************************************/
+  /************************************************************
+     EXC = \sum_{\sigma} (n_{\sigma}(r)+n_pcc(r)\epsilon_{xc}
+     EH1 = -1/2\int {n(r)-n_a(r)} \delta V_H dr
+  ************************************************************/
 
   static int firsttime=1;
-  int i,spin,XC_P_switch,max_spin;
+  int i,spin,spinmax,XC_P_switch;
   int numS,numR,My_GNum,BN_AB;
   int n,n1,n2,n3,Ng1,Ng2,Ng3,j,k;
+  int GNc,GRc,MNc;
   int GN,GNs,BN,DN,LN,N2D,n2D,N3[4];
   double EXC[2],EH1,sum,tot_den;
   double My_EXC[2],My_EH1;
+  double My_EXC_VolumeTerm[2];
+  double EXC_VolumeTerm[2];
   double My_Eef,Eef;
-  double My_Eva,Eva;
+  double My_Ena,Ena;
   double sum_charge,My_charge;
   int numprocs,myid,tag=999,ID,IDS,IDR;
-  double Cxyz[4];
-  double Stime_atom, Etime_atom;
+  double Cxyz[4],gradxyz[4];
+  double Stime_atom,Etime_atom;
   double time0,time1;
-  double sden[2],tden,aden,pden;
+  double sden[2],tden,aden,pden[2];
 
   /* dipole moment */
   int Gc_AN,Mc_AN,spe;
@@ -1189,13 +1489,17 @@ void Calc_EXC_EH1(double ECE[])
   /* for OpenMP */
   int OMPID,Nthrds,Nthrds0,Nprocs,Nloop;
 
+  /* for decomposition of energies */
+  int Nc,Nh,MN,Nog,Mh_AN,spin0,spin1;
+  double tmp,vpot,**mat,pccden,sum0,sum1;
+
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  if      (SpinP_switch==0) max_spin = 0;
-  else if (SpinP_switch==1) max_spin = 1;
-  else if (SpinP_switch==3) max_spin = 1;
+  if      (SpinP_switch==0) spinmax = 0;
+  else if (SpinP_switch==1) spinmax = 1;
+  else if (SpinP_switch==3) spinmax = 1;
 
   /****************************************************
    set Vxc_Grid
@@ -1203,10 +1507,11 @@ void Calc_EXC_EH1(double ECE[])
 
   XC_P_switch = 0;
   Set_XC_Grid(XC_P_switch,XC_switch,
-               Density_Grid_D[0],Density_Grid_D[1],
-               Density_Grid_D[2],Density_Grid_D[3],
-               Vxc_Grid_D[0], Vxc_Grid_D[1],
-               Vxc_Grid_D[2], Vxc_Grid_D[3] );
+              Density_Grid_D[0],Density_Grid_D[1],
+              Density_Grid_D[2],Density_Grid_D[3],
+              Vxc_Grid_D[0], Vxc_Grid_D[1],
+	      Vxc_Grid_D[2], Vxc_Grid_D[3],
+              NULL,NULL);
 
   /****************************************************
              copy Vxc_Grid_D to Vxc_Grid_B
@@ -1231,25 +1536,25 @@ void Calc_EXC_EH1(double ECE[])
     }
   }
 
-  /****************************************************
+  /*********************************************************
    set RefVxc_Grid, where the CA-LDA exchange-correlation 
    functional is alway used.
-  ****************************************************/
+  *********************************************************/
 
   XC_P_switch = 0;
   for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
     tot_den = ADensity_Grid_B[BN_AB] + ADensity_Grid_B[BN_AB];
     if (PCC_switch==1) {
-      tot_den += PCCDensity_Grid_B[BN_AB]*2.0;
+      tot_den += PCCDensity_Grid_B[0][BN_AB] + PCCDensity_Grid_B[1][BN_AB];
     }
     RefVxc_Grid_B[BN_AB] = XC_Ceperly_Alder(tot_den,XC_P_switch);
   }
 
   /****************************************************
-        calculations of Eva, Eef, EH1, and EXC
+        calculations of Ena, Eef, EH1, and EXC
   ****************************************************/
 
-  My_Eva = 0.0;
+  My_Ena = 0.0;
   My_Eef = 0.0;
   My_EH1 = 0.0;
   My_EXC[0] = 0.0;
@@ -1261,10 +1566,11 @@ void Calc_EXC_EH1(double ECE[])
     sden[1] = Density_Grid_B[1][BN];
     tden = sden[0] + sden[1];
     aden = ADensity_Grid_B[BN];
-    pden = PCCDensity_Grid_B[BN];
+    pden[0] = PCCDensity_Grid_B[0][BN];
+    pden[1] = PCCDensity_Grid_B[1][BN];
 
     /* if (ProExpn_VNA==off), Ena is calculated here. */
-    if (ProExpn_VNA==0) My_Eva += tden*VNA_Grid_B[BN];
+    if (ProExpn_VNA==0) My_Ena += tden*VNA_Grid_B[BN];
 
     /* electric energy by electric field */
     if (E_Field_switch==1) My_Eef += tden*VEF_Grid_B[BN];
@@ -1272,17 +1578,18 @@ void Calc_EXC_EH1(double ECE[])
     /* EH1 = 1/2\int \delta n(r) \delta V_H dr */
     My_EH1 += (tden - 2.0*aden)*dVHart_Grid_B[BN];
 
-    /*   EXC = \sum_{\sigma} n_{\sigma}\epsilon_{xc}
-             - n_{atom}\epsilon_{xc}(n_{atom})
+    /*   EXC = \sum_{\sigma} (n_{\sigma}+n_pcc)\epsilon_{xc}
+              -(n_{atom}+n_pcc)\epsilon_{xc}(n_{atom})
 
         calculation of the difference between the xc energies 
         calculated by wave-function-charge and atomic charge
         on the coarse grid.  */
 
-    for (spin=0; spin<=max_spin; spin++){
-      My_EXC[spin] += (sden[spin]+pden)*Vxc_Grid_B[spin][BN]
-                     -(aden+pden)*RefVxc_Grid_B[BN];
+    for (spin=0; spin<=spinmax; spin++){
+      My_EXC[spin] += (sden[spin]+pden[spin])*Vxc_Grid_B[spin][BN]
+                     -(aden+pden[spin])*RefVxc_Grid_B[BN];
     }
+
   } /* BN */
 
   /****************************************************
@@ -1292,10 +1599,17 @@ void Calc_EXC_EH1(double ECE[])
   MPI_Barrier(mpi_comm_level1);
 
   /* if (ProExpn_VNA==off), Ena is calculated here. */
+
   if (ProExpn_VNA==0){
-    My_Eva *= GridVol;
-    MPI_Allreduce(&My_Eva, &Eva, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-    ECE[3] = Eva;
+
+    if (F_VNA_flag==1){
+      My_Ena *= GridVol;
+      MPI_Allreduce(&My_Ena, &Ena, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+      ECE[3] = Ena;
+    }
+    else{
+      ECE[3] = 0.0;
+    }
   }
 
   /* electric energy by electric field */
@@ -1314,15 +1628,23 @@ void Calc_EXC_EH1(double ECE[])
   /* EH1 = 1/2\int \delta n(r) \delta V_H dr */
   My_EH1 *= (0.5*GridVol);
 
-  /*   EXC = \sum_{\sigma} n_{\sigma}\epsilon_{xc}
+  /************************************************************
+    EXC = \sum_{\sigma} n_{\sigma}\epsilon_{xc}
        - n_{atom}\epsilon_{xc}(n_{atom})
 
        calculation of the difference between the xc energies 
        calculated by wave-function-charge and atomic charge
-       on the coarse grid.  */
+       on the coarse grid.  
+
+       My_EXC_VolumeTerm will be used to take account of 
+       volume term for stress. 
+  *************************************************************/
 
   My_EXC[0] *= GridVol;
   My_EXC[1] *= GridVol;
+
+  My_EXC_VolumeTerm[0] = My_EXC[0];
+  My_EXC_VolumeTerm[1] = My_EXC[1];
 
   /****************************************************
     calculation of Exc^(0) and its contribution 
@@ -1337,11 +1659,13 @@ void Calc_EXC_EH1(double ECE[])
     Nthrds0 = omp_get_num_threads();
   }
 
-  /* allocation of arrays */
-  My_sumr  = (double*)malloc(sizeof(double)*Nthrds0);
-  My_sumrx = (double*)malloc(sizeof(double)*Nthrds0);
-  My_sumry = (double*)malloc(sizeof(double)*Nthrds0);
-  My_sumrz = (double*)malloc(sizeof(double)*Nthrds0);
+  /* initialize the temporal array storing the force contribution */
+
+  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+    Gxyz[Gc_AN][41] = 0.0;
+    Gxyz[Gc_AN][42] = 0.0;
+    Gxyz[Gc_AN][43] = 0.0;
+  }
 
   /* start calc. */
 
@@ -1356,17 +1680,49 @@ void Calc_EXC_EH1(double ECE[])
     Sr = re + rs;
     Dr = re - rs;
 
-    for (Nloop=0; Nloop<Nthrds0; Nloop++){
-      My_sumr[Nloop]  = 0.0;
-      My_sumrx[Nloop] = 0.0;
-      My_sumry[Nloop] = 0.0;
-      My_sumrz[Nloop] = 0.0;
+    /* allocation of arrays */
+
+    double *My_sumr,**My_sumrx,**My_sumry,**My_sumrz;
+
+    My_sumr = (double*)malloc(sizeof(double)*Nthrds0);
+    for (i=0; i<Nthrds0; i++) My_sumr[i]  = 0.0;
+
+    My_sumrx = (double**)malloc(sizeof(double*)*Nthrds0);
+    for (i=0; i<Nthrds0; i++){
+      My_sumrx[i] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      for (j=0; j<(FNAN[Gc_AN]+1); j++){
+        My_sumrx[i][j] = 0.0;
+      }
+    }
+
+    My_sumry = (double**)malloc(sizeof(double*)*Nthrds0);
+    for (i=0; i<Nthrds0; i++){
+      My_sumry[i] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      for (j=0; j<(FNAN[Gc_AN]+1); j++){
+        My_sumry[i][j] = 0.0;
+      }
+    }
+
+    My_sumrz = (double**)malloc(sizeof(double*)*Nthrds0);
+    for (i=0; i<Nthrds0; i++){
+      My_sumrz[i] = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      for (j=0; j<(FNAN[Gc_AN]+1); j++){
+        My_sumrz[i][j] = 0.0;
+      }
     }
 
 #pragma omp parallel shared(Spe_Atomic_Den2,Spe_PAO_XV,Spe_Num_Mesh_PAO,Leb_Grid_XYZW,My_sumr,My_sumrx,My_sumry,My_sumrz,Dr,Sr,CoarseGL_Abscissae,CoarseGL_Weight,Gxyz,Gc_AN,FNAN,natn,ncn,WhatSpecies,atv,F_Vxc_flag,Cwan,PCC_switch) private(OMPID,Nthrds,Nprocs,ir,ia,r,w,sumt,sumtx,sumty,sumtz,x,x0,y0,z0,h_AN,Gh_AN,Rn,Hwan,x1,y1,z1,dx,dy,dz,r1,den,den0,gden0,dx1,dy1,dz1,exc0,vxc0)
     {
 
-      double den_tmp;
+      double *gx,*gy,*gz,dexc0;
+      double *sum_gx,*sum_gy,*sum_gz;
+
+      gx = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      gy = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      gz = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      sum_gx = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      sum_gy = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
+      sum_gz = (double*)malloc(sizeof(double)*(FNAN[Gc_AN]+1));
 
       /* get info. on OpenMP */ 
 
@@ -1378,9 +1734,12 @@ void Calc_EXC_EH1(double ECE[])
 
 	r = 0.50*(Dr*CoarseGL_Abscissae[ir] + Sr);
 	sumt  = 0.0; 
-	sumtx = 0.0; 
-	sumty = 0.0; 
-	sumtz = 0.0; 
+
+	for (i=0; i<(FNAN[Gc_AN]+1); i++){
+	  sum_gx[i] = 0.0;
+	  sum_gy[i] = 0.0;
+	  sum_gz[i] = 0.0;
+	}
 
 	for (ia=0; ia<Num_Leb_Grid; ia++){
 
@@ -1391,7 +1750,6 @@ void Calc_EXC_EH1(double ECE[])
           /* calculate rho_atom + rho_pcc */ 
 
 	  den = 0.0;
-          den_tmp = 0.0;
 
 	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
 
@@ -1418,15 +1776,14 @@ void Calc_EXC_EH1(double ECE[])
 
 	    /* calculate gradient of density */
 
-	    if (h_AN==0){
-
-              r1 = sqrt(dx*dx + dy*dy + dz*dz);
+	    if (h_AN!=0){
+	      r1 = sqrt(dx*dx + dy*dy + dz*dz);
 	      gden0 = Dr_KumoF( Spe_Num_Mesh_PAO[Hwan], x, r1, 
-                                Spe_PAO_XV[Hwan], Spe_PAO_RV[Hwan], Spe_Atomic_Den2[Hwan])*F_Vxc_flag;
+				Spe_PAO_XV[Hwan], Spe_PAO_RV[Hwan], Spe_Atomic_Den2[Hwan])*F_Vxc_flag;
 
-	      dx1 = gden0/r1*dx;
-	      dy1 = gden0/r1*dy;
-	      dz1 = gden0/r1*dz;
+	      gx[h_AN] = gden0/r1*dx;
+	      gy[h_AN] = gden0/r1*dy;
+	      gz[h_AN] = gden0/r1*dz;
 	    }
 
 	  } /* h_AN */
@@ -1435,57 +1792,91 @@ void Calc_EXC_EH1(double ECE[])
 	  exc0 = XC_Ceperly_Alder(den,0);
 
 	  /* calculate the CA-LDA exchange-correlation potential */
-	  vxc0 = XC_Ceperly_Alder(den,1);
+	  dexc0 = XC_Ceperly_Alder(den,3);
 
 	  /* Lebedev quadrature */
 
           w = Leb_Grid_XYZW[ia][3];
-	  sumt  += w*den0*exc0;
-	  sumtx += w*vxc0*dx1;
-	  sumty += w*vxc0*dy1;
-	  sumtz += w*vxc0*dz1;
+	  sumt += w*den0*exc0;
+
+	  for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+            sum_gx[h_AN] += w*den0*dexc0*gx[h_AN]; 
+            sum_gy[h_AN] += w*den0*dexc0*gy[h_AN]; 
+            sum_gz[h_AN] += w*den0*dexc0*gz[h_AN]; 
+	  }
 
 	} /* ia */
 
 	/* r for Gauss-Legendre quadrature */
 
         w = r*r*CoarseGL_Weight[ir]; 
-
 	My_sumr[OMPID]  += w*sumt;
-	My_sumrx[OMPID] += w*sumtx;
-	My_sumry[OMPID] += w*sumty;
-	My_sumrz[OMPID] += w*sumtz;
+
+	for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  My_sumrx[OMPID][h_AN] += w*sum_gx[h_AN];
+	  My_sumry[OMPID][h_AN] += w*sum_gy[h_AN];
+	  My_sumrz[OMPID][h_AN] += w*sum_gz[h_AN];
+	}
 
       } /* ir */
+
+      free(gx);
+      free(gy);
+      free(gz);
+      free(sum_gx);
+      free(sum_gy);
+      free(sum_gz);
+
     } /* #pragma omp */
 
     sumr = 0.0;
     for (Nloop=0; Nloop<Nthrds0; Nloop++){
       sumr += My_sumr[Nloop];
     }
-
-    sum += 0.5*Dr*sumr*4.0*PI;
+    sum += 2.0*PI*Dr*sumr;
 
     /* add force */
 
-    sumrx = 0.0;
-    sumry = 0.0;
-    sumrz = 0.0;
-    for (Nloop=0; Nloop<Nthrds0; Nloop++){
-      sumrx += My_sumrx[Nloop];
-      sumry += My_sumry[Nloop];
-      sumrz += My_sumrz[Nloop];
+    for (h_AN=1; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+      sumrx = 0.0;
+      sumry = 0.0;
+      sumrz = 0.0;
+      for (Nloop=0; Nloop<Nthrds0; Nloop++){
+	sumrx += My_sumrx[Nloop][h_AN];
+	sumry += My_sumry[Nloop][h_AN];
+	sumrz += My_sumrz[Nloop][h_AN];
+      }
+
+      Gh_AN = natn[Gc_AN][h_AN];
+
+      Gxyz[Gh_AN][41] += 2.0*PI*Dr*sumrx;
+      Gxyz[Gh_AN][42] += 2.0*PI*Dr*sumry;
+      Gxyz[Gh_AN][43] += 2.0*PI*Dr*sumrz;
+
+      Gxyz[Gc_AN][41] -= 2.0*PI*Dr*sumrx;
+      Gxyz[Gc_AN][42] -= 2.0*PI*Dr*sumry;
+      Gxyz[Gc_AN][43] -= 2.0*PI*Dr*sumrz;
     }
 
-    if (2<=level_stdout){
-      printf("<Total_Ene>  force(8) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-              myid,Mc_AN,Gc_AN,
-              0.5*Dr*sumrx*4.0*PI, 0.5*Dr*sumry*4.0*PI, 0.5*Dr*sumrz*4.0*PI);fflush(stdout);
-    }
+    /* freeing of arrays */
 
-    Gxyz[Gc_AN][17] += 0.5*Dr*sumrx*4.0*PI;
-    Gxyz[Gc_AN][18] += 0.5*Dr*sumry*4.0*PI;
-    Gxyz[Gc_AN][19] += 0.5*Dr*sumrz*4.0*PI;
+    free(My_sumr);
+
+    for (i=0; i<Nthrds0; i++){
+      free(My_sumrx[i]);
+    }
+    free(My_sumrx);
+
+    for (i=0; i<Nthrds0; i++){
+      free(My_sumry[i]);
+    }
+    free(My_sumry);
+
+    for (i=0; i<Nthrds0; i++){
+      free(My_sumrz[i]);
+    }
+    free(My_sumrz);
 
   } /* Mc_AN */
 
@@ -1494,11 +1885,20 @@ void Calc_EXC_EH1(double ECE[])
   My_EXC[0] += 0.5*sum;
   My_EXC[1] += 0.5*sum;
 
-  /* freeing of arrays */
-  free(My_sumr);
-  free(My_sumrx);
-  free(My_sumry);
-  free(My_sumrz);
+  /* MPI: Gxyz[][41,42,43] */
+
+  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+    MPI_Allreduce(&Gxyz[Gc_AN][41], &gradxyz[0], 3, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+    Gxyz[Gc_AN][17] += gradxyz[0];
+    Gxyz[Gc_AN][18] += gradxyz[1];
+    Gxyz[Gc_AN][19] += gradxyz[2];
+
+    if (2<=level_stdout){
+      printf("<Total_Ene>  force(8) myid=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+	     myid,Gc_AN,gradxyz[0],gradxyz[1],gradxyz[2]);
+    }
+  }
 
   /****************************************************
    MPI, Gxyz[Gc_AN][17-19]
@@ -1522,14 +1922,16 @@ void Calc_EXC_EH1(double ECE[])
 
   MPI_Barrier(mpi_comm_level1);
   MPI_Allreduce(&My_EH1, &EH1, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-  for (spin=0; spin<=max_spin; spin++){
+  for (spin=0; spin<=spinmax; spin++){
     MPI_Allreduce(&My_EXC[spin], &EXC[spin], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+    MPI_Allreduce(&My_EXC_VolumeTerm[spin], &EXC_VolumeTerm[spin], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
   }
 
   if (SpinP_switch==0){
     ECE[5] = EH1;
     ECE[6] = EXC[0];
     ECE[7] = EXC[0];
+    EXC_VolumeTerm[1] = EXC_VolumeTerm[0];
   }
   else if (SpinP_switch==1 || SpinP_switch==3) {
     ECE[5] = EH1;
@@ -1544,6 +1946,12 @@ void Calc_EXC_EH1(double ECE[])
   if (F_Vxc_flag==0){
     ECE[6] = 0.0;
     ECE[7] = 0.0;
+  }
+
+  if (F_Vxc_flag==1){
+    Stress_Tensor[0] += EXC_VolumeTerm[0] + EXC_VolumeTerm[1];
+    Stress_Tensor[4] += EXC_VolumeTerm[0] + EXC_VolumeTerm[1];
+    Stress_Tensor[8] += EXC_VolumeTerm[0] + EXC_VolumeTerm[1];
   }
 
   /****************************************************
@@ -1707,6 +2115,792 @@ void Calc_EXC_EH1(double ECE[])
       printf("Failure of saving the DPM file.\n");fflush(stdout);
     }
   }
+
+  /****************************************************
+   if (Energy_Decomposition_flag==1)
+    EH1, EXC, and Ena are decomposed into 
+    atomic orbital contributions.
+  ****************************************************/
+
+  if (Energy_Decomposition_flag==1){
+
+    /********************************
+          allocation of arrays
+    *********************************/
+   
+    mat = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+    for (i=0; i<List_YOUSO[7]; i++){
+      mat[i] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+    }
+
+    /*******************************************************
+              decomposition of EH1 related to dVH 
+    *******************************************************/
+
+    /* set Vpot_Grid */
+
+    for (MN=0; MN<My_NumGridB_AB; MN++){
+      Vpot_Grid_B[0][MN] = 0.5*dVHart_Grid_B[MN];
+    }
+
+    Data_Grid_Copy_B2C_1( Vpot_Grid_B[0], Vpot_Grid[0] );
+
+    /* calculation of matrix elements */
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+      Gc_AN = M2G[Mc_AN];    
+      Cwan = WhatSpecies[Gc_AN];
+
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+        Gh_AN = natn[Gc_AN][h_AN];
+        Mh_AN = F_G2M[Gh_AN];
+        Hwan = WhatSpecies[Gh_AN];
+
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	  for (j=0; j<Spe_Total_NO[Hwan]; j++){
+            mat[i][j] = 0.0;
+	  }
+	}
+
+	for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+
+	  Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+	  MN = MGridListAtom[Mc_AN][Nc];
+	  Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+	  vpot = Vpot_Grid[0][MN];
+
+	  if (G2ID[Gh_AN]==myid){
+
+	    for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	      tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+	      for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		mat[i][j] += tmp*Orbs_Grid[Mh_AN][Nh][j];
+	      }
+	    }
+
+	  }
+          else{
+
+	    for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	      tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+	      for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		mat[i][j] += tmp*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+	      }
+	    }
+	  }
+	}
+
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	  for (j=0; j<Spe_Total_NO[Hwan]; j++){
+            H[0][Mc_AN][h_AN][i][j] = mat[i][j]*GridVol;
+	  }
+	}
+        
+      } /* h_AN */
+    } /* Mc_AN */
+
+    /* the first contribution of decomposed energy */
+
+    if      (SpinP_switch==0) spinmax = 0;
+    else if (SpinP_switch==1) spinmax = 1;
+    else if (SpinP_switch==3) spinmax = 1;
+
+    for (spin=0; spin<=spinmax; spin++){
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	dtime(&Stime_atom);
+
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+
+        for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+          DecEdee[spin][Mc_AN][i] = 0.0;
+   
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+
+	    for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+	      DecEdee[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*H[0][Mc_AN][h_AN][i][j];
+	    }
+
+	  } /* h_AN */ 
+
+	} /* i */
+
+        dtime(&Etime_atom);
+        time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+      } /* Mc_AN */
+    } /* spin */ 
+
+    /* the second contribution of decomposed energy */
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = M2G[Mc_AN];    
+      Cwan = WhatSpecies[Gc_AN];
+
+      sum = 0.0;
+
+      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+
+        GNc = GridListAtom[Mc_AN][Nc]; 
+        GRc = CellListAtom[Mc_AN][Nc];
+        MNc = MGridListAtom[Mc_AN][Nc];
+        Get_Grid_XYZ(GNc,Cxyz);
+	dx = Cxyz[1] + atv[GRc][1] - Gxyz[Gc_AN][1];
+	dy = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2];
+	dz = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
+        x = 0.5*log(dx*dx + dy*dy + dz*dz);
+
+  	aden = KumoF( Spe_Num_Mesh_PAO[Cwan], x, 
+ 	              Spe_PAO_XV[Cwan], Spe_PAO_RV[Cwan], Spe_Atomic_Den[Cwan]);
+
+        sum += aden*Vpot_Grid[0][MNc]; 
+
+      } /* Nc */
+
+      sum = sum*GridVol/(2.0*(double)Spe_Total_CNO[Cwan]);
+
+      for (spin=0; spin<=spinmax; spin++){
+	for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	  DecEdee[spin][Mc_AN][i] -= sum;
+        }      
+      }
+
+    } /* Mc_AN */
+
+    /*******************************************************
+                     decomposition of EXC 
+    *******************************************************/
+
+    /* set Vpot_Grid */
+
+    Data_Grid_Copy_B2C_2( Vxc_Grid_B, Vpot_Grid );
+    
+    /* calculation of matrix elements */
+
+    if      (SpinP_switch==0) spinmax = 0;
+    else if (SpinP_switch==1) spinmax = 1;
+    else if (SpinP_switch==3) spinmax = 1;
+
+    for (spin=0; spin<=spinmax; spin++){
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	Gc_AN = M2G[Mc_AN];    
+	Cwan = WhatSpecies[Gc_AN];
+
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Mh_AN = F_G2M[Gh_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+
+	  for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	    for (j=0; j<Spe_Total_NO[Hwan]; j++){
+	      mat[i][j] = 0.0;
+	    }
+	  }
+
+	  for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+	    Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+	    MN = MGridListAtom[Mc_AN][Nc];
+	    Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+	    vpot = Vpot_Grid[spin][MN];
+
+	    if (G2ID[Gh_AN]==myid){
+
+	      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+		tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+		for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		  mat[i][j] += tmp*Orbs_Grid[Mh_AN][Nh][j];
+		}
+	      }
+
+	    }
+	    else{
+
+	      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+		tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+		for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		  mat[i][j] += tmp*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+		}
+	      }
+	    }
+	  }
+
+	  for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	    for (j=0; j<Spe_Total_NO[Hwan]; j++){
+	      H[spin][Mc_AN][h_AN][i][j] = mat[i][j]*GridVol;
+	    }
+	  }
+        
+	} /* h_AN */
+      } /* Mc_AN */
+    } /* spin */
+
+    /*******************************************************
+       the first contribution of decomposed energy 
+       \int n(r) e_{xc}(n+n_{pcc}) dr on the coarse grid
+    *******************************************************/
+
+    for (spin=0; spin<=spinmax; spin++){
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	dtime(&Stime_atom);
+
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+
+        for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+          DecExc[spin][Mc_AN][i] = 0.0;
+   
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+
+	    for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+	      DecExc[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*H[spin][Mc_AN][h_AN][i][j];
+	    }
+
+	  } /* h_AN */ 
+
+	} /* i */
+
+        dtime(&Etime_atom);
+        time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+      } /* Mc_AN */
+    } /* spin */ 
+
+    /********************************************************
+      the second contribution of decomposed energy 
+     \int n_{pcc}(r) e_{xc}(n+n_{pcc}) dr on the coarse grid
+    ********************************************************/
+
+    if (PCC_switch==1) {
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	Gc_AN = M2G[Mc_AN];    
+	Cwan = WhatSpecies[Gc_AN];
+
+	sum0 = 0.0;
+	sum1 = 0.0;
+
+        if      (SpinP_switch==0){
+          spin0 = 0; spin1 = 0;
+	}
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==0 ){
+          spin0 = 0; spin1 = 1;
+        }
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==1 ){
+          spin0 = 0; spin1 = 0;
+        }
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==-1 ){
+          spin0 = 1; spin1 = 1;
+        }
+
+	for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+
+	  GNc = GridListAtom[Mc_AN][Nc]; 
+	  GRc = CellListAtom[Mc_AN][Nc];
+	  MNc = MGridListAtom[Mc_AN][Nc];
+	  Get_Grid_XYZ(GNc,Cxyz);
+	  dx = Cxyz[1] + atv[GRc][1] - Gxyz[Gc_AN][1];
+	  dy = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2];
+	  dz = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
+	  x = 0.5*log(dx*dx + dy*dy + dz*dz);
+
+	  pccden = KumoF( Spe_Num_Mesh_VPS[Cwan], x, 
+			  Spe_VPS_XV[Cwan], Spe_VPS_RV[Cwan], Spe_Atomic_PCC[Cwan]);
+
+	  sum0 += pccden*Vpot_Grid[spin0][MNc]; 
+	  sum1 += pccden*Vpot_Grid[spin1][MNc]; 
+
+	} /* Nc */
+
+	sum0 = sum0*GridVol/(2.0*(double)Spe_Total_CNO[Cwan]);
+	sum1 = sum1*GridVol/(2.0*(double)Spe_Total_CNO[Cwan]);
+
+        if      (SpinP_switch==0){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[0][Mc_AN][i] += sum0;
+  	  }      
+	}
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==0 ){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[0][Mc_AN][i] += sum0;
+	    DecExc[1][Mc_AN][i] += sum1;
+  	  }      
+        }
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==1 ){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[0][Mc_AN][i] += 2.0*sum0;
+  	  }      
+        }
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==-1 ){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[1][Mc_AN][i] += 2.0*sum1;
+  	  }      
+        }
+      } /* Mc_AN */
+
+    } /* if (PCC_switch==1) */
+
+    /*******************************************************
+      the third contribution of decomposed energy 
+      \int n_a(r) e_{xc}(n_a+n_{pcc}) dr on the coarse grid
+    *******************************************************/
+
+    Data_Grid_Copy_B2C_1( RefVxc_Grid_B, Vpot_Grid[0] );
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+      Gc_AN = M2G[Mc_AN];    
+      Cwan = WhatSpecies[Gc_AN];
+
+      sum = 0.0;
+
+      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+
+	GNc = GridListAtom[Mc_AN][Nc]; 
+	GRc = CellListAtom[Mc_AN][Nc];
+	MNc = MGridListAtom[Mc_AN][Nc];
+	Get_Grid_XYZ(GNc,Cxyz);
+	dx = Cxyz[1] + atv[GRc][1] - Gxyz[Gc_AN][1];
+	dy = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2];
+	dz = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
+	x = 0.5*log(dx*dx + dy*dy + dz*dz);
+
+  	aden = KumoF( Spe_Num_Mesh_PAO[Cwan], x, 
+ 	              Spe_PAO_XV[Cwan], Spe_PAO_RV[Cwan], Spe_Atomic_Den[Cwan]);
+
+	sum += aden*Vpot_Grid[0][MNc]; 
+
+      } /* Nc */
+
+      sum = sum*GridVol/(2.0*(double)Spe_Total_CNO[Cwan]);
+
+      for (spin=0; spin<=spinmax; spin++){
+	for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	  DecExc[spin][Mc_AN][i] -= sum;
+	}      
+      }
+
+    } /* Mc_AN */
+
+    /*********************************************************
+     the fourth contribution of decomposed energy 
+     \int n_{pcc}(r) e_{xc}(n_a+n_{pcc}) dr on the coarse grid
+    **********************************************************/
+
+    if (PCC_switch==1) {
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	Gc_AN = M2G[Mc_AN];    
+	Cwan = WhatSpecies[Gc_AN];
+
+	sum = 0.0;
+
+	for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+
+	  GNc = GridListAtom[Mc_AN][Nc]; 
+	  GRc = CellListAtom[Mc_AN][Nc];
+	  MNc = MGridListAtom[Mc_AN][Nc];
+	  Get_Grid_XYZ(GNc,Cxyz);
+	  dx = Cxyz[1] + atv[GRc][1] - Gxyz[Gc_AN][1];
+	  dy = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2];
+	  dz = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
+	  x = 0.5*log(dx*dx + dy*dy + dz*dz);
+
+	  pccden = KumoF( Spe_Num_Mesh_VPS[Cwan], x, 
+			  Spe_VPS_XV[Cwan], Spe_VPS_RV[Cwan], Spe_Atomic_PCC[Cwan]);
+
+	  sum += pccden*Vpot_Grid[0][MNc]; 
+
+	} /* Nc */
+
+	sum = sum*GridVol/(2.0*(double)Spe_Total_CNO[Cwan]);
+
+        if      (SpinP_switch==0){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[0][Mc_AN][i] -= sum;
+  	  }      
+	}
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==0 ){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[0][Mc_AN][i] -= sum;
+	    DecExc[1][Mc_AN][i] -= sum;
+  	  }      
+        }
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==1 ){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[0][Mc_AN][i] -= 2.0*sum;
+  	  }      
+        }
+        else if (SpinP_switch!=0 && Spe_OpenCore_flag[Cwan]==-1 ){
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    DecExc[1][Mc_AN][i] -= 2.0*sum;
+  	  }      
+        }
+      } /* Mc_AN */
+
+    } /* if (PCC_switch==1) */
+
+    /***************************************************************
+     the fifth contribution of decomposed energy 
+     \int (n_a(r)+n_{pcc}) e_{xc}(n_a+n_{pcc}) dr on the fine grid
+    ***************************************************************/
+
+    rs = 0.0;
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+      sum = 0.0;
+
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      re = Spe_Atom_Cut1[Cwan];
+      Sr = re + rs;
+      Dr = re - rs;
+
+      for (ir=0; ir<CoarseGL_Mesh; ir++){
+
+	r = 0.50*(Dr*CoarseGL_Abscissae[ir] + Sr);
+	sumt  = 0.0; 
+
+	for (ia=0; ia<Num_Leb_Grid; ia++){
+
+	  x0 = r*Leb_Grid_XYZW[ia][0] + Gxyz[Gc_AN][1];
+	  y0 = r*Leb_Grid_XYZW[ia][1] + Gxyz[Gc_AN][2];
+	  z0 = r*Leb_Grid_XYZW[ia][2] + Gxyz[Gc_AN][3];
+
+          /* calculate rho_atom + rho_pcc */ 
+
+	  den = 0.0;
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Rn = ncn[Gc_AN][h_AN]; 
+	    Hwan = WhatSpecies[Gh_AN];
+
+	    x1 = Gxyz[Gh_AN][1] + atv[Rn][1];
+	    y1 = Gxyz[Gh_AN][2] + atv[Rn][2];
+	    z1 = Gxyz[Gh_AN][3] + atv[Rn][3];
+            
+	    dx = x1 - x0;
+	    dy = y1 - y0;
+	    dz = z1 - z0;
+
+	    x = 0.5*log(dx*dx + dy*dy + dz*dz);
+
+	    /* calculate density */
+
+	    den += KumoF( Spe_Num_Mesh_PAO[Hwan], x, 
+                          Spe_PAO_XV[Hwan], Spe_PAO_RV[Hwan], Spe_Atomic_Den2[Hwan]);
+
+	    if (h_AN==0) den0 = den;
+
+	  } /* h_AN */
+
+	  /* calculate the CA-LDA exchange-correlation energy density */
+
+	  exc0 = XC_Ceperly_Alder(den,0);
+
+	  /* Lebedev quadrature */
+
+          w = Leb_Grid_XYZW[ia][3];
+	  sumt += w*den0*exc0;
+
+	} /* ia */
+
+	/* r for Gauss-Legendre quadrature */
+
+	sum += r*r*CoarseGL_Weight[ir]*sumt;
+
+      } /* ir */
+
+      sum = 0.5*Dr*sum*4.0*PI/(2.0*(double)Spe_Total_CNO[Cwan]);
+
+      for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	DecExc[0][Mc_AN][i] += sum;
+	DecExc[1][Mc_AN][i] += sum;
+      }
+
+    } /* Mc_AN */
+
+    /*
+    for (spin=0; spin<=spinmax; spin++){
+      sum = 0.0; 
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+	for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	  printf("ABC4 spin=%2d Gc_AN=%2d i=%2d DecExc=%18.15f\n",spin,Gc_AN,i,DecExc[spin][Mc_AN][i]);
+          sum += DecExc[spin][Mc_AN][i];
+	}
+      }
+      printf("Exc spin=%2d %18.15f\n",spin,sum);
+    } 
+    */
+
+    /*******************************************************
+                   decomposition of Ena
+    *******************************************************/
+
+    if (ProExpn_VNA==0){
+
+      /* set Vpot_Grid */
+
+      Data_Grid_Copy_B2C_1( VNA_Grid_B, Vpot_Grid[0] );
+
+      /* calculation of matrix elements */
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	Gc_AN = M2G[Mc_AN];    
+	Cwan = WhatSpecies[Gc_AN];
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Mh_AN = F_G2M[Gh_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+
+	  for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	    for (j=0; j<Spe_Total_NO[Hwan]; j++){
+	      mat[i][j] = 0.0;
+	    }
+	  }
+
+	  for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+	    Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+	    MN = MGridListAtom[Mc_AN][Nc];
+	    Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+	    vpot = Vpot_Grid[0][MN];
+
+	    if (G2ID[Gh_AN]==myid){
+
+	      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+		tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+		for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		  mat[i][j] += tmp*Orbs_Grid[Mh_AN][Nh][j];
+		}
+	      }
+
+	    }
+	    else{
+
+	      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+		tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+		for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		  mat[i][j] += tmp*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+		}
+	      }
+	    }
+	  }
+
+	  for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	    for (j=0; j<Spe_Total_NO[Hwan]; j++){
+	      H[0][Mc_AN][h_AN][i][j] = mat[i][j]*GridVol;
+	    }
+	  }
+        
+	} /* h_AN */
+      } /* Mc_AN */
+
+      /* calculation of the decomposed energy */
+
+      if      (SpinP_switch==0) spinmax = 0;
+      else if (SpinP_switch==1) spinmax = 1;
+      else if (SpinP_switch==3) spinmax = 1;
+
+      for (spin=0; spin<=spinmax; spin++){
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	  dtime(&Stime_atom);
+
+	  Gc_AN = M2G[Mc_AN];
+	  Cwan = WhatSpecies[Gc_AN];
+
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+	    DecEna[spin][Mc_AN][i] = 0.0;
+   
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      Gh_AN = natn[Gc_AN][h_AN];
+	      Hwan = WhatSpecies[Gh_AN];
+
+	      for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+		DecEna[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*H[0][Mc_AN][h_AN][i][j];
+	      }
+
+	    } /* h_AN */ 
+
+	  } /* i */
+
+	  dtime(&Etime_atom);
+	  time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+	} /* Mc_AN */
+      } /* spin */ 
+
+      /*
+      for (spin=0; spin<=spinmax; spin++){
+	sum = 0.0; 
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	  Gc_AN = M2G[Mc_AN];
+	  Cwan = WhatSpecies[Gc_AN];
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    printf("ABC5 spin=%2d Gc_AN=%2d i=%2d DecEna=%18.15f\n",spin,Gc_AN,i,DecEna[spin][Mc_AN][i]);
+	    sum += DecEna[spin][Mc_AN][i];
+	  }
+	}
+	printf("Ena spin=%2d %18.15f\n",spin,sum);
+      } 
+      */
+
+    } /* if (ProExpn_VNA==0) */
+
+    /*******************************************************
+                   decomposition of Eef:
+           electric energy by electric field
+    *******************************************************/
+
+    if (E_Field_switch==1){
+
+      /* set Vpot_Grid */
+
+      Data_Grid_Copy_B2C_1( VEF_Grid_B, Vpot_Grid[0] );
+
+      /* calculation of matrix elements */
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	Gc_AN = M2G[Mc_AN];    
+	Cwan = WhatSpecies[Gc_AN];
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Mh_AN = F_G2M[Gh_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+
+	  for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	    for (j=0; j<Spe_Total_NO[Hwan]; j++){
+	      mat[i][j] = 0.0;
+	    }
+	  }
+
+	  for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+	    Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+	    MN = MGridListAtom[Mc_AN][Nc];
+	    Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+	    vpot = Vpot_Grid[0][MN];
+
+	    if (G2ID[Gh_AN]==myid){
+
+	      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+		tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+		for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		  mat[i][j] += tmp*Orbs_Grid[Mh_AN][Nh][j];
+		}
+	      }
+
+	    }
+	    else{
+
+	      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+		tmp = Orbs_Grid[Mc_AN][Nc][i]*vpot;
+		for (j=0; j<Spe_Total_NO[Hwan]; j++){
+		  mat[i][j] += tmp*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+		}
+	      }
+	    }
+	  }
+
+	  for (i=0; i<Spe_Total_NO[Cwan]; i++){
+	    for (j=0; j<Spe_Total_NO[Hwan]; j++){
+	      H[0][Mc_AN][h_AN][i][j] = mat[i][j]*GridVol;
+	    }
+	  }
+        
+	} /* h_AN */
+      } /* Mc_AN */
+
+      /* calculation of the decomposed energy */
+
+      if      (SpinP_switch==0) spinmax = 0;
+      else if (SpinP_switch==1) spinmax = 1;
+      else if (SpinP_switch==3) spinmax = 1;
+
+      for (spin=0; spin<=spinmax; spin++){
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	  dtime(&Stime_atom);
+
+	  Gc_AN = M2G[Mc_AN];
+	  Cwan = WhatSpecies[Gc_AN];
+
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+
+	    DecEef[spin][Mc_AN][i] = 0.0;
+   
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      Gh_AN = natn[Gc_AN][h_AN];
+	      Hwan = WhatSpecies[Gh_AN];
+
+	      for (j=0; j<Spe_Total_CNO[Hwan]; j++){
+		DecEef[spin][Mc_AN][i] += DM[0][spin][Mc_AN][h_AN][i][j]*H[0][Mc_AN][h_AN][i][j];
+	      }
+
+	    } /* h_AN */ 
+
+	  } /* i */
+
+	  dtime(&Etime_atom);
+	  time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+	} /* Mc_AN */
+      } /* spin */ 
+
+      /*
+      for (spin=0; spin<=spinmax; spin++){
+	sum = 0.0; 
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+	  Gc_AN = M2G[Mc_AN];
+	  Cwan = WhatSpecies[Gc_AN];
+	  for (i=0; i<Spe_Total_CNO[Cwan]; i++){
+	    printf("ABC6 spin=%2d Gc_AN=%2d i=%2d DecEna=%18.15f\n",spin,Gc_AN,i,DecEef[spin][Mc_AN][i]);
+	    sum += DecEef[spin][Mc_AN][i];
+	  }
+	}
+	printf("Eef spin=%2d %18.15f\n",spin,sum);
+      } 
+      */
+
+    }
+
+    /********************************
+           freeing of arrays 
+    *********************************/
+   
+    for (i=0; i<List_YOUSO[7]; i++){
+      free(mat[i]);
+    }
+    free(mat);
+
+  } /* if (Energy_Decomposition_flag==1) */  
+
 }
 
 
@@ -1888,7 +3082,7 @@ double Calc_Ehub()
   int Mc_AN,Gc_AN,wan1;
   int cnt1,cnt2,l1,mul1,m1,l2,mul2,m2;
   int spin,max_spin;
-  double My_Ehub,Ehub,Uvalue;
+  double My_Ehub,Ehub,Uvalue,tmpv,sum;
   int numprocs,myid,ID;
 
   /* MPI */
@@ -1917,7 +3111,6 @@ double Calc_Ehub()
 
       for (spin=0; spin<=max_spin; spin++){
 
-
         /* Hubbard term, 0.5*Tr(N) */
 
 	cnt1 = 0;
@@ -1927,7 +3120,12 @@ double Calc_Ehub()
 	    Uvalue = Hub_U_Basis[wan1][l1][mul1];
 	    for(m1=0; m1<(2*l1+1); m1++){
 
-	      My_Ehub += 0.5*Uvalue*DM_onsite[0][spin][Mc_AN][cnt1][cnt1];
+              tmpv = 0.5*Uvalue*DM_onsite[0][spin][Mc_AN][cnt1][cnt1];
+	      My_Ehub += tmpv;
+
+              if (Energy_Decomposition_flag==1){
+                DecEhub[spin][Mc_AN][cnt1] = tmpv;
+	      }
 
 	      cnt1++;
 	    }
@@ -1942,20 +3140,29 @@ double Calc_Ehub()
 	  for(mul1=0; mul1<Spe_Num_Basis[wan1][l1]; mul1++){
 	    for(m1=0; m1<(2*l1+1); m1++){
 
+              sum = 0.0;  
+
 	      cnt2 = 0;
 	      for(l2=0; l2<=Spe_MaxL_Basis[wan1]; l2++ ){
 		for(mul2=0; mul2<Spe_Num_Basis[wan1][l2]; mul2++){
 		  for(m2=0; m2<(2*l2+1); m2++){
 
 		    if (l1==l2 && mul1==mul2){
+                      
 		      Uvalue = Hub_U_Basis[wan1][l1][mul1];
-		      My_Ehub -= 0.5*Uvalue*DM_onsite[0][spin][Mc_AN][cnt1][cnt2]*
-			                    DM_onsite[0][spin][Mc_AN][cnt2][cnt1];
+		      sum -= 0.5*Uvalue*DM_onsite[0][spin][Mc_AN][cnt1][cnt2]*
+			                DM_onsite[0][spin][Mc_AN][cnt2][cnt1];
 		    }
 
 		    cnt2++;
 		  }
 		}
+	      }
+
+              My_Ehub += sum;
+
+              if (Energy_Decomposition_flag==1){
+                DecEhub[spin][Mc_AN][cnt1] += sum;
 	      }
 
 	      cnt1++;
@@ -1980,8 +3187,14 @@ double Calc_Ehub()
 	  Uvalue = Hub_U_Basis[wan1][l1][mul1];
 	  for(m1=0; m1<(2*l1+1); m1++){
 
-	    My_Ehub += 0.5*Uvalue*( NC_OcpN[0][0][0][Mc_AN][cnt1][cnt1].r
-				  + NC_OcpN[0][1][1][Mc_AN][cnt1][cnt1].r);
+	    tmpv = 0.5*Uvalue*( NC_OcpN[0][0][0][Mc_AN][cnt1][cnt1].r
+			      + NC_OcpN[0][1][1][Mc_AN][cnt1][cnt1].r);
+            My_Ehub += tmpv;
+
+            if (Energy_Decomposition_flag==1){
+              DecEhub[0][Mc_AN][cnt1] = 0.5*tmpv;
+              DecEhub[1][Mc_AN][cnt1] = 0.5*tmpv;
+	    }
 
 	    cnt1++;
 	  }
@@ -1995,6 +3208,8 @@ double Calc_Ehub()
 	for(mul1=0; mul1<Spe_Num_Basis[wan1][l1]; mul1++){
 	  for(m1=0; m1<(2*l1+1); m1++){
 
+            sum = 0.0;  
+
 	    cnt2 = 0;
 	    for(l2=0; l2<=Spe_MaxL_Basis[wan1]; l2++ ){
 	      for(mul2=0; mul2<Spe_Num_Basis[wan1][l2]; mul2++){
@@ -2004,35 +3219,42 @@ double Calc_Ehub()
 
 		    Uvalue = Hub_U_Basis[wan1][l1][mul1];
 
-		    My_Ehub -= 0.5*Uvalue*( NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].r*
-					    NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].r
+		    sum -= 0.5*Uvalue*( NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].r*
+			                NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].r
 					    +
-					    NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].i*
-					    NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].i
+				        NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].i*
+					NC_OcpN[0][0][0][Mc_AN][cnt1][cnt2].i
 					    +
-					    NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].r*
-					    NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].r
+				        NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].r*
+					NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].r
 					    +
-					    NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].i*
-					    NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].i
+					NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].i*
+					NC_OcpN[0][0][1][Mc_AN][cnt1][cnt2].i
 					    +
-					    NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].r*
-					    NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].r
+					NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].r*
+					NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].r
 					    +
-					    NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].i*
-					    NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].i
+					NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].i*
+					NC_OcpN[0][1][0][Mc_AN][cnt1][cnt2].i
 					    +
-					    NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].r*
-					    NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].r
+					NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].r*
+					NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].r
 					    +
-					    NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].i*
-					    NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].i );
+					NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].i*
+					NC_OcpN[0][1][1][Mc_AN][cnt1][cnt2].i );
 
 		  }
 
 		  cnt2++;
 		}
 	      }
+	    }
+
+            My_Ehub += sum;
+
+	    if (Energy_Decomposition_flag==1){
+	      DecEhub[0][Mc_AN][cnt1] += 0.5*sum;
+	      DecEhub[1][Mc_AN][cnt1] += 0.5*sum;
 	    }
 
 	    cnt1++;
@@ -2058,14 +3280,15 @@ double Calc_Ehub()
 
 
 
+
 /* okuno */
 double Calc_EdftD()
 {
-  /*********************************************
-  The subroutine calculates the semiemprical 
-  vdW correction to DFT-GGA proposed by 
-  S. Grimme, J. Comput. Chem. 27, 1787 (2006).
-  *********************************************/
+  /************************************************
+     The subroutine calculates the semiemprical 
+     vdW correction to DFT-GGA proposed by 
+     S. Grimme, J. Comput. Chem. 27, 1787 (2006).
+  *************************************************/
 
   double My_EdftD,EdftD;
   double rij[4],fdamp,fdamp2;
@@ -2083,7 +3306,7 @@ double Calc_EdftD()
   int n1_max,n2_max,n3_max; 
   double test_ene;
   double dblcnt_factor;
-  double dEx,dEy,dEz,dist7;
+  double E,dEx,dEy,dEz,dist7;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -2093,11 +3316,12 @@ double Calc_EdftD()
   EdftD    = 0.0;
   rcut_dftD2 = rcut_dftD*rcut_dftD;
 
-  dblcnt_factor=0.5;
+  dblcnt_factor = 0.5;
 
-  /* here we calculate DFT-D diserpesion energy */
+  /* here we calculate DFT-D dispersion energy */
   for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
 
+    E = 0.0;
     dEx = 0.0;
     dEy = 0.0;
     dEz = 0.0;
@@ -2137,9 +3361,11 @@ double Calc_EdftD()
         n2_max = n2_DFT_D;
         n3_max = n3_DFT_D;
       }
-/*
+
+      /*
       printf("Gc_AN=%2d Gc_BN=%2d %2d %2d %2d %2d %2d\n",Gc_AN,Gc_BN,per_flag1,per_flag2,n1_max,n2_max,n3_max);
-*/
+      */
+
       for (n1=-n1_max; n1<=n1_max; n1++){
 	for (n2=-n2_max; n2<=n2_max; n2++){
 	  for (n3=-n3_max; n3<=n3_max; n3++){
@@ -2175,7 +3401,8 @@ double Calc_EdftD()
 	      exparg = -beta_dftD*((dist/Rsum_dftD[wanA][wanB])-1.0);
 	      expval = exp(exparg);
 	      fdamp = scal6_dftD/(1.0+expval);
-	      My_EdftD -= dblcnt_factor*C6ij_dftD[wanA][wanB]/dist6*fdamp;
+
+	      E -= dblcnt_factor*C6ij_dftD[wanA][wanB]/dist6*fdamp;
 
 	      /* calculate the gradient of the vdW energy */
 
@@ -2190,6 +3417,20 @@ double Calc_EdftD()
 	} /* n2 */
       } /* n1 */
     } /* Gc_BN */
+
+    My_EdftD += E;
+
+    /* energy decomposition */
+
+    if (Energy_Decomposition_flag==1){
+      E = E/(2.0*Spe_Total_CNO[wanA]);
+      for (i=0; i<Spe_Total_CNO[wanA]; i++){
+	DecEvdw[0][Mc_AN][i] = E;
+	DecEvdw[1][Mc_AN][i] = E;
+      }
+    }
+
+    /* gradients from two-body terms */
 
     Gxyz[Gc_AN][17] += dEx;
     Gxyz[Gc_AN][18] += dEy;
@@ -2206,6 +3447,472 @@ double Calc_EdftD()
   return EdftD;
 }
 /* okuno */
+
+
+
+/* Ellner */
+double Calc_EdftD3()
+{
+  /***********************************************************************
+   The subroutine calculates the semiemprical DFTD3 vdW correction
+   DFTD3 with zero damping:
+    Grimme, S. et al. H. J. Chem. Phys. (2010), 132, 154104
+   DFTD3 with BJ damping
+    Becke, A. D.; Johnson, E. R. J. Chem. Phys. 2005, 122, 154101
+    Johnson, E. R.; Becke, A. D. J. Chem. Phys. 2005, 123, 024101
+    Johnson, E. R.; Becke, A. D. J. Chem. Phys. 2006, 124, 174104
+  ************************************************************************/
+
+  /* VARIABLES DECLARATOIN */
+  double My_EdftD,EdftD; /* energy */
+  double E; /* atomic energy */
+  double rij[4],fdamp,fdamp6,fdamp8,t6,t62,t8,t82,dE6,dE8,dEC,**dEC0; /* interaction */
+  double rij0[4]; /* positions */
+  double dist,dist2,dist5,dist6,dist7,dist8; /**/
+  double rcut2, cncut2; /* cutoff values */
+  int numprocs,myid,ID; /* MPI */
+  int Mc_AN,Gc_AN,Gc_BN,Gc_CN,wanA,wanB,iZ; /* atom counting and species */
+  int i,j; /* dummy vars */
+  int n1,n2,n3,n1_max,n2_max,n3_max; /* PBC */
+  double per_flagA, per_flagB, dblcnt_factor; /* double counting */
+  double dEx,dEy,dEz; /* gradients*/
+  double xn, *CN, *****dCN; /* Coordination number */
+  double exparg,expval, powarg, powval; /**/
+  double Z, W, C6_ref, dAi, dBj, Lij, C6, C8, **dC6ij, dZi, dZj, dWi, dWj; /* Gaussian distance C6, C8 parameter */
+
+  /* START: for printing gradients ERASE *
+     double *xgrad,*ygrad,*zgrad;  
+     /* END: for printing gradients ERASE */
+
+  /* MPI AND INITIALIZATION */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+  n1_max = n1_CN_DFT_D;
+  n2_max = n2_CN_DFT_D;
+  n3_max = n3_CN_DFT_D;
+  My_EdftD = 0.0;
+  EdftD    = 0.0;
+  rcut2 = rcut_dftD*rcut_dftD;
+  cncut2 = cncut_dftD*cncut_dftD;
+
+  CN = (double*)malloc(sizeof(double)*(atomnum+1));
+  dC6ij = (double**)malloc(sizeof(double*)*(atomnum+1));
+  dEC0 = (double**)malloc(sizeof(double*)*(atomnum+1));  
+  dCN  = (double*****)malloc(sizeof(double****)*(atomnum+1));
+  for(Gc_AN=0; Gc_AN<atomnum+1; Gc_AN++){
+    dC6ij[Gc_AN]=(double*)malloc(sizeof(double)*(atomnum+1));            
+    dEC0[Gc_AN]=(double*)malloc(sizeof(double*)*(atomnum+1));      
+    dCN[Gc_AN] =(double****)malloc(sizeof(double***)*(atomnum+1));      
+    for(Gc_BN=0; Gc_BN<atomnum+1; Gc_BN++){    
+      dCN[Gc_AN][Gc_BN] =(double***)malloc(sizeof(double**)*(2*n1_max+1));      
+      for (n1=0; n1<=2*n1_max; n1++){  
+	dCN[Gc_AN][Gc_BN][n1] =(double**)malloc(sizeof(double*)*(2*n2_max+1));      
+	for (n2=0; n2<=2*n2_max; n2++){
+	  dCN[Gc_AN][Gc_BN][n1][n2] =(double*)malloc(sizeof(double)*(2*n3_max+1));
+	} /* n2 */
+      } /* n1 */
+    } /* Gc_BN */
+  } /* Gc_AN */
+
+  /* START: for printing gradients ERASE *
+     xgrad = (double*)malloc(sizeof(double)*(atomnum+1));
+     ygrad = (double*)malloc(sizeof(double)*(atomnum+1));
+     zgrad = (double*)malloc(sizeof(double)*(atomnum+1));
+     /* END: for printing gradients ERASE */
+  
+  /* Compute coordination numbers CN_A and derivative dCN_AB/dr_AB by adding an inverse damping function */
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+    wanA = WhatSpecies[Gc_AN];
+    iZ = Spe_WhatAtom[wanA];
+    if ( iZ>0 ) {
+      xn=0.0;
+      for(Gc_BN=1; Gc_BN<=atomnum; Gc_BN++){
+	wanB = WhatSpecies[Gc_BN];
+	iZ = Spe_WhatAtom[wanB];
+	if ( iZ>0 ) {
+	  per_flagB = (int)Gxyz[Gc_BN][60]; 
+	  rij0[1] = Gxyz[Gc_AN][1] - Gxyz[Gc_BN][1];
+	  rij0[2] = Gxyz[Gc_AN][2] - Gxyz[Gc_BN][2];
+	  rij0[3] = Gxyz[Gc_AN][3] - Gxyz[Gc_BN][3];
+	  if (per_flagB==0){
+	    n1_max = 0;
+	    n2_max = 0;
+	    n3_max = 0;
+	  }
+	  else {
+	    n1_max = n1_CN_DFT_D;
+	    n2_max = n2_CN_DFT_D;
+	    n3_max = n3_CN_DFT_D;
+	  }
+	  for (n1=-n1_max; n1<=n1_max; n1++){
+	    for (n2=-n2_max; n2<=n2_max; n2++){
+	      for (n3=-n3_max; n3<=n3_max; n3++){
+		rij[1] = rij0[1] - ( (double)n1*tv[1][1]
+				     + (double)n2*tv[2][1] 
+				     + (double)n3*tv[3][1] ); 
+		rij[2] = rij0[2] - ( (double)n1*tv[1][2]
+				     + (double)n2*tv[2][2] 
+				     + (double)n3*tv[3][2] ); 
+		rij[3] = rij0[3] - ( (double)n1*tv[1][3]
+				     + (double)n2*tv[2][3] 
+				     + (double)n3*tv[3][3] ); 
+		dist2 = rij[1]*rij[1] + rij[2]*rij[2] + rij[3]*rij[3];
+		if (dist2<cncut2 && dist2>0.1){
+		  dist  = sqrt(dist2);           
+		  exparg = -k1_dftD*((rcovab_dftD[wanA][wanB]/dist)-1.0); /* Rsum is scaled by k2 */
+		  expval = exp(exparg);
+		  fdamp = 1.0/(1.0+expval);
+		  xn+=fdamp;
+		  dCN[Gc_AN][Gc_BN][n1+n1_CN_DFT_D][n2+n2_CN_DFT_D][n3+n3_CN_DFT_D]=-fdamp*fdamp*expval*k1_dftD*rcovab_dftD[wanA][wanB]/dist2;
+		}
+		else{
+		  dCN[Gc_AN][Gc_BN][n1+n1_CN_DFT_D][n2+n2_CN_DFT_D][n3+n3_CN_DFT_D]=0.0;
+		}
+	      } /* n3 */
+	    } /* n2 */
+	  } /* n1 */
+	}
+      } /* Gc_BN */
+      CN[Gc_AN] = xn;
+    }
+  } /* Mc_AN */
+
+  /*MPI BROADCAST CN NUMBERS - MPI_Barrier(mpi_comm_level1); */
+  MPI_Barrier(mpi_comm_level1);  /* NOT SURE IF NEEDED! */ 
+  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+    wanA = WhatSpecies[Gc_AN];
+    iZ = Spe_WhatAtom[wanA];
+    if ( iZ>0 ) {
+      ID = G2ID[Gc_AN];
+      MPI_Bcast(&CN[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+      for (Gc_BN=1; Gc_BN<=atomnum; Gc_BN++){
+	wanB = WhatSpecies[Gc_BN];
+	iZ = Spe_WhatAtom[wanB];
+	if ( iZ>0 ) {
+	  per_flagB = (int)Gxyz[Gc_BN][60]; 
+	  if (per_flagB==0){
+	    n1_max = 0;
+	    n2_max = 0;
+	    n3_max = 0;
+	  }
+	  else {
+	    n1_max = n1_CN_DFT_D;
+	    n2_max = n2_CN_DFT_D;
+	    n3_max = n3_CN_DFT_D;
+	  }
+	  for (n1=-n1_max; n1<=n1_max; n1++){
+	    for (n2=-n2_max; n2<=n2_max; n2++){
+	      for (n3=-n3_max; n3<=n3_max; n3++){
+		MPI_Bcast(&dCN[Gc_AN][Gc_BN][n1+n1_CN_DFT_D][n2+n2_CN_DFT_D][n3+n3_CN_DFT_D], 1, MPI_DOUBLE, ID, mpi_comm_level1); 
+	      } /* n3 */
+	    } /* n2 */
+	  } /* n1 */
+	}
+      } /* Gc_BN */
+    }
+  } /* Gc_AN */
+
+  /* Calculate energy and collect gradients two body terms C_ij*d(f_ij/r_ij)/dr_ij also dCi_ij dCj_ij dEC0_ij needed in gradients of 3 body terms */
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+    wanA = WhatSpecies[Gc_AN];
+    iZ = Spe_WhatAtom[wanA];
+
+    if ( iZ>0 ) {
+
+      dblcnt_factor=0.5;
+      dEx = 0.0;
+      dEy = 0.0;
+      dEz = 0.0;
+      E = 0.0;        
+
+      per_flagA = (int)Gxyz[Gc_AN][60]; 
+      for(Gc_BN=1; Gc_BN<=atomnum; Gc_BN++){
+	wanB = WhatSpecies[Gc_BN];
+	iZ = Spe_WhatAtom[wanB];
+	if ( iZ>0 ) {
+	  dEC0[Gc_AN][Gc_BN]=0.0;
+	  per_flagB = (int)Gxyz[Gc_BN][60]; 
+	  rij0[1] = Gxyz[Gc_AN][1] - Gxyz[Gc_BN][1];
+	  rij0[2] = Gxyz[Gc_AN][2] - Gxyz[Gc_BN][2];
+	  rij0[3] = Gxyz[Gc_AN][3] - Gxyz[Gc_BN][3];
+	  /* Calculate C6, C8 coefficient and derivatives with Gaussian-distance (L) */
+	  Z = 0.0;
+	  W = 0.0;
+	  dZi=0.0;
+	  dZj=0.0;
+	  dWi=0.0;
+	  dWj=0.0;
+	  for (i=0; i<maxcn_dftD[wanA]; i++){
+	    for (j=0; j<maxcn_dftD[wanB]; j++){
+	      C6_ref=C6ab_dftD[wanA][wanB][i][j][0];
+	      if (C6_ref>0.0){
+		dAi = CN[Gc_AN] - C6ab_dftD[wanA][wanB][i][j][1];
+		dBj = CN[Gc_BN] - C6ab_dftD[wanA][wanB][i][j][2];
+		exparg = -k3_dftD*( dAi*dAi + dBj*dBj );
+		Lij=exp(exparg);
+		Z += C6_ref*Lij;
+		W += Lij;
+		dZi+=C6_ref*Lij*2.0*k3_dftD*dAi;
+		dZj+=C6_ref*Lij*2.0*k3_dftD*dBj;
+		dWi+=Lij*2.0*k3_dftD*dAi;
+		dWj+=Lij*2.0*k3_dftD*dBj;                    
+	      }
+	    } /* CN_j */
+	  } /* CN_i */
+	  if (W>0.0){
+	    C6 = Z/W;
+	    C8 = 3.0*C6*r2r4ab_dftD[wanA][wanB];
+	    dC6ij[Gc_AN][Gc_BN]=((dZi*W)-(dWi*Z))/(W*W);
+	  }
+	  else{
+	    C6 = 0.0;
+	    C8 = 0.0;
+	    dC6ij[Gc_AN][Gc_BN]=0.0;
+	  } 
+	  /*  CALCULATE ENERGY AND TWO FIRST PART OF GRADIENTS*/
+	  if (per_flagB==0){
+	    n1_max = 0;
+	    n2_max = 0;
+	    n3_max = 0;
+	  }
+	  else {
+	    n1_max = n1_DFT_D;
+	    n2_max = n2_DFT_D;
+	    n3_max = n3_DFT_D;
+	  }
+	  for (n1=-n1_max; n1<=n1_max; n1++){
+	    for (n2=-n2_max; n2<=n2_max; n2++){
+	      for (n3=-n3_max; n3<=n3_max; n3++){
+
+		/* for double counting */
+
+		if((!(abs(n1)+abs(n2)+abs(n3))==0) && (per_flagA==0 && per_flagB==1) ){
+		  dblcnt_factor = 1.0;
+		}
+		else{
+		  dblcnt_factor = 0.5;
+		}
+
+		rij[1] = rij0[1] - ( (double)n1*tv[1][1]
+				     + (double)n2*tv[2][1] 
+				     + (double)n3*tv[3][1] ); 
+		rij[2] = rij0[2] - ( (double)n1*tv[1][2]
+				     + (double)n2*tv[2][2] 
+				     + (double)n3*tv[3][2] ); 
+		rij[3] = rij0[3] - ( (double)n1*tv[1][3]
+				     + (double)n2*tv[2][3] 
+				     + (double)n3*tv[3][3] ); 
+
+		dist2 = rij[1]*rij[1] + rij[2]*rij[2] + rij[3]*rij[3];
+
+		if (0.1<dist2 && dist2<rcut2){
+
+		  dist  = sqrt(dist2); 
+		  dist5 = dist2*dist2*dist;
+		  dist6 = dist2*dist2*dist2;
+		  dist7 = dist6*dist;
+		  dist8 = dist6*dist2;
+
+		  if (DFTD3_damp_dftD == 1){ /*DFTD3 ZERO DAMPING*/
+
+		    /* calculate the vdW energy of E6 and grad of f6/r6 term*/
+		    powarg = dist/(sr6_dftD*r0ab_dftD[wanB][wanA]);
+		    powval = pow(powarg,-alp6_dftD);
+		    fdamp6 = 1.0/(1.0+6.0*powval);
+		    E -= dblcnt_factor*s6_dftD*C6*fdamp6/dist6;
+		    dE6=(s6_dftD*C6*fdamp6/dist6)*(6.0/dist)*(-1.0+alp6_dftD*powval*fdamp6);
+
+		    /* calculate the vdW energy of E8 and grad of f8/r8 term*/                
+		    powarg = dist/(sr8_dftD*r0ab_dftD[wanB][wanA]);
+		    powval = pow(powarg,-alp8_dftD);
+		    fdamp8 = 1.0/(1.0+6.0*powval);
+		    E -= dblcnt_factor*s8_dftD*C8*fdamp8/dist8;
+		    dE8=(s8_dftD*C8*fdamp8/dist8)*(2.0/dist)*(-4.0+3.0*alp8_dftD*powval*fdamp8);
+		    dEC0[Gc_AN][Gc_BN]+=s6_dftD*fdamp6/dist6+s8_dftD*3.0*r2r4ab_dftD[wanA][wanB]*fdamp8/dist8;
+
+		  } /* END IF ZERO DAMPING */
+
+		  if (DFTD3_damp_dftD == 2){ /*DFTD3 BJ DAMPING*/
+
+		    fdamp = (a1_dftD*sqrt(C8/C6)+a2_dftD);
+		    fdamp6=fdamp*fdamp*fdamp*fdamp*fdamp*fdamp;
+		    fdamp8=fdamp6*fdamp*fdamp;
+		    t6=dist6 + fdamp6;
+		    t62=t6*t6;
+		    t8=dist8 + fdamp8;
+		    t82=t8*t8;
+		    E -= dblcnt_factor*s6_dftD*C6/t6;                
+		    dE6=-s6_dftD*C6*6.0*dist5/t62;
+		    E -= dblcnt_factor*s8_dftD*C8/t8;
+		    dE8=-s8_dftD*C8*8.0*dist7/t82;
+		    dEC0[Gc_AN][Gc_BN]+=s6_dftD/t6+s8_dftD*3.0*r2r4ab_dftD[wanA][wanB]/t8;
+		  } /* IF BJ DAMPING */
+
+		  dEx -= (dE6+dE8)*rij[1]/dist;          
+		  dEy -= (dE6+dE8)*rij[2]/dist;
+		  dEz -= (dE6+dE8)*rij[3]/dist;
+
+		} /* if dist2 < rcut */
+	      } /* n3 */
+	    } /* n2 */
+	  } /* n1 */
+	}
+      } /* Gc_BN */
+
+      My_EdftD += E; 
+
+      /* energy decomposition */
+ 
+      if (Energy_Decomposition_flag==1){
+	E = E/(2.0*Spe_Total_CNO[wanA]);
+	for (i=0; i<Spe_Total_CNO[wanA]; i++){
+	  DecEvdw[0][Mc_AN][i] = E;
+	  DecEvdw[1][Mc_AN][i] = E;
+	}
+      }
+
+      /* gradients from two-body terms */
+
+      Gxyz[Gc_AN][17] += dEx;
+      Gxyz[Gc_AN][18] += dEy;
+      Gxyz[Gc_AN][19] += dEz;
+
+      /* START: for printing gradients ERASE *
+	 xgrad[Gc_AN]=dEx;ygrad[Gc_AN]=dEy;zgrad[Gc_AN]=dEz;
+	 /* END: for printing gradients ERASE */
+    }
+  } /* Mc_AN */
+
+
+  /*MPI BROADCAST GRADIENTS AND REDUCE ENERGIES - MPI_Barrier(mpi_comm_level1); */    
+  MPI_Allreduce(&My_EdftD, &EdftD, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+    wanA = WhatSpecies[Gc_AN];
+    iZ = Spe_WhatAtom[wanA];
+    if ( iZ>0 ) {
+      ID = G2ID[Gc_AN];
+      MPI_Bcast(&CN[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+      for (Gc_BN=1; Gc_BN<=atomnum; Gc_BN++){
+	wanB = WhatSpecies[Gc_BN];
+	iZ = Spe_WhatAtom[wanB];
+	if ( iZ>0 ) {
+	  MPI_Bcast(&dC6ij[Gc_AN][Gc_BN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+	  MPI_Bcast(&dEC0[Gc_AN][Gc_BN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+	}
+      } /* Gc_BN */
+    }
+  } /* Gc_AN */
+  MPI_Barrier(mpi_comm_level1); /* NOT SURE IF ITS NEEDED! */
+
+  /* Calculate three body terms of gradients */
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+    wanA = WhatSpecies[Gc_AN];
+    iZ = Spe_WhatAtom[wanA];
+    if ( iZ>0 ) {
+      dEx = 0.0;
+      dEy = 0.0;
+      dEz = 0.0;
+
+      for(Gc_BN=1; Gc_BN<=atomnum; Gc_BN++){
+	wanB = WhatSpecies[Gc_BN];
+	iZ = Spe_WhatAtom[wanB];
+	if ( iZ>0 ) {
+	  per_flagB = (int)Gxyz[Gc_BN][60];
+	  rij0[1] = Gxyz[Gc_AN][1] - Gxyz[Gc_BN][1];
+	  rij0[2] = Gxyz[Gc_AN][2] - Gxyz[Gc_BN][2];
+	  rij0[3] = Gxyz[Gc_AN][3] - Gxyz[Gc_BN][3];
+	  if (per_flagB==0){
+	    n1_max = 0;
+	    n2_max = 0;
+	    n3_max = 0;
+	  }
+	  else {
+	    n1_max = n1_CN_DFT_D;
+	    n2_max = n2_CN_DFT_D;
+	    n3_max = n3_CN_DFT_D;
+	  }
+	  for (n1=-n1_max; n1<=n1_max; n1++){
+	    for (n2=-n2_max; n2<=n2_max; n2++){
+	      for (n3=-n3_max; n3<=n3_max; n3++){
+		dEC=0.0;
+		rij[1] = rij0[1] - ( (double)n1*tv[1][1]
+				     + (double)n2*tv[2][1] 
+				     + (double)n3*tv[3][1] ); 
+		rij[2] = rij0[2] - ( (double)n1*tv[1][2]
+				     + (double)n2*tv[2][2] 
+				     + (double)n3*tv[3][2] ); 
+		rij[3] = rij0[3] - ( (double)n1*tv[1][3]
+				     + (double)n2*tv[2][3] 
+				     + (double)n3*tv[3][3] ); 
+		dist2 = rij[1]*rij[1] + rij[2]*rij[2] + rij[3]*rij[3];
+		if (0.1<dist2 && dist2<cncut2){
+		  /* calculate grad of C6 term: dEC=dEC0_ik*dC6_ik*dCN_ij+dEC0_jk*dC6_jk*dCN_ij */
+		  dist=sqrt(dist2);
+		  for(Gc_CN=1; Gc_CN<=atomnum; Gc_CN++){
+		    dEC+=dEC0[Gc_AN][Gc_CN]*dC6ij[Gc_AN][Gc_CN]*dCN[Gc_AN][Gc_BN][n1+n1_CN_DFT_D][n2+n2_CN_DFT_D][n3+n3_CN_DFT_D];
+		    dEC+=dEC0[Gc_BN][Gc_CN]*dC6ij[Gc_BN][Gc_CN]*dCN[Gc_AN][Gc_BN][n1+n1_CN_DFT_D][n2+n2_CN_DFT_D][n3+n3_CN_DFT_D];
+		  } /* Gc_CN */
+		  dEx += dEC*rij[1]/dist;
+		  dEy += dEC*rij[2]/dist;
+		  dEz += dEC*rij[3]/dist;
+		} /* if dist2 < cn_thr */
+	      } /* n3 */
+	    } /* n2 */
+	  } /* n1 */
+	}
+      } /* Gc_BN */
+      Gxyz[Gc_AN][17] += dEx;
+      Gxyz[Gc_AN][18] += dEy;
+      Gxyz[Gc_AN][19] += dEz;
+      /* START: for printing gradients ERASE *
+	 xgrad[Gc_AN]+=dEx;ygrad[Gc_AN]+=dEy;zgrad[Gc_AN]+=dEz;
+	 /* START: for printing gradients ERASE */
+    }
+  } /* Mc_AN */
+
+  /* START: for printing gradients ERASE *
+     MPI_Barrier(mpi_comm_level1);
+     for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+     ID = G2ID[Gc_AN];
+     MPI_Bcast(&xgrad[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+     MPI_Bcast(&ygrad[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+     MPI_Bcast(&zgrad[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
+     }
+     if(myid==0){
+     printf("DFTD3: ATOM NUMBER, COORDINATION NUMBER, GRADIENTS (X, Y, Z)\n");
+     for(Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+     printf("%4d %10.6e %+12.8e %+12.8e %+12.8e \n",Gc_AN, CN[Gc_AN],xgrad[Gc_AN],ygrad[Gc_AN],zgrad[Gc_AN]);fflush(stdout);
+     }
+     }
+     free(xgrad);free(ygrad);free(zgrad);
+     * END: for printing gradients ERASE */
+  
+  /* free arrays */  
+  for(Gc_AN=0; Gc_AN<atomnum+1; Gc_AN++){
+    for(Gc_BN=0; Gc_BN<atomnum+1; Gc_BN++){
+      for (n1=0; n1<=2*n1_CN_DFT_D; n1++){
+        for (n2=0; n2<=2*n2_CN_DFT_D; n2++){
+          free(dCN[Gc_AN][Gc_BN][n1][n2]);
+        } /* n2 */
+        free(dCN[Gc_AN][Gc_BN][n1]);
+      } /* n1 */
+      free(dCN[Gc_AN][Gc_BN]);
+    } /* Gc_BN */
+    free(dC6ij[Gc_AN]);
+    free(dEC0[Gc_AN]);
+    free(dCN[Gc_AN]);
+  } /* Gc_AN */
+  free(dC6ij);
+  free(dEC0);
+  free(dCN);
+  free(CN);
+  return EdftD;
+}
+/* Ellner */
+
 
 
 void Set_Lebedev_Grid()

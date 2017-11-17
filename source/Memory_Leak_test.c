@@ -102,8 +102,40 @@ void Memory_Leak_test(int argc, char *argv[])
  
       /* run openmx */
 
-      if      (argc==2)  sprintf(operate,"./openmx %s -mltest2",fname_dat);
-      else if (argc==3)  sprintf(operate,"%s %s -mltest2",argv[2],fname_dat);
+      if      (argc==2){
+        sprintf(operate,"./openmx %s -mltest2",fname_dat);
+      }
+      else if (argc==3){
+
+        int p;
+        char *tp;
+	char str[10][300];
+        char tmp_argv[300];
+
+        sprintf(str[0],"");
+        sprintf(str[1],"");
+        sprintf(str[2],"");
+        sprintf(str[3],"");
+        sprintf(str[4],"");
+        sprintf(str[5],"");
+
+        strcpy(tmp_argv,argv[2]); 
+
+        tp = strtok(tmp_argv," ");
+        sprintf(str[0],tp);
+ 
+        p = 1; 
+        while (tp != NULL ){
+          tp = strtok(NULL," ");   
+          if (tp!=NULL){ 
+            sprintf(str[p],tp); 
+            p++;
+          }
+	}
+
+        sprintf(operate,"%s %s %s %s %s %s %s -mltest2",
+                str[0],str[1],str[2],str[3],fname_dat,str[4],str[5]);
+      }
 
       system(operate);
 

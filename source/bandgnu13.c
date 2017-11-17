@@ -22,7 +22,8 @@
 #define MAXBUF 1024
 #define fp_bsize         1048576     /* buffer size for setvbuf */
 
-/* #define DEBUG */
+/* #define DEBUG  */
+
 #ifdef DEBUG
 #undef DEBUG
 #endif
@@ -205,6 +206,7 @@ main(int argc, char **argv)
   for (j=0;j<(nkpath+1);j++) {
     kline[j]=(double*)malloc(sizeof(double)*(m_perpath+1));
   }
+
 #ifdef DEBUG
   printf("<kpath end>\n");
 #endif

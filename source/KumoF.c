@@ -17,12 +17,12 @@
 #ifdef MAX 
 #undef MAX
 #endif
-#define MAX(a,b) ((a)>(b))?  (a):(b) 
+#define MAX(a,b) (((a)>(b))?  (a):(b)) 
 
 #ifdef MIN
 #undef MIN
 #endif
-#define MIN(a,b) ((a)<(b))?  (a):(b)
+#define MIN(a,b) (((a)<(b))?  (a):(b))
 
 double KumoF(int N, double x, double *xv, double *rv, double *yv)
 {

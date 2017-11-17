@@ -126,6 +126,17 @@ double DFT(int MD_iter, int Cnt_Now)
   double **OrbOpt_Hessian,*His_OrbOpt_Etot;
   int dim_H,al,p,wan;
 
+  /* BLACS and PBLAS by ScaLAPACK */
+
+#ifdef scalapack
+  int numprocs2,myid2;
+  int ZERO=0, ONE=1;
+  int info;
+  dcomplex *Hs_Band_Col,*Ss_Band_Col,*Cs_Band_Col;
+  double *Hs_Cluster,*Ss_Cluster,*Cs_Cluster;
+  int nblk_m;
+#endif
+
   dtime(&TStime);
 
   /* MPI */ 
@@ -163,6 +174,9 @@ double DFT(int MD_iter, int Cnt_Now)
       H_Band_Col[j] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
     }
 
+    /* BLACS and PBLAS by ADO */
+
+#ifndef scalapack
     S_Band = (dcomplex**)malloc(sizeof(dcomplex*)*(n+1));
     for (i=0; i<n+1; i++){
       S_Band[i] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
@@ -174,6 +188,7 @@ double DFT(int MD_iter, int Cnt_Now)
     }
 
     BLAS_S = (dcomplex*)malloc(sizeof(dcomplex)*n*n);
+#endif
 
     /* find size_H1 */
 
@@ -280,6 +295,7 @@ double DFT(int MD_iter, int Cnt_Now)
         make the second level worlds 
     ***********************************************/
 
+#ifndef scalapack
     if (T_knum<=numprocs1){
 
       Num_Comm_World2 = T_knum;
@@ -293,6 +309,131 @@ double DFT(int MD_iter, int Cnt_Now)
       Make_Comm_Worlds(MPI_CommWD1[myworld1], myid1, numprocs1, Num_Comm_World2, &myworld2, MPI_CommWD2, 
 		       NPROCS_ID2, Comm_World2, NPROCS_WD2, Comm_World_StartID2);
     }
+#endif
+
+#ifdef scalapack
+
+    if (T_knum<=numprocs1){
+
+      Num_Comm_World2 = T_knum;
+
+      NPROCS_ID2 = (int*)malloc(sizeof(int)*numprocs1);
+      Comm_World2 = (int*)malloc(sizeof(int)*numprocs1);
+      NPROCS_WD2 = (int*)malloc(sizeof(int)*Num_Comm_World2);
+      Comm_World_StartID2 = (int*)malloc(sizeof(int)*Num_Comm_World2);
+      MPI_CommWD2 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World2);
+
+      Make_Comm_Worlds(MPI_CommWD1[myworld1], myid1, numprocs1, Num_Comm_World2, 
+		       &myworld2, MPI_CommWD2, NPROCS_ID2, Comm_World2, 
+		       NPROCS_WD2, Comm_World_StartID2);
+
+
+      MPI_Comm_size(MPI_CommWD2[myworld2],&numprocs2);
+      MPI_Comm_rank(MPI_CommWD2[myworld2],&myid2);
+
+      np_cols = (int)(sqrt((float)numprocs2));
+      do{
+	if((numprocs2%np_cols)==0) break;
+	np_cols--;
+      } while (np_cols>=2);
+      np_rows = numprocs2/np_cols;
+
+      nblk_m = NBLK;
+      while((nblk_m*np_rows>n || nblk_m*np_cols>n) && (nblk_m > 1)){
+	nblk_m /= 2;
+      }
+      if(nblk_m<1) nblk_m = 1;
+
+      MPI_Allreduce(&nblk_m,&nblk,1,MPI_INT,MPI_MIN,mpi_comm_level1);
+
+      my_prow = myid2/np_cols;
+      my_pcol = myid2%np_cols;
+
+      na_rows = numroc_(&n, &nblk, &my_prow, &ZERO, &np_rows);
+      na_cols = numroc_(&n, &nblk, &my_pcol, &ZERO, &np_cols );
+
+      bhandle2 = Csys2blacs_handle(MPI_CommWD2[myworld2]);
+      ictxt2 = bhandle2;
+      Cblacs_gridinit(&ictxt2, "Row", np_rows, np_cols);
+	
+      Ss_Band_Col = (dcomplex*)malloc(sizeof(dcomplex)*na_rows*na_cols);
+      Hs_Band_Col = (dcomplex*)malloc(sizeof(dcomplex)*na_rows*na_cols);
+
+      MPI_Allreduce(&na_rows,&na_rows_max,1,MPI_INT,MPI_MAX,MPI_CommWD2[myworld2]);
+      MPI_Allreduce(&na_cols,&na_cols_max,1,MPI_INT,MPI_MAX,MPI_CommWD2[myworld2]);
+      Cs_Band_Col = (dcomplex*)malloc(sizeof(dcomplex)*na_rows_max*na_cols_max);
+
+      descinit_(descS, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt2, &na_rows,  &info);
+      descinit_(descH, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt2, &na_rows,  &info);
+      descinit_(descC, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt2, &na_rows,  &info);
+
+      /*
+      printf("myid0=%d myid2=%d np2=%d my_pr=%d my_pc=%d na_r=%d na_c=%d np_r=%d np_c=%d nblk=%d T_k=%d ictxt2=%d n=%d\n",
+	     myid0,myid2,numprocs2,my_prow,my_pcol,na_rows,na_cols,np_rows,np_cols,nblk,T_knum,ictxt2,n);
+      */
+    }
+
+    else {
+
+      Num_Comm_World2 = numprocs1;
+
+      NPROCS_ID2 = (int*)malloc(sizeof(int)*numprocs1);
+      Comm_World2 = (int*)malloc(sizeof(int)*numprocs1);
+      NPROCS_WD2 = (int*)malloc(sizeof(int)*Num_Comm_World2);
+      Comm_World_StartID2 = (int*)malloc(sizeof(int)*Num_Comm_World2);
+      MPI_CommWD2 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World2);
+
+      Make_Comm_Worlds(MPI_CommWD1[myworld1], myid1, numprocs1, Num_Comm_World2,
+		       &myworld2, MPI_CommWD2, 
+		       NPROCS_ID2, Comm_World2, NPROCS_WD2, Comm_World_StartID2);
+
+
+      MPI_Comm_size(MPI_CommWD2[myworld2],&numprocs2);
+      MPI_Comm_rank(MPI_CommWD2[myworld2],&myid2);
+
+      np_cols = (int)(sqrt((float)numprocs2));
+      do{
+	if((numprocs2%np_cols)==0) break;
+	np_cols--;
+      } while (np_cols>=2);
+      np_rows = numprocs2/np_cols;
+
+      nblk_m = NBLK;
+      while((nblk_m*np_rows>n || nblk_m*np_cols>n) && (nblk_m > 1)){
+	nblk_m /= 2;
+      }
+      if(nblk_m<1) nblk_m = 1;
+
+      MPI_Allreduce(&nblk_m,&nblk,1,MPI_INT,MPI_MIN,mpi_comm_level1);
+
+      my_prow = myid2/np_cols;
+      my_pcol = myid2%np_cols;
+
+      na_rows = numroc_(&n, &nblk, &my_prow, &ZERO, &np_rows);
+      na_cols = numroc_(&n, &nblk, &my_pcol, &ZERO, &np_cols );
+
+      bhandle2 = Csys2blacs_handle(MPI_CommWD2[myworld2]);
+      ictxt2 = bhandle2;
+      Cblacs_gridinit(&ictxt2, "Row", np_rows, np_cols);
+
+      Ss_Band_Col = (dcomplex*)malloc(sizeof(dcomplex)*na_rows*na_cols);
+      Hs_Band_Col = (dcomplex*)malloc(sizeof(dcomplex)*na_rows*na_cols);
+
+      MPI_Allreduce(&na_rows,&na_rows_max,1,MPI_INT,MPI_MAX,MPI_CommWD2[myworld2]);
+      MPI_Allreduce(&na_cols,&na_cols_max,1,MPI_INT,MPI_MAX,MPI_CommWD2[myworld2]);
+      Cs_Band_Col = (dcomplex*)malloc(sizeof(dcomplex)*na_rows_max*na_cols_max);
+
+      descinit_(descS, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt2, &na_rows,  &info);
+      descinit_(descH, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt2, &na_rows,  &info);
+      descinit_(descC, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt2, &na_rows,  &info);
+
+      /*
+      printf("myid0=%d myid2=%d np2=%d my_pr=%d my_pc=%d na_r=%d na_c=%d np_r=%d np_c=%d nblk=%d T_k=%d ictxt2=%d n=%d\n",
+	     myid0,myid2,numprocs2,my_prow,my_pcol,na_rows,na_cols,np_rows,np_cols,nblk,T_knum,ictxt2,n);
+      */
+    }
+
+#endif
 
   } /* if (Solver==3 && SpinP_switch<=1) */
 
@@ -335,6 +476,8 @@ double DFT(int MD_iter, int Cnt_Now)
 
   /* cluster */
 
+#ifndef scalapack 
+
   if (Solver==2){
         
     n = 0;
@@ -361,6 +504,111 @@ double DFT(int MD_iter, int Cnt_Now)
     }
 
   }
+
+#endif
+
+#ifdef scalapack 
+
+  if (Solver==2){
+        
+    n = 0;
+    for (i=1; i<=atomnum; i++){
+      wanA  = WhatSpecies[i];
+      n += Spe_Total_CNO[wanA];
+    }
+    n2 = n + 2;
+
+    if ( SpinP_switch==0 || SpinP_switch==1 ){
+
+      Cluster_ReCoes = (double***)malloc(sizeof(double**)*List_YOUSO[23]);
+      for (i=0; i<List_YOUSO[23]; i++){
+	Cluster_ReCoes[i] = (double**)malloc(sizeof(double*)*n2);
+	for (j=0; j<n2; j++){
+	  Cluster_ReCoes[i][j] = (double*)malloc(sizeof(double)*n2);
+	}
+      }
+    }
+
+    Cluster_ko = (double**)malloc(sizeof(double*)*List_YOUSO[23]);
+    for (i=0; i<List_YOUSO[23]; i++){
+      Cluster_ko[i] = (double*)malloc(sizeof(double)*n2);
+    }
+
+
+    if ( SpinP_switch==0 || SpinP_switch==1 ){
+
+      /***********************************************
+        allocation of arrays for the first world 
+      ***********************************************/
+
+      Num_Comm_World1 = SpinP_switch + 1; 
+
+      NPROCS_ID1 = (int*)malloc(sizeof(int)*numprocs0); 
+      Comm_World1 = (int*)malloc(sizeof(int)*numprocs0); 
+      NPROCS_WD1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
+      Comm_World_StartID1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
+      MPI_CommWD1 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World1);
+
+      /*********************************************** 
+             make the first level worlds 
+      ***********************************************/
+
+      Make_Comm_Worlds(mpi_comm_level1, myid0, numprocs0, Num_Comm_World1, 
+		       &myworld1, MPI_CommWD1, NPROCS_ID1, Comm_World1, 
+		       NPROCS_WD1, Comm_World_StartID1);
+
+      /*********************************************** 
+         for pallalel calculations in myworld1
+      ***********************************************/
+    
+      MPI_Comm_size(MPI_CommWD1[myworld1],&numprocs1);
+      MPI_Comm_rank(MPI_CommWD1[myworld1],&myid1);
+
+      np_cols = (int)(sqrt((float)numprocs1));
+      do{
+	if((numprocs1%np_cols)==0) break;
+	np_cols--;
+      } while (np_cols>=2);
+      np_rows = numprocs1/np_cols;
+
+      nblk_m = NBLK;
+      while((nblk_m*np_rows>n || nblk_m*np_cols>n) && (nblk_m > 1)){
+	nblk_m /= 2;
+      }
+      if(nblk_m<1) nblk_m = 1;
+
+      MPI_Allreduce(&nblk_m,&nblk,1,MPI_INT,MPI_MIN,mpi_comm_level1);
+
+      my_prow = myid1/np_cols;
+      my_pcol = myid1%np_cols;
+    
+      na_rows = numroc_(&n, &nblk, &my_prow, &ZERO, &np_rows);
+      na_cols = numroc_(&n, &nblk, &my_pcol, &ZERO, &np_cols );
+
+      bhandle1 = Csys2blacs_handle(MPI_CommWD1[myworld1]);
+      ictxt1 = bhandle1;
+      Cblacs_gridinit(&ictxt1, "Row", np_rows, np_cols);
+
+      Ss_Cluster = (double*)malloc(sizeof(double)*na_rows*na_cols);
+      Hs_Cluster = (double*)malloc(sizeof(double)*na_rows*na_cols);
+
+      MPI_Allreduce(&na_rows,&na_rows_max,1,MPI_INT,MPI_MAX,MPI_CommWD1[myworld1]);
+      MPI_Allreduce(&na_cols,&na_cols_max,1,MPI_INT,MPI_MAX,MPI_CommWD1[myworld1]);
+      Cs_Cluster = (double*)malloc(sizeof(double)*na_rows_max*na_cols_max);
+
+      descinit_(descS, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt1, &na_rows,  &info);
+      descinit_(descH, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt1, &na_rows,  &info);
+      descinit_(descC, &n,   &n,   &nblk,  &nblk,  &ZERO, &ZERO, &ictxt1, &na_rows,  &info);
+
+      /*
+      printf("myid0=%d myid1=%d np1=%d my_pr=%d my_pc=%d na_r=%d na_c=%d np_r=%d np_c=%d nblk=%d ictxt1=%d, spin=%d myworld1=%d n=%d\n",
+  	      myid0,myid1,numprocs1,my_prow,my_pcol,na_rows,na_cols,np_rows,np_cols,nblk,ictxt1,SpinP_switch,myworld1,n);
+      */
+    }
+
+  }
+
+#endif
 
   /***************************************
    allocation of arrays for data on grid
@@ -654,7 +902,7 @@ double DFT(int MD_iter, int Cnt_Now)
 
     if (SCF_iter==1){
 
-      if (MD_iter!=1) Mixing_weight = Min_Mixing_weight;
+      if (MD_iter!=1) Mixing_weight = Max_Mixing_weight;
 
       if (Cnt_switch==0 || (Cnt_switch==1 && Cnt_Now==1)) Cnt_kind = 0;
       else if (Cnt_switch==1)                             Cnt_kind = 1;
@@ -703,7 +951,7 @@ double DFT(int MD_iter, int Cnt_Now)
       ******************************************************/
 
       SucceedReadingDMfile = 0;
-      if (Scf_RestartFromFile && ((Cnt_switch==1 && Cnt_Now!=1) || Cnt_switch==0 ) ) {
+      if (Scf_RestartFromFile==1 && ((Cnt_switch==1 && Cnt_Now!=1) || Cnt_switch==0 ) ) {
 
 	My_SucceedReadingDMfile = RestartFileDFT("read",MD_iter,&Uele,H,CntH,&etime);
         time13 += etime;
@@ -823,7 +1071,7 @@ double DFT(int MD_iter, int Cnt_Now)
       } 
 
       /* switch a restart flag on for proceeding MD steps */
-      if (MD_switch!=0) Scf_RestartFromFile = 1;
+      if (MD_switch!=0 && Scf_RestartFromFile!=-1) Scf_RestartFromFile = 1;
 
     } /* end of if (SCF_iter==1) */
 
@@ -841,15 +1089,8 @@ double DFT(int MD_iter, int Cnt_Now)
       else if (Solver!=4 && ESM_switch!=0)  time4 += Poisson_ESM(fft_charge_flag,ReVk,ImVk); /* added by Ohwaki */
       else                                  time4 += TRAN_Poisson(ReVk,ImVk); 
 
-      /* construct matrix elements for LDA+U or Zeeman term */
-
-      if (   Hub_U_switch==1 
-	     || Constraint_NCS_switch==1
-	     || Zeeman_NCS_switch==1 
-	     || Zeeman_NCO_switch==1) { 
-
-	Eff_Hub_Pot(SCF_iter, OLP[0]) ;  /* added by MJ */
-      }
+      /* construct matrix elements for LDA+U or Zeeman term, added by MJ */
+      Eff_Hub_Pot(SCF_iter, OLP[0]) ; 
 
       time3  += Set_Hamiltonian("stdout",SCF_iter,SucceedReadingDMfile,Cnt_kind,H0,HNL,DM[0],H);
 
@@ -857,6 +1098,21 @@ double DFT(int MD_iter, int Cnt_Now)
 	Contract_Hamiltonian(H,CntH,OLP,CntOLP);
 	if (SO_switch==1) Contract_iHNL(iHNL,iCntHNL);
       }
+
+    }
+
+    /****************************************************
+     In case of RMM-DIISH (Mixing_switch==5), the mixing 
+     of Hamiltonian matrix elements is performed before 
+     the eigenvalue problem.  
+    ****************************************************/
+
+    if ( Mixing_switch==5 
+       || ( Cnt_switch!=1 && SucceedReadingDMfile!=1 
+       && (Mixing_switch==1 || Mixing_switch==6) 
+       && (LSCF_iter-SCF_iter_shift)<=(Pulay_SCF/2)) ){
+
+      time6  += Mixing_H(MD_iter, LSCF_iter-SCF_iter_shift, SCF_iter-SCF_iter_shift);
     }
 
     /****************************************************
@@ -866,6 +1122,7 @@ double DFT(int MD_iter, int Cnt_Now)
     s_vec[0]="Recursion";     s_vec[1]="Cluster"; s_vec[2]="Band";
     s_vec[3]="NEGF";          s_vec[4]="DC";      s_vec[5]="GDC";
     s_vec[6]="Cluster-DIIS";  s_vec[7]="Krylov";  s_vec[8]="Cluster2";
+    s_vec[9]="EC";
 
     if (MYID_MPI_COMM_WORLD==Host_ID && 0<level_stdout){
       printf("<%s>  Solving the eigenvalue problem...\n",s_vec[Solver-1]);fflush(stdout);
@@ -881,7 +1138,10 @@ double DFT(int MD_iter, int Cnt_Now)
 
       case 2:
 
+#ifndef scalapack
+
         /*---------- modified by TOYODA 08/JAN/2010 */
+
         if (g_exx_switch) {
           time5 += Cluster_DFT("scf",LSCF_iter,SpinP_switch,
 			       Cluster_ReCoes,Cluster_ko, H,iHNL,OLP[0],DM[0],EDM,
@@ -894,11 +1154,42 @@ double DFT(int MD_iter, int Cnt_Now)
         }
         /*---------- until here */
 
+#endif
+
+#ifdef scalapack
+
+        /*---------- modified by TOYODA 08/JAN/2010 */
+        if (g_exx_switch) {
+
+          time5 += Cluster_DFT_ScaLAPACK("scf",LSCF_iter,SpinP_switch,
+			       Cluster_ReCoes,Cluster_ko, H,iHNL,OLP[0],DM[0],EDM,
+			       g_exx,g_exx_DM[0],g_exx_U,Eele0,Eele1,
+			       myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+			       Comm_World_StartID1,MPI_CommWD1,
+			       Ss_Cluster,Cs_Cluster,Hs_Cluster);
+	  
+        } else {
+ 
+	  time5 += Cluster_DFT_ScaLAPACK("scf",LSCF_iter,SpinP_switch,
+			       Cluster_ReCoes,Cluster_ko, H,iHNL,OLP[0],DM[0],EDM,
+			       NULL,NULL,NULL,Eele0,Eele1,
+			       myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+			       Comm_World_StartID1,MPI_CommWD1,
+			       Ss_Cluster,Cs_Cluster,Hs_Cluster);
+
+        }
+        /*---------- until here */
+
+#endif
+
 	break;
 
       case 3:
 
 	if (SpinP_switch<=1)
+
+#ifndef scalapack
+
           /*---------- modified by TOYODA 15/FEB/2010 */
           if (5==XC_switch) {
             time5 += Band_DFT_Col(LSCF_iter,
@@ -952,8 +1243,70 @@ double DFT(int MD_iter, int Cnt_Now)
 				  Comm_World_StartID2,
 				  MPI_CommWD2,
                                   NULL, NULL, NULL);
+        }
+	/*---------- until here */
+
+#endif
+
+#ifdef scalapack
+
+          /*---------- modified by TOYODA 15/FEB/2010 */
+          if (5==XC_switch) {
+            time5 += Band_DFT_Col_ScaLAPACK(LSCF_iter,
+                                  Kspace_grid1,Kspace_grid2,Kspace_grid3,
+	    			  SpinP_switch,H,iHNL,OLP[0],DM[0],EDM,Eele0,Eele1, 
+                                  MP,order_GA,ko,koS,EIGEN_Band_Col,
+                                  H1_Band_Col,S1_Band_Col,
+                                  CDM1_Band_Col,EDM1_Band_Col,
+                                  H_Band_Col,Ss_Band_Col,Cs_Band_Col, 
+                                  Hs_Band_Col,
+                                  k_op,T_k_op,T_k_ID,
+                                  T_KGrids1,T_KGrids2,T_KGrids3,
+				  myworld1,
+				  NPROCS_ID1,
+				  Comm_World1,
+				  NPROCS_WD1,
+				  Comm_World_StartID1,
+				  MPI_CommWD1,
+				  myworld2,
+				  NPROCS_ID2,
+ 			          NPROCS_WD2,
+ 			          Comm_World2,
+				  Comm_World_StartID2,
+				  MPI_CommWD2,
+                                  g_exx,
+                                  g_exx_DM[0],
+                                  g_exx_U
+                                  );
+          } else {
+
+            time5 += Band_DFT_Col_ScaLAPACK(LSCF_iter,
+                                  Kspace_grid1,Kspace_grid2,Kspace_grid3,
+	    			  SpinP_switch,H,iHNL,OLP[0],DM[0],EDM,Eele0,Eele1, 
+                                  MP,order_GA,ko,koS,EIGEN_Band_Col,
+                                  H1_Band_Col,S1_Band_Col,
+                                  CDM1_Band_Col,EDM1_Band_Col,
+                                  H_Band_Col,Ss_Band_Col,Cs_Band_Col, 
+                                  Hs_Band_Col,
+                                  k_op,T_k_op,T_k_ID,
+                                  T_KGrids1,T_KGrids2,T_KGrids3,
+				  myworld1,
+				  NPROCS_ID1,
+				  Comm_World1,
+				  NPROCS_WD1,
+				  Comm_World_StartID1,
+				  MPI_CommWD1,
+				  myworld2,
+				  NPROCS_ID2,
+				  NPROCS_WD2,
+				  Comm_World2,
+				  Comm_World_StartID2,
+				  MPI_CommWD2,
+                                  NULL, NULL, NULL);
           }
 	/*---------- until here */
+
+#endif
 
 	else 
 	  time5 += Band_DFT_NonCol(LSCF_iter,
@@ -1001,6 +1354,10 @@ double DFT(int MD_iter, int Cnt_Now)
 				 H,iHNL,OLP[0],DM[0],EDM,Eele0,Eele1);
 	break;       
 
+      case 10:
+	time5 += EC("scf",LSCF_iter,H,iHNL,OLP[0],DM[0],EDM,Eele0,Eele1);
+	break;
+
       }
 
     }
@@ -1013,6 +1370,8 @@ double DFT(int MD_iter, int Cnt_Now)
 	break;
 
       case 2:
+
+#ifndef scalapack
 
         /*---------- modified by TOYODA 08/JAN/2010 */
         if (g_exx_switch) {
@@ -1027,11 +1386,41 @@ double DFT(int MD_iter, int Cnt_Now)
         }
         /*---------- until here */
 
+#endif
+
+#ifdef scalapack
+
+        /*---------- modified by TOYODA 08/JAN/2010 */
+        if (g_exx_switch) {
+          time5 += Cluster_DFT_ScaLAPACK("scf",LSCF_iter,SpinP_switch,
+                               Cluster_ReCoes,Cluster_ko, CntH,iCntHNL,CntOLP[0],DM[0],EDM,
+                               g_exx,g_exx_DM[0],g_exx_U,Eele0,Eele1,
+			       myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+			       Comm_World_StartID1,MPI_CommWD1,
+			       Ss_Cluster,Cs_Cluster,Hs_Cluster);
+
+        } 
+        else {
+          time5 += Cluster_DFT_ScaLAPACK("scf",LSCF_iter,SpinP_switch,
+                               Cluster_ReCoes,Cluster_ko, CntH,iCntHNL,CntOLP[0],DM[0],EDM,
+                               NULL,NULL,NULL,Eele0,Eele1,
+			       myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+			       Comm_World_StartID1,MPI_CommWD1,
+			       Ss_Cluster,Cs_Cluster,Hs_Cluster);
+
+        }
+        /*---------- until here */
+
+#endif
+
 	break;
 
       case 3:
 
 	if (SpinP_switch<=1)
+
+#ifndef scalapack
+
           /*---------- modified by TOYODA 15/FEB/2010 */
           if (5==XC_switch) {
             time5 += Band_DFT_Col(LSCF_iter,
@@ -1093,6 +1482,73 @@ double DFT(int MD_iter, int Cnt_Now)
           }
         /*---------- until here */
 
+#endif
+
+#ifdef scalapack
+
+          /*---------- modified by TOYODA 15/FEB/2010 */
+          if (5==XC_switch) {
+            time5 += Band_DFT_Col_ScaLAPACK(LSCF_iter,
+                                  Kspace_grid1,Kspace_grid2,Kspace_grid3,
+	                          SpinP_switch,CntH,iCntHNL,CntOLP[0],DM[0],EDM,Eele0,Eele1, 
+                                  MP,order_GA,ko,koS,EIGEN_Band_Col,
+                                  H1_Band_Col,S1_Band_Col,
+                                  CDM1_Band_Col,EDM1_Band_Col,
+                                  H_Band_Col,Ss_Band_Col,Cs_Band_Col, 
+                                  Hs_Band_Col,
+                                  k_op,T_k_op,T_k_ID,
+                                  T_KGrids1,T_KGrids2,T_KGrids3,
+		  	          myworld1,
+		  	          NPROCS_ID1,
+			          Comm_World1,
+			          NPROCS_WD1,
+  			          Comm_World_StartID1,
+				  MPI_CommWD1,
+				  myworld2,
+				  NPROCS_ID2,
+				  NPROCS_WD2,
+				  Comm_World2,
+				  Comm_World_StartID2,
+				  MPI_CommWD2,
+                                  g_exx,
+                                  g_exx_DM[0],
+                                  g_exx_U
+                                  );
+          } 
+          else {
+
+            time5 += Band_DFT_Col_ScaLAPACK(LSCF_iter,
+                                  Kspace_grid1,Kspace_grid2,Kspace_grid3,
+	                          SpinP_switch,CntH,iCntHNL,CntOLP[0],DM[0],EDM,Eele0,Eele1, 
+                                  MP,order_GA,ko,koS,EIGEN_Band_Col,
+                                  H1_Band_Col,S1_Band_Col,
+                                  CDM1_Band_Col,EDM1_Band_Col,
+                                  H_Band_Col,Ss_Band_Col,Cs_Band_Col, 
+                                  Hs_Band_Col,
+                                  k_op,T_k_op,T_k_ID,
+                                  T_KGrids1,T_KGrids2,T_KGrids3,
+		  	          myworld1,
+		  	          NPROCS_ID1,
+			          Comm_World1,
+			          NPROCS_WD1,
+  			          Comm_World_StartID1,
+				  MPI_CommWD1,
+				  myworld2,
+				  NPROCS_ID2,
+				  NPROCS_WD2,
+				  Comm_World2,
+				  Comm_World_StartID2,
+				  MPI_CommWD2,
+                                  NULL,
+                                  NULL,
+                                  NULL
+                                  );
+ 
+          }
+        /*---------- until here */
+
+#endif
+
 	else 
 	  time5 += Band_DFT_NonCol(LSCF_iter,
 				   koS,S_Band, 
@@ -1138,6 +1594,10 @@ double DFT(int MD_iter, int Cnt_Now)
 	time5 += Cluster_DFT_ON2("scf",LSCF_iter,SpinP_switch,Cluster_ReCoes,Cluster_ko,
 				 CntH,iCntHNL,CntOLP[0],DM[0],EDM,Eele0,Eele1);
 	break;       
+
+      case 10:    
+	time5 += EC("scf",LSCF_iter,CntH,iCntHNL,CntOLP[0],DM[0],EDM,Eele0,Eele1);
+	break;
 
       }
     }
@@ -1279,11 +1739,12 @@ double DFT(int MD_iter, int Cnt_Now)
      simple, RMM-DIIS, or GR-Pulay mixing for density matrix
     ********************************************************/
 
-    if ( Mixing_switch==0
+    if (    Mixing_switch==0
 	 || Mixing_switch==1
-	 || Mixing_switch==2 ){
+	 || Mixing_switch==2
+         || Mixing_switch==6 ){
 
-      time6  += Mixing_DM(1,
+      time6  += Mixing_DM(MD_iter,
 			  LSCF_iter-SCF_iter_shift,
 			  SCF_iter-SCF_iter_shift,
 			  SucceedReadingDMfile,
@@ -1305,7 +1766,7 @@ double DFT(int MD_iter, int Cnt_Now)
     }
 
     /********************************************************
-         Kerker or RMM-DIISK mixing for density in k-space
+        Kerker or RMM-DIISK mixing for density in k-space
     ********************************************************/
     
     else if (Mixing_switch==3 || Mixing_switch==4) {
@@ -1355,7 +1816,7 @@ double DFT(int MD_iter, int Cnt_Now)
 	else                                     time15 += FFT2D_Density(3,ReRhoAtomk,ImRhoAtomk);  
       }
 
-      time6 += Mixing_DM(1,
+      time6 += Mixing_DM(MD_iter,
 			 LSCF_iter-SCF_iter_shift,
 			 SCF_iter-SCF_iter_shift,
 			 SucceedReadingDMfile,
@@ -1367,6 +1828,25 @@ double DFT(int MD_iter, int Cnt_Now)
 
       fft_charge_flag = 0;
 
+    }
+
+    /**********************************************************
+     RMM-DIISH which is RMM-DIIS mixing method for Hamiltonian 
+    **********************************************************/
+
+    else if (Mixing_switch==5){
+
+      time11 += Set_Density_Grid(Cnt_kind,Calc_CntOrbital_ON,DM[0]);
+
+      if (Solver==4) {
+	TRAN_Add_Density_Lead(mpi_comm_level1,
+			      SpinP_switch, Ngrid1, Ngrid2, Ngrid3,
+			      My_NumGridB_AB, Density_Grid_B); 
+      }
+
+      if (SpinP_switch==3) diagonalize_nc_density();
+
+      fft_charge_flag = 1;
     }
      
     else{
@@ -1383,7 +1863,7 @@ double DFT(int MD_iter, int Cnt_Now)
     *****************************************************/
 
     if (  Hub_U_switch==1
-	  || Constraint_NCS_switch==1 
+	  || 1<=Constraint_NCS_switch
 	  || Zeeman_NCS_switch==1 
 	  || Zeeman_NCO_switch==1){ 
 
@@ -1448,6 +1928,11 @@ double DFT(int MD_iter, int Cnt_Now)
         printf("<DFT>  NormRD =%18.12f  Criterion =%17.12f\n",
                sqrt(fabs(NormRD[0])),SCF_Criterion);fflush(stdout);
       }
+      else if (0==level_stdout){
+        printf("<DFT> MD=%4d SCF=%4d   NormRD =%18.12f  Criterion =%17.12f\n",
+               MD_iter,SCF_iter,sqrt(fabs(NormRD[0])),SCF_Criterion);fflush(stdout);
+      }
+
     }
 
     if (Solver==4) {
@@ -1470,6 +1955,16 @@ double DFT(int MD_iter, int Cnt_Now)
 
     pUele = Uele;
 
+    /*****************************************************
+            on-the-fly adjustment of Pulay_SCF
+    *****************************************************/
+
+    if (1<MD_iter && SucceedReadingDMfile==1 && Scf_RestartFromFile!=-1 
+        && Pulay_SCF==Pulay_SCF_original && SCF_iter<Pulay_SCF_original && NormRD[0]<0.01 ){
+
+      Pulay_SCF = SCF_iter + 1;
+    }
+
     /*************************************************************
      If there is a proper file, change parameters controlling the 
      SCF iteration, based on keywords described in the file.
@@ -1477,7 +1972,7 @@ double DFT(int MD_iter, int Cnt_Now)
 
     Read_SCF_keywords();
     if (Cnt_switch==0) SCF_MAX = DFTSCF_loop;
-  
+
     /************************************************************************
                               end of SCF calculation
     ************************************************************************/
@@ -1489,7 +1984,7 @@ double DFT(int MD_iter, int Cnt_Now)
   *****************************************************/
 
   /* revised by Y. Xiao for Noncollinear NEGF calculations */ /* iHNL is outputed */
-  TRAN_Output_Trans_HS( mpi_comm_level1, Solver, SpinP_switch, ChemP, H, iHNL, OLP,
+  TRAN_Output_Trans_HS( mpi_comm_level1, Solver, SpinP_switch, ChemP, H, iHNL, OLP, H0,
                         atomnum, SpeciesNum, WhatSpecies, 
                         Spe_Total_CNO, FNAN, natn, ncn, G2ID, atv_ijk,
                         Max_FSNAN, ScaleSize, F_G2M, TCpyCell, List_YOUSO, 
@@ -1519,13 +2014,83 @@ double DFT(int MD_iter, int Cnt_Now)
 
   /* ---- added by MJ */
   if (  Hub_U_switch==1
-	|| Constraint_NCS_switch==1 
+	|| 1<=Constraint_NCS_switch
 	|| Zeeman_NCS_switch==1 
 	|| Zeeman_NCO_switch==1){ 
 
     Occupation_Number_LDA_U(SCF_iter, SucceedReadingDMfile, dUele, ECE, "write"); 
 
   }
+
+  /*****************************************************
+            Natural Bond Orbital (NBO) Analysis
+
+    NBO_switch = 1 : for Cluster
+    NBO_switch = 2 : for Krylov
+    NBO_switch = 3 : for Band
+    NBO_switch = 4 : for Band (at designated k-points)
+  *****************************************************/
+
+  if (NBO_switch == 1){
+    if (Solver == 2){
+      Calc_NAO_Cluster(DM[0]);
+    }
+    else{
+      if (MYID_MPI_COMM_WORLD == Host_ID){
+	printf("# NBO ERROR: Please check combination of calc. types of SCF and NAO\n");
+      }
+    }
+  }
+
+  if (NBO_switch == 2){
+    if (Solver == 8){
+      Calc_NAO_Krylov(H,OLP[0],DM[0]);
+    }
+    else{
+      if (MYID_MPI_COMM_WORLD == Host_ID){
+	printf("# NBO ERROR: Please check combination of calc. types of SCF and NAO\n");
+      }
+    }
+  }
+
+  /*
+  if (NBO_switch == 3 || NBO_switch == 4){
+
+    int Nkpoint_NAO;
+    double **kpoint_NAO;
+
+    if      (NBO_switch == 3) Nkpoint_NAO = T_knum;
+    else if (NBO_switch == 4) Nkpoint_NAO = NAO_Nkpoint;
+
+    kpoint_NAO = (double**)malloc(sizeof(double*)*(Nkpoint_NAO+1));
+    for (i=0; i<(Nkpoint_NAO+1); i++){
+      kpoint_NAO[i] = (double*)malloc(sizeof(double)*4);
+    }
+
+    if (NBO_switch == 3){
+      for (i=0; i<Nkpoint_NAO; i++){
+        kpoint_NAO[i][1] = T_KGrids1[i];
+        kpoint_NAO[i][2] = T_KGrids2[i];
+        kpoint_NAO[i][3] = T_KGrids3[i];
+      }
+    }
+    else if (NBO_switch == 4){
+      for (i=0; i<Nkpoint_NAO; i++){
+	kpoint_NAO[i][1] = NAO_kpoint[i][1];
+	kpoint_NAO[i][2] = NAO_kpoint[i][2];
+	kpoint_NAO[i][3] = NAO_kpoint[i][3];
+      }
+    }
+
+    Calc_NAO_Band(Nkpoint_NAO, kpoint_NAO, SpinP_switch, H, OLP[0]);
+
+    for (i=0; i<(Nkpoint_NAO+1); i++){
+      free(kpoint_NAO[i]);
+    }
+    free(kpoint_NAO);
+
+  }
+  */
 
   /*****************************************************
                       Band dispersion 
@@ -1559,6 +2124,8 @@ double DFT(int MD_iter, int Cnt_Now)
 	}
         else {      
 
+#ifndef scalapack
+
           /*---------- modified by TOYODA 08/JAN/2010 */
           if (g_exx_switch) {
             time5 += Cluster_DFT("dos",LSCF_iter,SpinP_switch,
@@ -1570,6 +2137,30 @@ double DFT(int MD_iter, int Cnt_Now)
 				 NULL,NULL,NULL,Eele0,Eele1);
           }
           /*---------- until here */
+#endif
+
+#ifdef scalapack
+
+          /*---------- modified by TOYODA 08/JAN/2010 */
+          if (g_exx_switch) {
+            time5 += Cluster_DFT_ScaLAPACK("dos",LSCF_iter,SpinP_switch,
+				 Cluster_ReCoes,Cluster_ko, H,iHNL,OLP[0],DM[0],EDM,
+				 g_exx,g_exx_DM[0],g_exx_U,Eele0,Eele1,
+				 myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+				 Comm_World_StartID1,MPI_CommWD1,
+				 Ss_Cluster,Cs_Cluster,Hs_Cluster);
+          } else {
+            time5 += Cluster_DFT_ScaLAPACK("dos",LSCF_iter,SpinP_switch,
+				 Cluster_ReCoes,Cluster_ko, H,iHNL,OLP[0],DM[0],EDM,
+				 NULL,NULL,NULL,Eele0,Eele1,
+				 myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+				 Comm_World_StartID1,MPI_CommWD1,
+				 Ss_Cluster,Cs_Cluster,Hs_Cluster);
+
+          }
+          /*---------- until here */
+
+#endif
 	}
       }
       else {
@@ -1578,6 +2169,8 @@ double DFT(int MD_iter, int Cnt_Now)
  	  Cluster_DFT_Dosout( SpinP_switch, CntH, iCntHNL, CntOLP[0] );
 	}
         else {
+
+#ifndef scalapack
 
           /*---------- modifined by TOYODA 08/JAN/2010 */
           if (g_exx_switch) {
@@ -1591,6 +2184,32 @@ double DFT(int MD_iter, int Cnt_Now)
 				 NULL,NULL,NULL,Eele0,Eele1);
           }
           /*---------- until here */
+#endif
+
+#ifdef scalapack
+
+          /*---------- modifined by TOYODA 08/JAN/2010 */
+          if (g_exx_switch) {
+            
+            time5 += Cluster_DFT_ScaLAPACK("dos",LSCF_iter,SpinP_switch,
+				 Cluster_ReCoes,Cluster_ko,CntH,iCntHNL,CntOLP[0],DM[0],EDM,
+				 g_exx,g_exx_DM[0],g_exx_U,Eele0,Eele1,
+				 myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+				 Comm_World_StartID1,MPI_CommWD1,
+				 Ss_Cluster,Cs_Cluster,Hs_Cluster);
+
+          } else {
+            time5 += Cluster_DFT_ScaLAPACK("dos",LSCF_iter,SpinP_switch,
+				 Cluster_ReCoes,Cluster_ko,CntH,iCntHNL,CntOLP[0],DM[0],EDM,
+				 NULL,NULL,NULL,Eele0,Eele1,
+				 myworld1,NPROCS_ID1,Comm_World1,NPROCS_WD1,
+				 Comm_World_StartID1,MPI_CommWD1,
+				 Ss_Cluster,Cs_Cluster,Hs_Cluster);
+
+          }
+          /*---------- until here */
+#endif
+
         }
       }
     }
@@ -1659,7 +2278,7 @@ double DFT(int MD_iter, int Cnt_Now)
   }
 
   /****************************************************
-                         force
+      Note on the force calculation.
       If you first call Total_Energy.c before
       Force.c, then the force calculation will fail. 
   ****************************************************/
@@ -1756,12 +2375,32 @@ double DFT(int MD_iter, int Cnt_Now)
 
   if (!orbitalOpt_Force_Skip) time7 += Force(H0,DS_NL,OLP,DM[0],EDM);
 
+  if (scf_stress_flag){
+    Stress(H0,DS_NL,OLP,DM[0],EDM); 
+  }
+
+  /*
+  if (SpinP_switch==3) {
+    Stress_NC(H0,DS_NL,OLP,DM[0],EDM); 
+  }
+  else{  
+    Stress(H0,DS_NL,OLP,DM[0],EDM); 
+  }
+  */
+
   /****************************************************
-     if the SCF iteration converged, change Pulay_SCF
+     set Pulay_SCF = Pulay_SCF_original in anycase
   ****************************************************/
 
-  if (po==1){
-    Pulay_SCF = 3;
+  Pulay_SCF = Pulay_SCF_original;
+
+  /****************************************************
+     if the SCF iteration did not converge, 
+     set Scf_RestartFromFile = 0,
+  ****************************************************/
+
+  if (po==0 && Scf_RestartFromFile==1){
+    Scf_RestartFromFile = 0;
   }
 
   /****************************************************
@@ -1791,7 +2430,7 @@ double DFT(int MD_iter, int Cnt_Now)
   UvdW   = ECE[13];
 
   Utot  = Ucore + UH0 + Ukin + Una + Unl + UH1
-    + Uxc0 + Uxc1 + Uhub + Ucs + Uzs + Uzo + Uef + UvdW; 
+         + Uxc0 + Uxc1 + Uhub + Ucs + Uzs + Uzo + Uef + UvdW; 
 
   /*---------- added by TOYODA 20/JAN/2010 */
   if (g_exx_switch) { Utot += g_exx_U[0] + g_exx_U[1]; }
@@ -1885,7 +2524,7 @@ double DFT(int MD_iter, int Cnt_Now)
   outputfile1(2,MD_iter,0,0,SCF_iter,file_DFTSCF,ChemP_e0);
 
   /****************************************************
-               Output energies and Forces 
+                     updating CompTime 
   ****************************************************/
 
   /* The Sum of Atomic Energy */
@@ -1907,6 +2546,21 @@ double DFT(int MD_iter, int Cnt_Now)
   CompTime[myid0][17] += time13; /* RestartFileDFT    */
   CompTime[myid0][18] += time14; /* Mulliken_Charge   */
   CompTime[myid0][19] += time15; /* FFT(2D)_Density   */
+
+  /* added by Chi-Cheng for unfolding */
+  /*****************************************************
+         Calc. of unfolded weight at given k-points
+  *****************************************************/
+
+  if (unfold_electronic_band==1 && unfold_Nkpoint>0 && (Solver==2 || Solver==3) ) {
+    if (Cnt_switch==0){
+      Unfolding_Bands(unfold_Nkpoint, unfold_kpoint, SpinP_switch, H, iHNL, OLP[0]);
+    }
+    else {
+      Unfolding_Bands(unfold_Nkpoint, unfold_kpoint, SpinP_switch, CntH, iCntHNL, CntOLP[0]);
+    }
+  }
+  /* end for unfolding */
 
   /*********************************************************
    freeing of arrays 
@@ -2053,6 +2707,8 @@ double DFT(int MD_iter, int Cnt_Now)
     }
     free(H_Band_Col);
 
+#ifndef scalapack
+
     for (i=0; i<n+1; i++){
       free(S_Band[i]);
     }
@@ -2064,6 +2720,16 @@ double DFT(int MD_iter, int Cnt_Now)
     free(C_Band_Col);
 
     free(BLAS_S);
+
+#endif
+
+#ifdef scalapack
+
+    free(Ss_Band_Col);
+    free(Hs_Band_Col);
+    free(Cs_Band_Col);
+
+#endif
 
     free(H1_Band_Col);
     free(S1_Band_Col);
@@ -2098,6 +2764,8 @@ double DFT(int MD_iter, int Cnt_Now)
 
     /* freeing of arrays for the second world */
 
+#ifndef scalapack
+
     if (T_knum<=numprocs1){
 
       if (Num_Comm_World2<=numprocs1){
@@ -2110,6 +2778,22 @@ double DFT(int MD_iter, int Cnt_Now)
       free(Comm_World2);
       free(NPROCS_ID2);
     }
+
+#endif
+
+#ifdef scalapack
+
+    MPI_Comm_free(&MPI_CommWD2[myworld2]);
+    free(MPI_CommWD2);
+    free(Comm_World_StartID2);
+    free(NPROCS_WD2);
+    free(Comm_World2);
+    free(NPROCS_ID2);
+
+    Cfree_blacs_system_handle(bhandle2);
+    Cblacs_gridexit(ictxt2);
+
+#endif
 
     /* freeing of arrays for the first world */
 
@@ -2168,6 +2852,34 @@ double DFT(int MD_iter, int Cnt_Now)
       free(Cluster_ko[i]);
     }
     free(Cluster_ko);
+
+#ifdef scalapack
+
+    /* freeing of arrays for the first world */
+
+    if ( SpinP_switch==0 || SpinP_switch==1 ){
+    
+      if (Num_Comm_World1<=numprocs0){
+	MPI_Comm_free(&MPI_CommWD1[myworld1]);
+      }
+
+      free(NPROCS_ID1);
+      free(Comm_World1);
+      free(NPROCS_WD1);
+      free(Comm_World_StartID1);
+      free(MPI_CommWD1);
+
+      free(Hs_Cluster);
+      free(Ss_Cluster);
+      free(Cs_Cluster);
+
+      Cfree_blacs_system_handle(bhandle1);
+      Cblacs_gridexit(ictxt1);
+
+    }    
+
+#endif
+
   }
 
   if (Solver==4)  {
@@ -2258,6 +2970,10 @@ void Read_SCF_keywords()
     /* scf.Mixing.StartPulay */
 
     input_int("scf.Mixing.StartPulay",&Pulay_SCF,6);
+
+    /* scf.criterion */
+
+    input_double("scf.criterion",&SCF_Criterion,(double)1.0e-6);
 
     /* close the file */
       

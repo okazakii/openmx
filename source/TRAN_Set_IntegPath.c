@@ -182,11 +182,7 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
     }            
 
     /* set tran_omega_n_scf */
-    /* revised by Y. Xiao for Noncollinear NEGF calculations */
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2) 
-      tran_omega_n_scf = tran_num_poles + 1 + Tran_bias_neq_num_energy_step;
-    else 
-      tran_omega_n_scf = 2*(tran_num_poles + 1) + Tran_bias_neq_num_energy_step;
+    tran_omega_n_scf = tran_num_poles + 1 + Tran_bias_neq_num_energy_step;
   }
 
   /************************************
@@ -196,11 +192,7 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
   else{ 
 
     /* set tran_omega_n_scf */
-    /* revised by Y. Xiao for Noncollinear NEGF calculations */
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2) 
-      tran_omega_n_scf = tran_num_poles + 1;
-    else 
-      tran_omega_n_scf = 2*(tran_num_poles + 1);
+    tran_omega_n_scf = tran_num_poles + 1;
   }
 
   /* allocation */
@@ -222,7 +214,7 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
   if ( tran_bias_apply ){
 
     /*************************************
-     (1) finite bias and only Gamma point
+     (1) finite bias
 
            p=0, tran_num_poles-1  
 
@@ -240,185 +232,54 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
            tran_omega_weight_scf[tran_num_poles+1+i] = (f1 - f0)*Tran_bias_neq_energy_step;
     
     *************************************/
-/* revised by Y. Xiao for Noncollinear NEGF calculations */
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2){
 
-      /* contribution of poles for the "equilibrium" region */
+    /* contribution of poles for the "equilibrium" region */
 
-      side = Order_Lead_Side[0];
+    side = Order_Lead_Side[0];
 
-      for (p=0; p<tran_num_poles; p++){
+    for (p=0; p<tran_num_poles; p++){
 
-	tran_omega_scf[p].r = ChemP_e[side];
-	tran_omega_scf[p].i = tran_omega_scf[p].i/beta;
-	tran_omega_weight_scf[p].r = -2.0*tran_omega_weight_scf[p].r/beta;
-	tran_omega_weight_scf[p].i = 0.0;
-	tran_integ_method_scf[p] = 1;
-      }
-
-      /* contribution of the half circle contour integral for the "equilibrium" region */
-  
-      tran_omega_scf[tran_num_poles].r = 0.0;
-      tran_omega_scf[tran_num_poles].i = R;
-      tran_omega_weight_scf[tran_num_poles].r = 0.0;
-      tran_omega_weight_scf[tran_num_poles].i = 0.5*R;
-      tran_integ_method_scf[tran_num_poles] = 1;
-
-      /* "non-equilibrium" part */
-
-      side0 = Order_Lead_Side[0];
-      side1 = Order_Lead_Side[1];
-
-      TRAN_GL_Abs = (double*)malloc(sizeof(double)*(Tran_bias_neq_num_energy_step+2));
-      TRAN_GL_Wgt = (double*)malloc(sizeof(double)*(Tran_bias_neq_num_energy_step+2));
-      
-      Set_GL(-1.0, 1.0, TRAN_GL_Abs, TRAN_GL_Wgt, Tran_bias_neq_num_energy_step);
-
-      xs = Tran_bias_neq_lower_bound;
-      xe = Tran_bias_neq_upper_bound;
-
-      Sx = xe + xs;
-      Dx = xe - xs;
-
-      for (i=0; i<Tran_bias_neq_num_energy_step; i++){
-
-	/*
-        x = 0.50*(Dx*TRAN_GL_Abs[i] + Sx);
-	*/
-
-        x = Tran_bias_neq_lower_bound + (double)i*Tran_bias_neq_energy_step;
-
-        tran_omega_scf[tran_num_poles+1+i].r = x;
-        tran_omega_scf[tran_num_poles+1+i].i = Tran_bias_neq_im_energy;
-
-	f0 = 1.0/(1.0+exp((x-ChemP_e[side0])*beta));
-	f1 = 1.0/(1.0+exp((x-ChemP_e[side1])*beta));
-
-
-        tran_omega_weight_scf[tran_num_poles+1+i].r = (f1 - f0)*Tran_bias_neq_energy_step;
-
-	/*
-        tran_omega_weight_scf[tran_num_poles+1+i].r = (f1 - f0)*0.5*Dx*TRAN_GL_Wgt[i];
-	*/
-
-        tran_omega_weight_scf[tran_num_poles+1+i].i = 0.0;
-        tran_integ_method_scf[tran_num_poles+1+i] = 2;
-
-      }
-
-      free(TRAN_GL_Abs);
-      free(TRAN_GL_Wgt);
+      tran_omega_scf[p].r = ChemP_e[side];
+      tran_omega_scf[p].i = tran_omega_scf[p].i/beta;
+      tran_omega_weight_scf[p].r = -tran_omega_weight_scf[p].r/beta;
+      tran_omega_weight_scf[p].i = 0.0;
+      tran_integ_method_scf[p] = 0;  
     }
 
-    /*************************************
-     (2) finite bias and lots of k-points
-
-           p=0,tran_num_poles-1  
-
-              poles for retarded with ChemP_e[side0]
-
-           p=tran_num_poles  
-
-              iR for retarded with ChemP_e[side0]
-
-           p=tran_num_poles+1,2*tran_num_poles  
-
-              poles for advanced with ChemP_e[side0]
-         
-           p=2*tran_num_poles+1  
-
-              iR for advanced with ChemP_e[side0]
-
-           p=2*tran_num_poles+2, 2*tran_num_poles+1+Tran_bias_neq_num_energy_step
-
-           tran_omega_scf[2*tran_num_poles+2+i] = 
-             Tran_bias_neq_lower_bound + (double)i*Tran_bias_neq_num_energy_step;
-
-           tran_omega_weight_scf[2*tran_num_poles+2+i] = (f1 - f0)*Tran_bias_neq_energy_step;
-
-    *************************************/
-
-    else{
-
-      /* contribution of poles for the "equilibrium" region */
-
-      side = Order_Lead_Side[0];
-
-      /* contribution of poles */
-
-      for (p=0; p<tran_num_poles; p++){
-
-	tran_omega_scf[p].r = ChemP_e[side];
-	tran_omega_scf[p].i = tran_omega_scf[p].i/beta;
-	tran_omega_weight_scf[p].r = -tran_omega_weight_scf[p].r/beta;
-	tran_omega_weight_scf[p].i = 0.0;
-	tran_integ_method_scf[p] = 1;
-
-	tran_omega_scf[tran_num_poles+p+1].r = ChemP_e[side];
-	tran_omega_scf[tran_num_poles+p+1].i = -tran_omega_scf[p].i;
-	tran_omega_weight_scf[tran_num_poles+p+1].r = tran_omega_weight_scf[p].r;
-	tran_omega_weight_scf[tran_num_poles+p+1].i = 0.0;
-	tran_integ_method_scf[tran_num_poles+p+1] = 1; 
-      }
-
-      /* contribution of the half circle contour integral */
-
-      tran_omega_scf[tran_num_poles].r = 0.0;
-      tran_omega_scf[tran_num_poles].i = R;
-      tran_omega_weight_scf[tran_num_poles].r = 0.0;
-      tran_omega_weight_scf[tran_num_poles].i = 0.25*R; 
-      tran_integ_method_scf[tran_num_poles] = 1;
-
-      tran_omega_scf[2*tran_num_poles+1].r = 0.0;
-      tran_omega_scf[2*tran_num_poles+1].i = R;
-      tran_omega_weight_scf[2*tran_num_poles+1].r = 0.0;
-      tran_omega_weight_scf[2*tran_num_poles+1].i = 0.25*R; 
-      tran_integ_method_scf[2*tran_num_poles+1] = 1;
-
-      /* "non-equilibrium" part */
-       
-      side0 = Order_Lead_Side[0];
-      side1 = Order_Lead_Side[1];
-
-      TRAN_GL_Abs = (double*)malloc(sizeof(double)*(Tran_bias_neq_num_energy_step+2));
-      TRAN_GL_Wgt = (double*)malloc(sizeof(double)*(Tran_bias_neq_num_energy_step+2));
-
-      Set_GL(-1.0, 1.0, TRAN_GL_Abs, TRAN_GL_Wgt, Tran_bias_neq_num_energy_step);
-
-      xs = Tran_bias_neq_lower_bound;
-      xe = Tran_bias_neq_upper_bound;
-
-      Sx = xe + xs;
-      Dx = xe - xs;
-
-      for (i=0; i<Tran_bias_neq_num_energy_step; i++){
-
-	/*
-        x = 0.50*(Dx*TRAN_GL_Abs[i] + Sx);
-	*/
-
-        x = Tran_bias_neq_lower_bound + (double)i*Tran_bias_neq_energy_step;
-
-        tran_omega_scf[2*tran_num_poles+2+i].r = x;
-        tran_omega_scf[2*tran_num_poles+2+i].i = Tran_bias_neq_im_energy;
-
-	f0 = 1.0/(1.0+exp((x-ChemP_e[side0])*beta));
-	f1 = 1.0/(1.0+exp((x-ChemP_e[side1])*beta));
-
-        tran_omega_weight_scf[2*tran_num_poles+2+i].r = (f1 - f0)*Tran_bias_neq_energy_step;
-
-	/*
-        tran_omega_weight_scf[2*tran_num_poles+2+i].r = (f1 - f0)*0.5*Dx*TRAN_GL_Wgt[i];
-	*/
-
-        tran_omega_weight_scf[2*tran_num_poles+2+i].i = 0.0;
-        tran_integ_method_scf[2*tran_num_poles+2+i] = 2;
-      }      
-
-      free(TRAN_GL_Abs);
-      free(TRAN_GL_Wgt);
+    /* contribution of the half circle contour integral for the "equilibrium" region */
   
-    } 
+    tran_omega_scf[tran_num_poles].r = 0.0;
+    tran_omega_scf[tran_num_poles].i = R;
+    tran_omega_weight_scf[tran_num_poles].r = 0.0;
+    tran_omega_weight_scf[tran_num_poles].i = 0.5*R;
+    tran_integ_method_scf[tran_num_poles] = 1;
+
+    /* "non-equilibrium" part */
+
+    side0 = Order_Lead_Side[0];
+    side1 = Order_Lead_Side[1];
+
+    xs = Tran_bias_neq_lower_bound;
+    xe = Tran_bias_neq_upper_bound;
+
+    Sx = xe + xs;
+    Dx = xe - xs;
+
+    for (i=0; i<Tran_bias_neq_num_energy_step; i++){
+
+      x = Tran_bias_neq_lower_bound + (double)i*Tran_bias_neq_energy_step;
+
+      tran_omega_scf[tran_num_poles+1+i].r = x;
+      tran_omega_scf[tran_num_poles+1+i].i = Tran_bias_neq_im_energy;
+
+      f0 = 1.0/(1.0+exp((x-ChemP_e[side0])*beta));
+      f1 = 1.0/(1.0+exp((x-ChemP_e[side1])*beta));
+
+      tran_omega_weight_scf[tran_num_poles+1+i].r = (f1 - f0)*Tran_bias_neq_energy_step;
+      tran_omega_weight_scf[tran_num_poles+1+i].i = 0.0;
+      tran_integ_method_scf[tran_num_poles+1+i] = 2;
+    }
+
   }
 
   /* zero-bias case */
@@ -426,7 +287,7 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
   else {
 
     /*************************************
-     (3) zero-bias and only Gamma point
+     (3) zero-bias
 
            p=0, tran_num_poles-1  
 
@@ -436,87 +297,25 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
 
               iR for ChemP_e[side0]
     *************************************/
-/* revised by Y. Xiao for Noncollinear NEGF calculations */
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2){
 
-      /* contribution of poles */
+    /* contribution of poles */
 
-      for (p=0; p<tran_num_poles; p++){
-	tran_omega_scf[p].r = ChemP_e[0];
-	tran_omega_scf[p].i = tran_omega_scf[p].i/beta;
-	tran_omega_weight_scf[p].r = -2.0*tran_omega_weight_scf[p].r/beta;
-	tran_omega_weight_scf[p].i =  0.0;
-      }
-
-      /* contribution of the half circle contour integral */
-
-      tran_omega_scf[tran_num_poles].r = 0.0;
-      tran_omega_scf[tran_num_poles].i = R;
-
-      tran_omega_weight_scf[tran_num_poles].r = 0.0; 
-      tran_omega_weight_scf[tran_num_poles].i = 0.5*R;
-
-      /* set the integral method in 1 */
-
-      for (p=0; p<=tran_num_poles; p++){
-	tran_integ_method_scf[p] = 1; 
-      }
+    for (p=0; p<tran_num_poles; p++){
+      tran_omega_scf[p].r = ChemP_e[0];
+      tran_omega_scf[p].i = tran_omega_scf[p].i/beta;
+      tran_omega_weight_scf[p].r = -2.0*tran_omega_weight_scf[p].r/beta;
+      tran_omega_weight_scf[p].i =  0.0;
+      tran_integ_method_scf[p] = 0; 
     }
 
-    /*************************************
-     (4) zero-bias and lots of k-points
+    /* contribution of the half circle contour integral */
 
-           p=0,tran_num_poles-1  
+    tran_omega_scf[tran_num_poles].r = 0.0;
+    tran_omega_scf[tran_num_poles].i = R;
 
-              poles for retarded
-
-           p=tran_num_poles  
-
-              iR for retarded
-
-           p=tran_num_poles+1,2*tran_num_poles  
-
-              poles for advanced
-         
-           p=2*tran_num_poles+1  
-
-              iR for advanced
-    *************************************/
-
-    else{
-      
-      /* contribution of poles */
-
-      for (p=0; p<tran_num_poles; p++){
-
-	tran_omega_scf[p].r = ChemP_e[0];
-	tran_omega_scf[p].i = tran_omega_scf[p].i/beta;
-	tran_omega_weight_scf[p].r = -tran_omega_weight_scf[p].r/beta;
-	tran_omega_weight_scf[p].i = 0.0;
-	tran_integ_method_scf[p] = 1; 
-
-	tran_omega_scf[tran_num_poles+p+1].r = ChemP_e[0];
-	tran_omega_scf[tran_num_poles+p+1].i =-tran_omega_scf[p].i;
-	tran_omega_weight_scf[tran_num_poles+p+1].r = tran_omega_weight_scf[p].r;
-	tran_omega_weight_scf[tran_num_poles+p+1].i =  0.0;
-	tran_integ_method_scf[tran_num_poles+p+1] = 1; 
-      }
-
-      /* contribution of the half circle contour integral */
-
-      tran_omega_scf[tran_num_poles].r = 0.0;
-      tran_omega_scf[tran_num_poles].i = R;
-      tran_omega_weight_scf[tran_num_poles].r = 0.0;
-      tran_omega_weight_scf[tran_num_poles].i = 0.25*R; 
-      tran_integ_method_scf[tran_num_poles] = 1;
-
-      tran_omega_scf[2*tran_num_poles+1].r = 0.0;
-      tran_omega_scf[2*tran_num_poles+1].i = R;
-      tran_omega_weight_scf[2*tran_num_poles+1].r = 0.0;
-      tran_omega_weight_scf[2*tran_num_poles+1].i = 0.25*R; 
-      tran_integ_method_scf[2*tran_num_poles+1] = 1;
-
-    } 
+    tran_omega_weight_scf[tran_num_poles].r = 0.0; 
+    tran_omega_weight_scf[tran_num_poles].i = 0.5*R;
+    tran_integ_method_scf[tran_num_poles] = 1; 
   }  
 
 }

@@ -16,12 +16,12 @@
 #include "openmx_common.h"
 
 #define xmin  0.0
-#define asize_lmax 20
+#define asize_lmax 22
 
 
 void Spherical_Bessel( double x, int lmax, double *sb, double *dsb ) 
 {
-  int m,n,nmax;
+  int m,n,nmax,p;
   double tsb[asize_lmax+10];
   double invx,vsb0,vsb1,vsb2,vsbi;
   double j0,j1,j0p,j1p,sf,tmp,si,co,ix,ix2;
@@ -31,10 +31,15 @@ void Spherical_Bessel( double x, int lmax, double *sb, double *dsb )
     exit(0);    
   } 
 
+  /*
+  printf("x=%15.12f\n",x);
+  */
+
   /* find an appropriate nmax */
 
-  nmax = lmax + 3*x + 20;
-  if (nmax<100) nmax = 100; 
+  nmax = lmax + (int)(1.5*x) + 10;
+
+  if (nmax<30) nmax = 30; 
 
   if (asize_lmax<(lmax+1)){
     printf("asize_lmax should be larger than %d in Spherical_Bessel.c\n",lmax+1);
@@ -45,23 +50,32 @@ void Spherical_Bessel( double x, int lmax, double *sb, double *dsb )
 
   if ( xmin < x ){
 
+    double *tmp_array; 
+
     invx = 1.0/x;
+
+    /* allocation of array */
+    tmp_array = (double*)malloc(sizeof(double)*(nmax+1));
+ 
+    for ( n=0; n<nmax; n++){
+      tmp_array[n] = (2.0*(double)n + 1.0)*invx;
+    }
 
     /* initial values */
 
     vsb0 = 0.0;
     vsb1 = 1.0e-14;
-
+    
     /* downward recurrence from nmax-2 to lmax+2 */
 
     for ( n=nmax-1; (lmax+2)<n; n-- ){
+      
+      vsb2 = tmp_array[n]*vsb1 - vsb0;
 
-      vsb2 = (2.0*n + 1.0)*invx*vsb1 - vsb0;
-
-      if (1.0e+250<vsb2){
+      if (0.0<(vsb2-1.0e+250)){
         tmp = 1.0/vsb2;
-        vsb2 *= tmp;
         vsb1 *= tmp;
+        vsb2 = 1.0;
       }
 
       vsbi = vsb0;
@@ -82,7 +96,7 @@ void Spherical_Bessel( double x, int lmax, double *sb, double *dsb )
 
     for ( n=lmax+2; 0<n; n-- ){
 
-      tsb[n-1] = (2.0*n + 1.0)*invx*tsb[n] - tsb[n+1];
+      tsb[n-1] = tmp_array[n]*tsb[n] - tsb[n+1];
 
       if (1.0e+250<tsb[n-1]){
         tmp = tsb[n-1];
@@ -116,6 +130,9 @@ void Spherical_Bessel( double x, int lmax, double *sb, double *dsb )
     for ( n=1; n<=lmax; n++ ){
       dsb[n] = ( (double)n*sb[n-1] - (double)(n+1.0)*sb[n+1] )/(2.0*(double)n + 1.0);
     }
+
+    /* freeing of array */
+    free(tmp_array);
 
   } 
 

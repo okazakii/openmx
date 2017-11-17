@@ -6,8 +6,8 @@
 
   Log of Set_Hamiltonian.c:
 
-     24/April/2002  Released by T.Ozaki
-     17/April/2013  Modified by A.M.Ito
+     24/April/2002  Released by T. Ozaki
+     17/April/2013  Modified by A.M. Ito
 
 ***********************************************************************/
 
@@ -23,6 +23,7 @@
 
 #define  measure_time   0
 
+void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind);
 
 double Set_Hamiltonian(char *mode,
                        int SCF_iter,
@@ -46,11 +47,6 @@ double Set_Hamiltonian(char *mode,
   int numprocs,myid;
   double time0,time1,time2,mflops;
   long Num_C0,Num_C1;
-  int Nh0,Nh1,Nh2,Nh3;
-  int Nc0,Nc1,Nc2,Nc3;
-  int MN0,MN1,MN2,MN3;
-  int Nloop,OneD_Nloop;
-  int *OneD2spin,*OneD2Mc_AN,*OneD2h_AN;
 
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
@@ -100,7 +96,7 @@ double Set_Hamiltonian(char *mode,
 
             /* Effective Hubbard Hamiltonain --- added by MJ */
 
-	    if( (Hub_U_switch==1 || Constraint_NCS_switch==1) && F_U_flag==1 && 2<=SCF_iter ){
+	    if( (Hub_U_switch==1 || 1<=Constraint_NCS_switch) && F_U_flag==1 && 2<=SCF_iter ){
 	      H[0][Mc_AN][h_AN][i][j] += H_Hub[0][Mc_AN][h_AN][i][j];
 	      H[1][Mc_AN][h_AN][i][j] += H_Hub[1][Mc_AN][h_AN][i][j];
 	      H[2][Mc_AN][h_AN][i][j] += H_Hub[2][Mc_AN][h_AN][i][j];
@@ -131,14 +127,13 @@ double Set_Hamiltonian(char *mode,
 		                           + F_NL_flag*HNL[spin][Mc_AN][h_AN][i][j];
 	      }
               else{
-
                 H[spin][Mc_AN][h_AN][i][j] = F_Kin_flag*H0[0][Mc_AN][h_AN][i][j]
 		                           + F_VNA_flag*HVNA[Mc_AN][h_AN][i][j]
 		                           + F_NL_flag*HNL[spin][Mc_AN][h_AN][i][j];
               }
 
 	      /* Effective Hubbard Hamiltonain --- added by MJ */
-	      if( (Hub_U_switch==1 || Constraint_NCS_switch==1) && F_U_flag==1 && 2<=SCF_iter ){
+	      if( (Hub_U_switch==1 || 1<=Constraint_NCS_switch) && F_U_flag==1 && 2<=SCF_iter ){
 		H[spin][Mc_AN][h_AN][i][j] += H_Hub[spin][Mc_AN][h_AN][i][j];
 	      }
             }
@@ -177,7 +172,38 @@ double Set_Hamiltonian(char *mode,
    calculation of matrix elements for dVH + Vxc (+ VNA)
   *****************************************************/
 
+  Calc_MatrixElements_dVH_Vxc_VNA(Cnt_kind);
+
+  /* for time */
+  if (measure_time) dtime(&time1);
+  MPI_Barrier(mpi_comm_level1);
+  if(measure_time) {
+    dtime(&time2);
+    printf("myid=%4d Time Barrier=%18.10f\n",myid,time2-time1);
+    fflush(stdout);
+  }
+
+  dtime(&TEtime);
+  time0 = TEtime - TStime;
+  return time0;
+}
+
+
+void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
+{
+  int Mc_AN,Gc_AN,Mh_AN,h_AN,Gh_AN;
+  int Nh0,Nh1,Nh2,Nh3;
+  int Nc0,Nc1,Nc2,Nc3;
+  int MN0,MN1,MN2,MN3;
+  int Nloop,OneD_Nloop;
+  int *OneD2spin,*OneD2Mc_AN,*OneD2h_AN;
+  int numprocs,myid;
+  double time0,time1,time2,mflops;
+
   if(measure_time) dtime(&time1);
+
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
 
   /* one-dimensionalization of loops */
 
@@ -339,7 +365,6 @@ double Set_Hamiltonian(char *mode,
 	      }
 	    }
 	  }
-
 		
 	}/* Nog */
 	
@@ -747,18 +772,4 @@ double Set_Hamiltonian(char *mode,
     dtime(&time2);
     printf("myid=%4d Time4=%18.10f\n",myid,time2-time1);fflush(stdout);
   }
-
-  /* for time */
-  if (measure_time) dtime(&time1);
-  MPI_Barrier(mpi_comm_level1);
-  if(measure_time) {
-    dtime(&time2);
-    printf("myid=%4d Time Barrier=%18.10f\n",myid,time2-time1);
-    fflush(stdout);
-  }
-
-  dtime(&TEtime);
-  time0 = TEtime - TStime;
-  return time0;
 }
-

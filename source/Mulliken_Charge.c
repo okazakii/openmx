@@ -39,7 +39,7 @@ double Mulliken_Charge( char *mode )
   double My_Total_OrbitalMomenty;
   double My_Total_OrbitalMomentz;
   double sden,tmp,tmp0,tmp1,tmp2;  
-  double Total_Mul_up,Total_Mul_dn;
+  double Total_Mul_up,Total_Mul_dn,Total_Mul;
   double tmpA0,tmpA1,tmpA2;
   double tmpB0,tmpB1,tmpB2;
   double Re11,Re22,Re12,Im12,d1,d2,d3;
@@ -335,8 +335,8 @@ double Mulliken_Charge( char *mode )
 	}
       }
     }
-  }  
-    
+  }
+
   /* MPI: DecMulP */
 
   if ( strcasecmp(mode,"write")==0 ){
@@ -384,7 +384,7 @@ double Mulliken_Charge( char *mode )
    stdout MulP
   ****************************************/
 
-  if (myid==Host_ID && stdout_MulP && strcasecmp(mode,"stdout")==0 && 0<level_stdout ) {
+  if (myid==Host_ID && stdout_MulP && strcasecmp(mode,"stdout")==0) {
 
     Total_Mul_up = 0.0;
     Total_Mul_dn = 0.0;
@@ -398,7 +398,7 @@ double Mulliken_Charge( char *mode )
         Total_Mul_up += InitN_USpin[Gc_AN];
         Total_Mul_dn += InitN_USpin[Gc_AN];
 
-        if (Gc_AN<=20 && level_stdout<=1){
+        if (Gc_AN<=20 && 1<=level_stdout){
           printf(" %4d %4s  MulP %8.4f%8.4f sum %8.4f\n",
                   Gc_AN,SpeName[wan1],
                   InitN_USpin[Gc_AN],InitN_USpin[Gc_AN],
@@ -460,16 +460,71 @@ double Mulliken_Charge( char *mode )
       printf("     ......\n\n");
     }
 
-    printf(" Sum of MulP: up   =%12.5f down          =%12.5f\n",
-             Total_Mul_up,Total_Mul_dn);
-    printf("              total=%12.5f ideal(neutral)=%12.5f\n",
-                          Total_Mul_up+Total_Mul_dn,TZ);     
+    if (0<level_stdout){
 
+      printf(" Sum of MulP: up   =%12.5f down          =%12.5f\n",
+               Total_Mul_up,Total_Mul_dn);
+      printf("              total=%12.5f ideal(neutral)=%12.5f\n",
+                            Total_Mul_up+Total_Mul_dn,TZ);     
+    }
+
+    Total_Mul = Total_Mul_up + Total_Mul_dn;
+  }
+
+  MPI_Bcast(&Total_Mul, 1, MPI_DOUBLE, Host_ID, mpi_comm_level1);
+
+  /********************************************************
+    check the stability of the eigenvalue solver 
+    by looking the total number of electrons. 
+    In some cases with degenerate states, the eigenvectors
+    are not properly calculated, resulting in violation of
+    norm of the eigenstates.
+  *********************************************************/
+
+  rediagonalize_flag_overlap_matrix = 0;
+
+  if (Solver!=4 && strcasecmp(mode,"stdout")==0){
+
+    int tmp_flag;
+    double Dnum;
+
+    Dnum = TZ - Total_Mul - system_charge;
+     
+    if (1.0e-8<fabs(Dnum)){
+
+      if      (dste_flag==2) tmp_flag = 3;   /* vx -> qr    */ 
+      else if (dste_flag==3) tmp_flag = 1;   /* qr -> dc    */ 
+      else if (dste_flag==1) tmp_flag = 0;   /* dc -> gr    */
+      else if (dste_flag==0){                /* gr -> ELPA1 */
+        tmp_flag = 2; 
+        rediagonalize_flag_overlap_matrix_ELPA1 = 1;        
+      }
+
+      dste_flag = tmp_flag;
+
+      /****************************************************
+         In Cluster_DFT, Band_DFT_Col, or Band_DFT_NonCol, 
+         the overlap matrix will be rediagonalized.
+      ****************************************************/  
+
+      if (myid==Host_ID && 1<level_stdout){
+        printf("Eigensolver changed Dnum=%18.15f dste_flag=%2d rediagonalize_flag_overlap_matrix_ELPA1=%2d\n",
+                Dnum,dste_flag,rediagonalize_flag_overlap_matrix_ELPA1);
+      }
+
+      rediagonalize_flag_overlap_matrix = 1;
+    }
   }
 
   /****************************************
    file, *.MC
   ****************************************/
+
+  if (strcasecmp(mode,"write")==0 ){
+    /* MPI: InitN_USpin and InitN_DSpin */
+    MPI_Bcast(&InitN_USpin[0], atomnum+1, MPI_DOUBLE, Host_ID, mpi_comm_level1);
+    MPI_Bcast(&InitN_DSpin[0], atomnum+1, MPI_DOUBLE, Host_ID, mpi_comm_level1);
+  }
 
   if ( myid==Host_ID && strcasecmp(mode,"write")==0 ){
 

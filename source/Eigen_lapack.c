@@ -27,22 +27,81 @@ static void Eigen_HH(double **ac, double *ko, int n, int EVmax);
    
 void Eigen_lapack(double **a, double *ko, int n, int EVmax)
 {
+  static int solver_flag=0;
+  int i,j,k,po,okay_flag,iterN;
+  double sum;
+  double **b;
 
-  /*
-  Eigen_HH(a, ko, n, EVmax); 
-  */
+  b=(double**)malloc(sizeof(double*)*(n+1));
+  for (i=0; i<(n+1); i++){
+    b[i]=(double*)malloc(sizeof(double)*(n+1));
+  }
 
+  for (i=0; i<(n+1); i++){
+    for (j=0; j<(n+1); j++){
+      b[i][j] = a[i][j]; 
+    }
+  }
 
-  Eigen_lapack_x(a, ko, n, EVmax); 
+  iterN = 1;
+  okay_flag = 0;
 
+  do {
 
-  /*
-  Eigen_HHQR(a, ko, n, EVmax); 
-  */
+    for (i=0; i<(n+1); i++){
+      for (j=0; j<(n+1); j++){
+	a[i][j] = b[i][j]; 
+      }
+    }
 
-  /*
-  Eigen_lapack_d(a, ko, n, EVmax);
-  */
+    if      (solver_flag==0) Eigen_lapack_x(a, ko, n, EVmax);
+    else if (solver_flag==1) Eigen_HH(a, ko, n, EVmax);  
+    else if (solver_flag==2) Eigen_lapack_d(a, ko, n, EVmax); 
+
+    po = 0; 
+
+    i = 1;
+    do {
+      j = 1;
+      do {
+
+	sum = 0.0;
+	for (k=1; k<=n; k++){
+	  sum += a[i][k]*a[j][k]; 
+	}
+
+	if      (i==j && 0.00001<fabs(sum-1.0)){ po = 1; }
+	else if (i!=j && 0.00001<fabs(sum))    { po = 1; }
+
+        j = j + 20;
+
+      } while (po==0 && j<=EVmax); 
+
+      i = i + 20;
+
+    } while (po==0 && i<=EVmax); 
+
+    if (po==1){
+      solver_flag++; 
+      solver_flag = solver_flag % 3;
+    }
+    else {
+      okay_flag = 1;
+    }
+
+    /*
+    printf("iterN=%2d solver_flag=%2d po=%2d okay_flag=%2d\n",iterN,solver_flag,po,okay_flag);
+    */
+
+    iterN++;
+
+  } while (okay_flag==0 && iterN<4);  
+
+  for (i=0; i<(n+1); i++){
+    free(b[i]);
+  }
+  free(b);
+
 } 
 
 

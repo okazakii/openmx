@@ -123,10 +123,11 @@ int input_cmpstring(const char *str,  int *ret, int nvals,
   int i;
   int lenstr,lenstrval;
 
-  /*   for (i=0;i<nvals;i++) {
-       printf("<%s> <%d>| ",strval[i],ivals[i]);
-       }
-       printf("\n");
+  /*
+  for (i=0;i<nvals;i++) {
+    printf("<%s> <%d>\n",strval[i],ivals[i]);
+  }
+  printf("\n");
   */
 
   lenstr=strlen_trim(str);
@@ -154,7 +155,7 @@ int input_errorCount() {
 }
 
 #define SIZE_LOGICAL_DEFAULT 10
-#define BUFSIZE 200
+#define BUFSIZE 500
 
 int input_logical(const char *key, int *ret,const  int defval)
 {
@@ -324,16 +325,22 @@ int input_string2int(const char *key, int *ret, int nvals,
   *ret=ivals[0]; 
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
+
     nread=sscanf(buf,"%s %s",key_inbuf,val_inbuf);
     buflen = strlen_trim(key_inbuf);
+
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
+
       if (nread!=2) {
 	goto ERROR;
       }
+
       iret= input_cmpstring(val_inbuf,ret,nvals,strval,ivals);
+
       if (printlevel>0) {
 	printf("%s=%d\n",key,*ret);
       }
+
       if (iret==0) {
 	goto ERROR;
       }

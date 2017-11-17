@@ -44,32 +44,26 @@ void Get_Euler_Rotation_Angle(
 
 void Input_std(char *file)
 {
-  FILE *fp,*fp2,*fp_check;
-  int i,j,k,k1,k2,k3,itmp,wan; 
+  FILE *fp,*fp_check;
+  int i,j,k,itmp;
   int num_wannier_total_projectors;
   int l,mul; /* added by MJ */
   int po=0;  /* error count */
-  double r_vec[40],r_vec2[40];
+  double r_vec[40];
   int i_vec[40],i_vec2[40];
   char *s_vec[40],Species[YOUSO10];
   char OrbPol[YOUSO10];
-  char c; 
   double ecutoff1dfft;
-  double sn1,sn2,sn3;
   double mx,my,mz,tmp;
   double tmpx,tmpy,tmpz;
   double S_coordinate[3];
-  double Length_C,Length_L,Length_R;
-  double angleCL,angleCR,Lsign,Rsign;
   double length,x,y,z;
-  double xc,yc,zc,xm,ym,zm;
   int orbitalopt;
   char buf[MAXBUF];
   char file_check[YOUSO10];
   int numprocs,myid;
   int output_hks;
   int numprocs1;
-  FILE *fp_rstart;
 
   MPI_Comm_size(MPI_COMM_WORLD1,&numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD1,&myid);
@@ -112,7 +106,7 @@ void Input_std(char *file)
 
   input_logical("scf.ProExpn.VNA",&ProExpn_VNA,1); /* default=on */
   input_int("scf.BufferL.VNA", &BufferL_ProVNA,6);
-  input_int("scf.RadialF.VNA", &List_YOUSO[34],8);
+  input_int("scf.RadialF.VNA", &List_YOUSO[34],12);
   
   /****************************************************
                       cutoff energy 
@@ -231,6 +225,7 @@ void Input_std(char *file)
       exit(0);
     }
   }
+
   if (2<=level_stdout){
     for (i=0; i<SpeciesNum; i++){
       printf("<Input_std>  %i Name  %s\n",i,SpeName[i]);
@@ -269,6 +264,22 @@ void Input_std(char *file)
   }  
   */
 
+  /******************************************************
+      optimization for cubic or tetragonal cell 
+      by a fitting procedure 
+  ******************************************************/
+
+  i=0;
+  s_vec[i]="off";                     i_vec[i]=0; i++; /* off */
+  s_vec[i]="CellCub";                 i_vec[i]=1; i++; /* opt. of cubic cell */
+  s_vec[i]="CellTet";                 i_vec[i]=2; i++; /* opt. of tetragonal cell */
+
+  j = input_string2int("Cell.Opt",&CellOpt_switch, i, s_vec,i_vec);
+  if (j==-1){
+    MPI_Finalize();
+    exit(0);
+  }
+
   /****************************************************
        Molecular dynamics or geometry optimization
   ****************************************************/
@@ -277,7 +288,7 @@ void Input_std(char *file)
   s_vec[i]="NOMD";                    i_vec[i]=0;  i++;
   s_vec[i]="NVE" ;                    i_vec[i]=1;  i++;
   s_vec[i]="NVT_VS";                  i_vec[i]=2;  i++; /* modified by mari */
-  s_vec[i]="OPT";                     i_vec[i]=3;  i++;
+  s_vec[i]="Opt";                     i_vec[i]=3;  i++;
   s_vec[i]="EF";                      i_vec[i]=4;  i++; 
   s_vec[i]="BFGS";                    i_vec[i]=5;  i++; 
   s_vec[i]="RF";                      i_vec[i]=6;  i++; /* RF method by hmweng */
@@ -291,12 +302,175 @@ void Input_std(char *file)
   s_vec[i]="NVT_VS4";                 i_vec[i]=14; i++; /* modified by Ohwaki */
   s_vec[i]="NVT_Langevin";            i_vec[i]=15; i++; /* modified by Ohwaki */
   s_vec[i]="DF";                      i_vec[i]=16; i++; /* delta-factor */
+  s_vec[i]="OptC1";                   i_vec[i]=17; i++; /* cell opt with fixed fractional coordinates by SD */
+  s_vec[i]="OptC2";                   i_vec[i]=18; i++; /* cell opt with fixed fractional coordinates and angles fixed by SD */
+  s_vec[i]="OptC3";                   i_vec[i]=19; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|=|a3| by SD */
+  s_vec[i]="OptC4";                   i_vec[i]=20; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|!=|a3| by SD */
+  s_vec[i]="OptC5";                   i_vec[i]=21; i++; /* cell opt with no constraint for cell and coordinates by SD */
+  s_vec[i]="RFC1";                    i_vec[i]=22; i++; /* cell opt with fixed fractional coordinates by RF */
+  s_vec[i]="RFC2";                    i_vec[i]=23; i++; /* cell opt with fixed fractional coordinates and angles fixed by RF */
+  s_vec[i]="RFC3";                    i_vec[i]=24; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|=|a3| by RF */
+  s_vec[i]="RFC4";                    i_vec[i]=25; i++; /* cell opt with fixed fractional coordinates, angles fixed and |a1|=|a2|!=|a3| by RF */
+  s_vec[i]="RFC5";                    i_vec[i]=26; i++; /* cell opt with no constraint for cell and coordinates by RF */
 
   j = input_string2int("MD.Type",&MD_switch, i, s_vec,i_vec);
+
   if (j==-1){
     MPI_Finalize();
     exit(0);
   }
+
+  /* cell optimization by SD */
+
+  if      (MD_switch==17){
+    MD_switch = 17;
+    cellopt_swtich = 1; /* OptC1: no constraint for cell vectors */
+  }
+
+  else if (MD_switch==18){
+    MD_switch = 17;
+    cellopt_swtich = 2; /* OptC2: angles fixed for cell vectors */
+  }
+
+  else if (MD_switch==19){
+
+    MD_switch = 17;
+    cellopt_swtich = 3; /* OptC3: angles fixed and |a1|=|a2|=|a3| for cell vectors */
+
+    double a1,a2,a3;
+
+    a1 = tv[1][1]*tv[1][1]+tv[1][2]*tv[1][2]+tv[1][3]*tv[1][3];
+    a2 = tv[2][1]*tv[2][1]+tv[2][2]*tv[2][2]+tv[2][3]*tv[2][3];
+    a3 = tv[3][1]*tv[3][1]+tv[3][2]*tv[3][2]+tv[3][3]*tv[3][3];
+
+    if ( 0.000000001<fabs(a1-a2) || 0.000000001<fabs(a1-a3) ){
+
+      if (myid==Host_ID){  
+        printf("\nThe condition |a1|=|a2|=|a3| should be satisfied for the use of OptC3\n\n");
+      }
+
+      MPI_Finalize();
+      exit(0);  
+    }
+  }
+
+  else if (MD_switch==20){
+
+    MD_switch = 17;
+    cellopt_swtich = 4; /* OptC4: angles fixed and |a1|=|a2|!=|a3| for cell vectors */
+
+    double a1,a2,a3;
+
+    a1 = tv[1][1]*tv[1][1]+tv[1][2]*tv[1][2]+tv[1][3]*tv[1][3];
+    a2 = tv[2][1]*tv[2][1]+tv[2][2]*tv[2][2]+tv[2][3]*tv[2][3];
+    a3 = tv[3][1]*tv[3][1]+tv[3][2]*tv[3][2]+tv[3][3]*tv[3][3];
+
+    if ( 0.000000001<fabs(a1-a2) ){
+
+      if (myid==Host_ID){  
+        printf("\nThe condition |a1|=|a2| should be satisfied for the use of OptC4\n\n");
+      }
+
+      MPI_Finalize();
+      exit(0);  
+    }
+  }
+
+  else if (MD_switch==21){
+    MD_switch = 17;
+    cellopt_swtich = 5; /* OptC5: no constraint for cell and coordinates */
+  }
+
+  /* cell optimization by RF */
+
+  if      (MD_switch==22){
+    MD_switch = 18;
+    cellopt_swtich = 1; /* RFC1: no constraint for cell vectors */
+
+    if (myid==Host_ID){
+      printf("The optimizer is not supported.\n");
+    }
+
+    MPI_Finalize();
+    exit(1);
+  }
+
+  else if (MD_switch==23){
+    MD_switch = 18;
+    cellopt_swtich = 2; /* RFC2: angles fixed for cell vectors */
+
+    if (myid==Host_ID){
+      printf("The optimizer is not supported.\n");
+    }
+
+    MPI_Finalize();
+    exit(1);
+  }
+
+  else if (MD_switch==24){
+
+    MD_switch = 18;
+    cellopt_swtich = 3; /* RFC3: angles fixed and |a1|=|a2|=|a3| for cell vectors */
+
+    double a1,a2,a3;
+
+    a1 = tv[1][1]*tv[1][1]+tv[1][2]*tv[1][2]+tv[1][3]*tv[1][3];
+    a2 = tv[2][1]*tv[2][1]+tv[2][2]*tv[2][2]+tv[2][3]*tv[2][3];
+    a3 = tv[3][1]*tv[3][1]+tv[3][2]*tv[3][2]+tv[3][3]*tv[3][3];
+
+    if ( 0.000000001<fabs(a1-a2) || 0.000000001<fabs(a1-a3) ){
+
+      if (myid==Host_ID){  
+        printf("\nThe condition |a1|=|a2|=|a3| should be satisfied for the use of OptC3\n\n");
+      }
+
+      MPI_Finalize();
+      exit(0);  
+    }
+
+    if (myid==Host_ID){
+      printf("The optimizer is not supported.\n");
+    }
+
+    MPI_Finalize();
+    exit(1);
+  }
+
+  else if (MD_switch==25){
+
+    MD_switch = 18;
+    cellopt_swtich = 4; /* RFC4: angles fixed and |a1|=|a2|!=|a3| for cell vectors */
+
+    double a1,a2,a3;
+
+    a1 = tv[1][1]*tv[1][1]+tv[1][2]*tv[1][2]+tv[1][3]*tv[1][3];
+    a2 = tv[2][1]*tv[2][1]+tv[2][2]*tv[2][2]+tv[2][3]*tv[2][3];
+    a3 = tv[3][1]*tv[3][1]+tv[3][2]*tv[3][2]+tv[3][3]*tv[3][3];
+
+    if ( 0.000000001<fabs(a1-a2) ){
+
+      if (myid==Host_ID){  
+        printf("\nThe condition |a1|=|a2| should be satisfied for the use of OptC4\n\n");
+      }
+
+      MPI_Finalize();
+      exit(0);  
+    }
+
+    if (myid==Host_ID){
+      printf("The optimizer is not supported.\n");
+    }
+
+    MPI_Finalize();
+    exit(1);
+  }
+
+  else if (MD_switch==26){
+    MD_switch = 18;
+    cellopt_swtich = 5; /* RFC5: no constraint for cell and coordinates */
+  }
+
+  /* MD.maxIter */
 
   input_int("MD.maxIter",&MD_IterNumber,1);
   if (MD_IterNumber<1){
@@ -327,9 +501,17 @@ void Input_std(char *file)
   i_vec[0]=1; i_vec[1]=1, i_vec[2]=1;
   input_intv("MD.EvsLC.flag",3,MD_EvsLattice_flag,i_vec);
 
+  input_logical("MD.Out.ABC",&MD_OutABC,0); /* default=off */
+
   /*
   input_double("MD.Initial.MaxStep",&SD_scaling_user,(double)0.02); 
   */
+
+  i=0;
+  s_vec[i]="Schlegel" ;                  i_vec[i]=1;  i++;
+  s_vec[i]="iden";                       i_vec[i]=0;  i++;
+  s_vec[i]="FF" ;                        i_vec[i]=2;  i++;
+  j = input_string2int("MD.Opt.Init.Hessian",&Initial_Hessian_flag, i, s_vec,i_vec);
 
   /* Ang -> a.u. */
   /*
@@ -409,12 +591,14 @@ void Input_std(char *file)
   s_vec[0]="Recursion";     s_vec[1]="Cluster"; s_vec[2]="Band";
   s_vec[3]="NEGF";          s_vec[4]="DC";      s_vec[5]="GDC";
   s_vec[6]="Cluster-DIIS";  s_vec[7]="Krylov";  s_vec[8]="Cluster2";  
+  s_vec[9]="EC";  
   
   i_vec[0]=1;  i_vec[1]=2;  i_vec[2]=3;
   i_vec[3]=4;  i_vec[4]=5;  i_vec[5]=6;
   i_vec[6]=7;  i_vec[7]=8;  i_vec[8]=9;
+  i_vec[9]=10;
 
-  input_string2int("scf.EigenvalueSolver", &Solver, 9, s_vec,i_vec);
+  input_string2int("scf.EigenvalueSolver", &Solver, 10, s_vec,i_vec);
 
   if (Solver==1){
     if (myid==Host_ID){
@@ -510,9 +694,11 @@ void Input_std(char *file)
 
   /* scf.Constraint.NC.Spin */
 
-  input_logical("scf.Constraint.NC.Spin",&Constraint_NCS_switch,0);
+  s_vec[0]="off"; s_vec[1]="on"; s_vec[2]="on2";
+  i_vec[0]=0    ; i_vec[1]=1   ; i_vec[2]=2;
+  input_string2int("scf.Constraint.NC.Spin", &Constraint_NCS_switch, 3, s_vec,i_vec);
 
-  if (SpinP_switch!=3 && Constraint_NCS_switch==1){
+  if (SpinP_switch!=3 && 1<=Constraint_NCS_switch){
     if (myid==Host_ID){
       printf("The constraint scheme is not supported for a collinear DFT calculation.\n");
       printf("Check your input file.\n\n");
@@ -521,7 +707,7 @@ void Input_std(char *file)
     exit(1);
   }
 
-  if (Constraint_NCS_switch==1 && Hub_U_occupation!=2){
+  if (1<=Constraint_NCS_switch && Hub_U_occupation!=2){
     if (myid==Host_ID){
       printf("The constraint scheme is supported in case of scf.Hubbard.Occupation=dual.\n");
       printf("Check your input file.\n\n");
@@ -555,6 +741,47 @@ void Input_std(char *file)
     exit(1);
   }
 
+  /* scf.SO.factor */
+
+  SO_factor_flag = 0; 
+
+  if (SpinP_switch==3 && SO_switch==1){
+
+    if (fp=input_find("<scf.SO.factor")) {    
+
+      /* switch on SO_factor_flag */
+
+      SO_factor_flag = 1; 
+
+      /* initialize the SO_factor */ 
+      for (i=0; i<SpeciesNum; i++){
+	for (l=0; l<=3; l++){
+          SO_factor[i][l] = 1.0 ;
+	}
+      }
+	
+      /* read SO_factor from the '.dat' file  */ 
+      for (i=0; i<SpeciesNum; i++){
+	fscanf(fp,"%s",Species);
+        j = Species2int(Species);
+
+	for (l=0; l<=3; l++){
+          fscanf(fp,"%s %lf", buf, &SO_factor[j][l]) ;
+	}
+      }
+
+      if (! input_last("scf.SO.factor>") ) {
+	/* format error */
+	printf("Format error for scf.SO.factor\n");
+	po++;
+      }
+
+    }   /*  if (fp=input_find("<scf.SO.factor")) */
+
+  } /* if (SpinP_switch==3 && SO_switch==1) */
+
+  /* scf.partialCoreCorrection */
+
   input_logical("scf.partialCoreCorrection",&PCC_switch,1);
 
   if (PCC_switch==0){
@@ -565,6 +792,32 @@ void Input_std(char *file)
     MPI_Finalize();
     exit(1);
   }  
+
+  /* scf.pcc.opencore */
+
+  if (fp=input_find("<scf.pcc.opencore")) {    
+
+    for (i=0; i<SpeciesNum; i++){
+      fscanf(fp,"%s",Species);
+      j = Species2int(Species);
+      fscanf(fp,"%d", &Spe_OpenCore_flag[j]) ;
+
+      if (Spe_OpenCore_flag[j]==0 || Spe_OpenCore_flag[j]==1 || Spe_OpenCore_flag[j]==-1){
+      }
+      else{
+        /* format error */
+        printf("Valid input for scf.pcc.opencore is 0, -1, or 1.\n");
+        po++;
+      }
+    }
+ 
+    if (! input_last("scf.pcc.opencore>") ) {
+      /* format error */
+      printf("Format error for scf.pcc.opencore\n");
+      po++;
+    }
+   
+  } /* if (fp=input_find("<scf.pcc.opencore")) */
 
   /* scf.NC.Zeeman.Spin */
 
@@ -588,7 +841,7 @@ void Input_std(char *file)
     exit(1);
   }
 
-  if (Constraint_NCS_switch==1 && Zeeman_NCS_switch==1){
+  if (1<=Constraint_NCS_switch && Zeeman_NCS_switch==1){
     if (myid==Host_ID){
       printf("For spin magnetic moment, the constraint scheme and the Zeeman term\n");
       printf("are mutually exclusive.  Check your input file.\n\n");
@@ -701,11 +954,15 @@ void Input_std(char *file)
   E_Temp = E_Temp/eV2Hartree;
   Original_E_Temp = E_Temp;
 
-  s_vec[0]="Simple"; s_vec[1]="RMM-DIIS"; s_vec[2]="GR-Pulay";
-  s_vec[3]="Kerker"; s_vec[4]="RMM-DIISK";
-  i_vec[0]=0; i_vec[1]=1; i_vec[2]=2; i_vec[3]=3; i_vec[4]=4;
+  s_vec[0]="Simple";     i_vec[0]=0;
+  s_vec[1]="RMM-DIIS";   i_vec[1]=1;  
+  s_vec[2]="GR-Pulay";   i_vec[2]=2;
+  s_vec[3]="Kerker";     i_vec[3]=3; 
+  s_vec[4]="RMM-DIISK";  i_vec[4]=4;
+  s_vec[5]="RMM-DIISH";  i_vec[5]=5;
+  s_vec[6]="RMM-ADIIS";  i_vec[6]=6;
 
-  input_string2int("scf.Mixing.Type",&Mixing_switch,5,s_vec,i_vec);
+  input_string2int("scf.Mixing.Type",&Mixing_switch,7,s_vec,i_vec);
   if (Mixing_switch==3 || Mixing_switch==4) Kmixing_flag = 1;
   else Kmixing_flag = 0;
 
@@ -715,9 +972,18 @@ void Input_std(char *file)
   /* if Kerker_factor is not set here, later Kerker factor is automatically determined. */
   input_double("scf.Kerker.factor",&Kerker_factor,(double)-1.0);
   input_int("scf.Mixing.History",&Num_Mixing_pDM,5);
-  input_int("scf.Mixing.StartPulay",&Pulay_SCF,6);
+  input_int("scf.Mixing.StartPulay",&Pulay_SCF,6); 
+  Pulay_SCF_original = Pulay_SCF;
   input_int("scf.Mixing.EveryPulay",&EveryPulay_SCF,1);
-  input_int("scf.ExtCharge.History",&Extrapolated_Charge_History,2);
+  input_int("scf.ExtCharge.History",&Extrapolated_Charge_History,3);
+  
+  if (Pulay_SCF<4 && Mixing_switch==1){
+    if (myid==Host_ID){
+      printf("For RMM-DIIS, scf.Mixing.StartPulay should be set to larger than 3.\n");
+    }
+    MPI_Finalize();
+    exit(1);
+  }
 
   /* increase electric temperature in case of SCF oscillation, default=off */
   input_logical("scf.Mixing.Control.Temp", &SCF_Control_Temp, 0); 
@@ -726,9 +992,10 @@ void Input_std(char *file)
     List_YOUSO[16] = 3;
     List_YOUSO[38] = 1;
   }
-  else if (Mixing_switch==1 || Mixing_switch==2) {
+  else if (Mixing_switch==1 || Mixing_switch==2 || Mixing_switch==6) {
     List_YOUSO[16] = Num_Mixing_pDM + 2;
     List_YOUSO[38] = 1;
+    List_YOUSO[39] = Num_Mixing_pDM + 3;
   }
   else if (Mixing_switch==3) {
     List_YOUSO[16] = 3;
@@ -737,6 +1004,11 @@ void Input_std(char *file)
   else if (Mixing_switch==4) {
     List_YOUSO[16] = 3;
     List_YOUSO[38] = Num_Mixing_pDM + 2;
+  }
+  else if (Mixing_switch==5){
+    List_YOUSO[16] = 3;
+    List_YOUSO[38] = 1;
+    List_YOUSO[39] = Num_Mixing_pDM + 3;
   }
 
   input_double("scf.criterion",&SCF_Criterion,(double)1.0e-6);
@@ -1289,7 +1561,18 @@ void Input_std(char *file)
   *******************************/
 
   else{
+
     TRAN_Input_std_Atoms(MPI_COMM_WORLD1, Solver);
+  }
+
+  /**************************************************
+          store the initial magnetic moment
+  **************************************************/
+
+  if (Constraint_NCS_switch==2){
+    for (i=1; i<=atomnum; i++){
+      InitMagneticMoment[i] = fabs(InitN_USpin[i] - InitN_DSpin[i]);
+    }    
   }
 
   /********************************************************
@@ -1358,7 +1641,7 @@ void Input_std(char *file)
 
     Kerker_factor = 0.5/G0*(2.0*DG/AG+1.0);
 
-    if (myid==Host_ID){
+    if (myid==Host_ID && 0<level_stdout){
       printf("Automatic determination of Kerker_factor:  %15.12f\n",Kerker_factor);
     }
   }
@@ -1370,17 +1653,31 @@ void Input_std(char *file)
 
   /* for vdW  okuno */
   input_logical("scf.dftD",&dftD_switch,0);
+  input_int("version.dftD",&version_dftD,2);   /* Ellner */
+
+  if (version_dftD!=2 && version_dftD!=3){
+
+    if (myid==Host_ID){
+      printf("version.dftD should be 1 or 2.\n");
+    }
+
+    MPI_Finalize();
+    exit(1);
+  }
+  
 
   /* DFT D okuno */
   if(dftD_switch){
-    s_vec[0]="Ang"; s_vec[1]="AU";
-    i_vec[0]=0;  i_vec[1]=1;
+    s_vec[1]="Ang"; s_vec[0]="AU"; /* Ellner CHANGED ORDER */
+    i_vec[1]=0;  i_vec[0]=1;
     input_string2int("DFTD.Unit",&unit_dftD,2,s_vec,i_vec);
     input_double("DFTD.rcut_dftD",&rcut_dftD,100.0);
+
     input_double("DFTD.d",&beta_dftD,20.0);
     if(unit_dftD==0){ /* change Ang to AU */
       rcut_dftD = rcut_dftD/BohrR;
     }
+
     input_double("DFTD.scale6",&scal6_dftD,0.75);
 
     i_vec2[0]=1;
@@ -1414,6 +1711,67 @@ void Input_std(char *file)
 	/* format error */
 	printf("Format error for DFTD.periodicity\n");
 	po++;
+      }
+    }
+
+    /* Ellner DFT-D3 */
+    s_vec[0]="ZERO"; s_vec[1]="BJ";
+    i_vec[0]=1;  i_vec[1]=2;
+    input_string2int("DFTD3.damp",&DFTD3_damp_dftD,2,s_vec,i_vec);
+    if(version_dftD==3) input_double("DFTD.scale6",&s6_dftD,1.0); /* FIXED */
+
+    if ( XC_switch==4 ){
+      input_double("DFTD.sr6",&sr6_dftD,1.217);
+      input_double("DFTD.a1",&a1_dftD,0.4289);
+      input_double("DFTD.a2",&a2_dftD,4.4407);
+      if (DFTD3_damp_dftD==1)  input_double("DFTD.scale8",&s8_dftD,0.722); /* GGA-PBE ZERO DAMP */
+      if (DFTD3_damp_dftD==2)  input_double("DFTD.scale8",&s8_dftD,0.7875);/* GGA-PBE BJ DAMP */
+    }
+    else{
+      input_double("DFTD.scale8",&s8_dftD,0.5);
+      input_double("DFTD.sr6",&sr6_dftD,1.0);
+      input_double("DFTD.a1",&a1_dftD,0.5);
+      input_double("DFTD.a2",&a2_dftD,5.0);
+    }
+
+    input_double("DFTD.cncut_dftD",&cncut_dftD,40.0);
+     if(unit_dftD==0){ /* change Ang to AU */
+      cncut_dftD = cncut_dftD/BohrR;
+    }
+
+  } /* if (dftD_switch) */
+
+  /************************************************************
+   set fixed components of cell vectors in cell optimization 
+
+    1: fixed 
+    0: relaxed
+  ************************************************************/
+
+  for (i=1; i<=3; i++){  
+    for (j=1; j<=3; j++){  
+      Cell_Fixed_XYZ[i][j] = 0;
+    }
+  }
+
+  if (fp=input_find("<MD.Fixed.Cell.Vectors")) {
+
+    for (i=1; i<=3; i++){  
+      fscanf(fp,"%d %d %d",&Cell_Fixed_XYZ[i][1],&Cell_Fixed_XYZ[i][2],&Cell_Fixed_XYZ[i][3]);
+    }  
+
+    if ( ! input_last("MD.Fixed.Cell.Vectors>") ) {
+      /* format error */
+      printf("Format error for MD.Fixed.Cell.Vectors\n");
+      po++;
+    }
+  }
+
+  /* RFC5 */
+  if (MD_switch==18 && cellopt_swtich==5){
+    for (i=1; i<=3; i++){  
+      for (j=1; j<=3; j++){  
+	Cell_Fixed_XYZ[i][j] = 0;
       }
     }
   }
@@ -1623,11 +1981,15 @@ void Input_std(char *file)
   default = off
   *****************************************************/
 
-  input_logical("scf.restart",&Scf_RestartFromFile, 0); 
+  s_vec[0]="off";      i_vec[0] = 0;   /* default, off for first MD, later on */ 
+  s_vec[1]="alloff";   i_vec[1] = -1;  /* switch off explicitly */ 
+  s_vec[2]="on";       i_vec[2] = 1;   /* switch on explicitly */ 
+
+  input_string2int("scf.restart", &Scf_RestartFromFile, 3, s_vec,i_vec);
 
   /* check the number of processors */
 
-  if (Scf_RestartFromFile){
+  if (Scf_RestartFromFile==1){
 
     MPI_Comm_size(mpi_comm_level1,&numprocs1);
     sprintf(file_check,"%s%s_rst/%s.crst_check",filepath,filename,filename);
@@ -1751,6 +2113,9 @@ void Input_std(char *file)
  
   }
 
+
+
+
   /****************************************************
                    One dimentional FFT
   ****************************************************/
@@ -1828,6 +2193,12 @@ void Input_std(char *file)
   }
 
   NOHS_C = NOHS_L;
+
+  /* start EC */
+
+  input_int("orderN.EC.Sub.Dim",&EC_Sub_Dim,400);
+
+  /* end EC */
 
   /* start Krylov */
 
@@ -1981,6 +2352,239 @@ void Input_std(char *file)
       kpoint_changeunit(tv,Band_UnitCell,MO_Nkpoint,MO_kpoint);
     }
   }
+
+  /****************************************************
+             Natural Bond Orbital Analysis
+  ****************************************************/
+
+  s_vec[0]="off"; s_vec[1]="on1"; s_vec[2]="on2"; s_vec[3]="on3"; s_vec[4]="on4";
+  i_vec[0]=0    ; i_vec[1]=1    ; i_vec[2]=2    ; i_vec[3]=3    ; i_vec[4]=4    ;
+  input_string2int("NBO.switch", &NBO_switch, 5, s_vec,i_vec);
+
+  if (NBO_switch!=0){
+
+    input_logical("NAO.only",&NAO_only,1);
+
+    input_double("NAO.threshold",&NAO_Occ_or_Ryd,0.85);
+
+    input_int("NBO.Num.CenterAtoms",&Num_NBO_FCenter,1);
+    if (Num_NBO_FCenter<0){
+      printf("NBO.Num.CenterAtoms must be positive.\n");
+      po++;
+    }
+
+    if (Num_NBO_FCenter>atomnum){
+      printf("NBO ERROR: NBO.Num.CenterAtoms should be less than the total number of atoms.");
+      po++;
+    }
+
+    Allocate_Arrays(11);
+
+    if (fp=input_find("<NBO.CenterAtoms")) {
+      for (i=0; i<Num_NBO_FCenter; i++){
+	fscanf(fp,"%d",&NBO_FCenter[i]);
+	if (NBO_FCenter[i] <= 0 || NBO_FCenter[i] > atomnum){
+	  printf ("NBO ERROR: Index of center atom is wrong.");
+	  po++;
+	}
+
+	if (0<=level_stdout && myid == Host_ID){
+	  printf("<Input_std>  NBO_Center %d : %d \n",i,NBO_FCenter[i]);
+	}
+      }
+    }
+
+    input_logical("NHO.fileout",&NHO_fileout,0);
+    input_logical("NBO.fileout",&NBO_fileout,0);
+
+    input_logical("NBO.SmallCell.Switch",&NBO_SmallCell_Switch,0);
+
+    if (fp=input_find("<NBO.SmallCell")) {
+      for (i=1; i<=3; i++){
+	fscanf(fp,"%lf %lf",&NBO_SmallCellFrac[i][1],&NBO_SmallCellFrac[i][2]);
+
+	if (1<=level_stdout && myid == Host_ID){
+	  printf("<Input_std>  NBO_SmallCell %10.6f %10.6f \n",
+		 NBO_SmallCellFrac[i][1],NBO_SmallCellFrac[i][2]);
+	}
+      }
+
+      if (!input_last("NBO.SmallCell>")) {
+	printf("Format error for NBO.SmallCell\n");
+	po++;
+      }
+    }
+
+    /*
+      input_int("NAO.Nkpoint",&NAO_Nkpoint,1);
+      if (NAO_Nkpoint<0){
+      printf("NAO_Nkpoint must be positive.\n");
+      po++;
+      }
+
+      if (fp=input_find("<NAO.kpoint")) {
+      for (i=0; i<NAO_Nkpoint; i++){
+      fscanf(fp,"%lf %lf %lf",&NAO_kpoint[i][1],&NAO_kpoint[i][2],&NAO_kpoint[i][3]);
+
+      if (0<=level_stdout && myid == Host_ID){
+      printf("<Input_std>  NAO_kpoint %2d  %10.6f  %10.6f  %10.6f\n",
+      i,NAO_kpoint[i][1],NAO_kpoint[i][2],NAO_kpoint[i][3]);
+      }
+      }
+      if (!input_last("NAO.kpoint>")) {
+      printf("Format error for MO.kpoint\n");
+      po++;
+      }
+
+      if (Band_kPathUnit){
+      kpoint_changeunit2(tv,Band_UnitCell,NAO_Nkpoint,NAO_kpoint);
+      }
+
+      }
+    */
+
+  }
+
+  /* added by Chi-Cheng for unfolding */
+  /****************************************************
+               Unfolding Band Structure
+  ****************************************************/
+
+  input_logical("Unfolding.Electronic.Band",&unfold_electronic_band,0);
+
+  if (unfold_electronic_band==1) {
+
+    unfold_abc=(double**)malloc(sizeof(double*)*3);
+    for (i=0; i<3; i++) unfold_abc[i]=(double*)malloc(sizeof(double)*3);
+    if (fp=input_find("<Unfolding.ReferenceVectors")) {
+      for (i=0; i<3; i++){
+        fscanf(fp,"%lf %lf %lf",&unfold_abc[i][0],&unfold_abc[i][1],&unfold_abc[i][2]);
+      }
+      if (!input_last("Unfolding.ReferenceVectors>")) {
+        /* format error */
+        printf("Format error in Unfolding.ReferenceVectors\n");
+        po++;
+      }
+      /* Ang to AU */
+      if (unitvector_unit==0) {
+        for (i=0; i<3; i++){
+          unfold_abc[i][0] = unfold_abc[i][0]/BohrR;
+          unfold_abc[i][1] = unfold_abc[i][1]/BohrR;
+          unfold_abc[i][2] = unfold_abc[i][2]/BohrR;
+        }
+      }
+    }
+    else {
+      for (i=0; i<3; i++) {
+        unfold_abc[i][0] = tv[i+1][1];
+        unfold_abc[i][1] = tv[i+1][2];
+        unfold_abc[i][2] = tv[i+1][3];
+      }
+    }
+
+    unfold_origin=(double*)malloc(sizeof(double)*3);
+    if (fp=input_find("<Unfolding.Referenceorigin")) {
+        fscanf(fp,"%lf %lf %lf",&unfold_origin[0],&unfold_origin[1],&unfold_origin[2]);
+      if (!input_last("Unfolding.Referenceorigin>")) {
+        /* format error */
+        printf("Format error in Unfolding.Referenceorigin\n");
+        po++;
+      }
+      /* Ang to AU */
+      if (unitvector_unit==0) {
+        for (i=0; i<3; i++) unfold_origin[i] = unfold_origin[i]/BohrR;
+      }
+    }
+    else {
+      /* default value will be calculated later on */
+      unfold_origin[0]=-0.9999900023114;
+      unfold_origin[1]=-0.9999900047614;
+      unfold_origin[2]=-0.9999900058914;
+    }
+
+    input_double("Unfolding.LowerBound",&unfold_lbound,-10.); 
+    input_double("Unfolding.UpperBound",&unfold_ubound,10.);  /* in eV */
+    if (unfold_lbound>=unfold_ubound){
+      printf("Unfolding: Lower bound must be lower than the upper bound.\n");
+      po++;
+    }
+    unfold_lbound=unfold_lbound/eV2Hartree;
+    unfold_ubound=unfold_ubound/eV2Hartree;
+
+    unfold_mapN2n=(int*)malloc(sizeof(int)*atomnum);
+    if (fp=input_find("<Unfolding.Map")) {
+      for (i=0; i<atomnum; i++){
+        fscanf(fp,"%i %i",&j,&unfold_mapN2n[i]);
+        if ((j!=i+1)||(unfold_mapN2n[i]<0)) { printf("Format error in Unfolding.Map! (Values cannot be negative.)\n"); po++;}
+      }
+      if (!input_last("Unfolding.Map>")) {
+      /* format error */
+      printf("Format error in Unfolding.Map\n");
+      po++;
+      }
+    }
+    else {
+      for (i=0; i<atomnum; i++) unfold_mapN2n[i]=i;
+    }
+
+    if (Solver!=2 && Solver!=3){
+
+      s_vec[0]="Recursion";     s_vec[1]="Cluster"; s_vec[2]="Band";
+      s_vec[3]="NEGF";          s_vec[4]="DC";      s_vec[5]="GDC";
+      s_vec[6]="Cluster-DIIS";  s_vec[7]="Krylov";  s_vec[8]="Cluster2";
+
+      printf("Unfolding.fileout=ON is not supported in case of scf.EigenvalueSolver=%s\n",
+             s_vec[Solver-1]);
+      printf("Unfolding.fileout is changed to OFF\n");
+      unfold_electronic_band = 0;
+    }
+
+    /* for bulk */
+    
+    input_int("Unfolding.Nkpoint",&unfold_Nkpoint,0);
+    if (unfold_Nkpoint<0){
+      printf("Unfolding.Nkpoint must be positive.\n");
+      po++;
+    }
+    
+    input_int("Unfolding.desired_totalnkpt",&unfold_nkpts,0);
+    if (unfold_nkpts<0){
+      printf("Unfolding.desired_totalnkpt must be positive.\n");
+      po++;
+    }
+    
+    /* memory allocation */
+    unfold_kpoint = (double**)malloc(sizeof(double*)*(unfold_Nkpoint+1));
+    for (i=0; i<(unfold_Nkpoint+1); i++){
+      unfold_kpoint[i] = (double*)malloc(sizeof(double)*4);
+    }
+
+    unfold_kpoint_name = (char**)malloc(sizeof(char*)*(unfold_Nkpoint+1));
+    for (i=0; i<(unfold_Nkpoint+1); i++){
+      unfold_kpoint_name[i] = (char*)malloc(sizeof(char)*YOUSO10);
+    }
+
+    if (fp=input_find("<Unfolding.kpoint")) {
+      for (i=0; i<unfold_Nkpoint; i++){
+        fscanf(fp,"%s %lf %lf %lf",
+               unfold_kpoint_name[i],
+               &unfold_kpoint[i][1],
+               &unfold_kpoint[i][2],
+               &unfold_kpoint[i][3]);
+
+        if (2<=level_stdout){
+          printf("<Input_std>  Unfolding.kpoint %2d  %10.6f  %10.6f  %10.6f\n",
+                 i,unfold_kpoint[i][1],unfold_kpoint[i][2],unfold_kpoint[i][3]);
+        }
+      }
+      if (!input_last("Unfolding.kpoint>")) {
+        /* format error */
+        printf("Format error for Unfolding.kpoint\n");
+        po++;
+      }
+    }
+  }
+  /* end unfolding */
 
   /****************************************************
                   OutData_bin_flag
@@ -2158,6 +2762,20 @@ void Input_std(char *file)
   input_logical("HS.fileout",&HS_fileout,0);
 
   /****************************************************
+                   Energy decomposition
+  ****************************************************/
+
+  input_logical("Energy.Decomposition",&Energy_Decomposition_flag,0);
+
+  if (Energy_Decomposition_flag==1 && Cnt_switch==1){
+    if (myid==Host_ID){
+      printf("Energy decomposition is not supported for orbital optimization.\n");
+    }
+    MPI_Finalize();
+    exit(0);
+  }
+
+  /****************************************************
                    Voronoi charge
   ****************************************************/
 
@@ -2174,6 +2792,7 @@ void Input_std(char *file)
   ****************************************************/
 
   input_logical("Wannier.Func.Calc",&Wannier_Func_Calc,0); /* default=off */
+  input_logical("Wannier90.fileout",&Wannier90_fileout,0); /* default=off */
 
   if (Wannier_Func_Calc){
 
@@ -2241,7 +2860,6 @@ void Input_std(char *file)
 		     &Wannier_unit,3,s_vec,i_vec);
 
 
-
     if (fp=input_find("<Wannier.Initial.Projectors")) {
 
       {
@@ -2253,6 +2871,7 @@ void Input_std(char *file)
 	do{
 	  fscanf(fp,"%s %lf %lf %lf  %lf %lf %lf  %lf %lf %lf",
 		 ctmp,&tmp1,&tmp2,&tmp3,&tmp4,&tmp5,&tmp6,&tmp7,&tmp8,&tmp9);
+
 
 	  if (strcmp(ctmp,"Wannier.Initial.Projectors>")==0){ 
 	    po = 1;
@@ -2274,6 +2893,8 @@ void Input_std(char *file)
 	Wannier_Num_Kinds_Projectors = num_lines;     
       }
     }
+
+    MPI_Barrier(mpi_comm_level1);
 
     Allocate_Arrays(8);  
 
@@ -2301,6 +2922,7 @@ void Input_std(char *file)
 	char ctmp[YOUSO10];
 
 	for (i=0; i<Wannier_Num_Kinds_Projectors; i++){
+
 	  fscanf(fp,"%s %lf %lf %lf  %lf %lf %lf  %lf %lf %lf",
 		 ctmp,
 		 &Wannier_Pos[i][1],
@@ -2571,6 +3193,58 @@ void Input_std(char *file)
   /*--------- until here */
 
   /****************************************************
+           parameters for cell optimizaiton 
+  ****************************************************/
+
+  /* scf.stress.tensor */
+
+  input_logical("scf.stress.tensor",&scf_stress_flag,0); /* default=off */
+
+  /****************************************************
+     set flags for calculations of stress tensor
+     scf_stress_flag: default=off
+     MD_cellopt_flag: default=off 
+  ****************************************************/
+
+  /* In case of cell optimization,  */
+
+  MD_cellopt_flag = 0;    
+
+  if (   MD_switch==17 
+      || MD_switch==18 
+     )
+  {
+    scf_stress_flag = 1;
+    MD_cellopt_flag = 1;
+  }
+
+  /* check the compatibility with other functionlities */
+
+  if (scf_stress_flag==1 && Cnt_switch==1){
+    if (myid==Host_ID){
+      printf("Orbital optimization is not compatible with stress calculation.\n");
+    }
+    MPI_Finalize();
+    exit(0);
+  }
+
+  if (scf_stress_flag==1 && Hub_U_switch==1 && Hub_U_occupation==1){
+    if (myid==Host_ID){
+      printf("\n'full' local propjector in DFT+U is not compatible with stress calculation.\n");
+    }
+    MPI_Finalize();
+    exit(0);
+  }
+
+  if (scf_stress_flag==1 && SpinP_switch==3){
+    if (myid==Host_ID){
+      printf("\n'Non-collinear calculation is not compatible with stress calculation.\n");
+    }
+    MPI_Finalize();
+    exit(0);
+  }
+
+  /****************************************************
                        input_close
   ****************************************************/
 
@@ -2584,7 +3258,7 @@ void Input_std(char *file)
 
   /****************************************************
            adjustment of atomic position
-       Atomic positions are not adjusted in Ver.3.6
+       Atomic positions are not adjusted in Ver. 3.6
   ****************************************************/
 
   /*  if (Solver!=4) Set_In_First_Cell();  */
@@ -2620,11 +3294,12 @@ void Input_std(char *file)
 			      NE_T_k_op */ );
   }
 
-
   /**************************************************************
    Effective Screening Medium (ESM) method Calculation 
                                      added by T.Ohwaki     
   ***************************************************************/
+
+#if 0
 
   if (ESM_switch!=0){
 
@@ -2674,7 +3349,6 @@ void Input_std(char *file)
 
       if ( Gxyz[i][1]<(xb0+ESM_buffer_range)){
 
-
         if (myid==Host_ID){
           printf("<ESM:Warning>\n");
           printf("The coordinate of a-axis for atom %d = %16.9f \n",i,Gxyz[i][1]);
@@ -2689,6 +3363,8 @@ void Input_std(char *file)
 
     }
   }
+
+#endif
 
   /****************************************************
                    print out to std
@@ -2707,7 +3383,7 @@ void Input_std(char *file)
 void Remake_RestartFile(int numprocs_new, int numprocs_old, int N1, int N2, int N3)
 {
   int myid,ID,N2D,n2Ds_new,n2De_new;
-  int n2Ds_old,n2De_old,num,spin,i,j,n,n3,m;
+  int n2Ds_old,n2De_old,num,spin,i,n,n3,m;
   int IDs_old,IDe_old,n2D;
   FILE *fp;
   char fileCD[YOUSO10];
@@ -2758,12 +3434,6 @@ void Remake_RestartFile(int numprocs_new, int numprocs_old, int N1, int N2, int 
 	if ((fp = fopen(fileCD,"rb")) != NULL){
 
 	  fread(tmp_array0,sizeof(double),num,fp);
-
-	  /*
-          for (j=0; j<num; j++){
-            printf("ABC spin=%2d i=%2d ID=%2d j=%2d den=%15.12f\n",spin,i,ID,j,tmp_array0[j]);
-          } 
-	  */
 
 	  fclose(fp);
  
@@ -3386,7 +4056,7 @@ int Analyze_Wannier_Projectors(int p, char ctmp[YOUSO10],
 
 void SpeciesString2int(int p)
 {
-  int i,l,n,po,po1,k,base;
+  int i,l,n,po,k,base;
   int tmp;
   int nlist[10]; 
   char c,cstr[YOUSO10*3];
@@ -3444,11 +4114,11 @@ void SpeciesString2int(int p)
 
       /* analysis of the string */
 
-      if      (c=='s'){ l=0; n=0; po1=0; }
-      else if (c=='p'){ l=1; n=0; po1=0; }
-      else if (c=='d'){ l=2; n=0; po1=0; }
-      else if (c=='f'){ l=3; n=0; po1=0; }
-      else if (c=='g'){ l=4; n=0; po1=0; }
+      if      (c=='s'){ l=0; n=0; }
+      else if (c=='p'){ l=1; n=0; }
+      else if (c=='d'){ l=2; n=0; }
+      else if (c=='f'){ l=3; n=0; }
+      else if (c=='g'){ l=4; n=0; }
       else{
 
         /* no orbital optimization */
@@ -3575,15 +4245,15 @@ int Species2int(char Species[YOUSO10])
     if (po==0) i++;
   };
 
-  if (po==1) return i;
-  else {
+  if (po==0){
     printf("Found an undefined species name %s\n",Species);
     printf("in Atoms.SpeciesAndCoordinates or Hubbard.U.values\n");
-
     printf("Please check your input file\n");
     MPI_Finalize();
     exit(1);
   }
+
+  return i;
 }
 
 
@@ -3605,14 +4275,14 @@ int OrbPol2int(char OrbPol[YOUSO10])
     if (po==0) i++;
   };
 
-  if (po==1) return i;
-
-  else {
+  if (po==0){
     printf("Invalid flag for LDA+U (Atoms.SpeciesAndCoordinates)  %s\n",OrbPol);
     printf("Please check your input file\n");
     MPI_Finalize();
     exit(1);
   }
+
+  return i;
 }
 
 
@@ -3962,8 +4632,7 @@ void Get_Euler_Rotation_Angle(
       double xx, double xy, double xz,
       double *alpha_r, double *beta_r, double *gamma_r)
 {
-  double norm, coszx, yx,yy,yz, alpha, beta, gamma;
-  double tmp1, tmp2;
+  double norm, coszx, yx,yy,yz, alpha, beta, gamma, tmp1;
   int numprocs,myid;
 
   MPI_Comm_size(MPI_COMM_WORLD1,&numprocs);

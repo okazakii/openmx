@@ -15,26 +15,44 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
                  double *Den0, double *Den1, 
                  double *Den2, double *Den3,
                  double *Vxc0, double *Vxc1,
-                 double *Vxc2, double *Vxc3 )
+                 double *Vxc2, double *Vxc3,
+                 double ***dEXC_dGD, 
+                 double ***dDen_Grid)
 {
-  /****************************************************
-        XC_P_switch:
-            0  \epsilon_XC (XC energy density)  
-            1  \mu_XC      (XC potential)  
-            2  \epsilon_XC - \mu_XC
-  ****************************************************/
+  /***********************************************************************************************
+   XC_P_switch:
+      0  \epsilon_XC (XC energy density)  
+      1  \mu_XC      (XC potential)  
+      2  \epsilon_XC - \mu_XC
+      3  dfxc/d|\nabra n| *|d|\nabra n|/d\nabra n and nabla n
+
+   Switch 3 is implemetend by yshiihara to calculate the
+   terms for GGA stress. In this case, the input and output parameters are:
+            
+   INPUT     Den0 : density of up spin     n_up  
+   INPUT     Den1 : density of down spin   n_down
+   INPUT     Den2 : theta
+   INPUT     Den3 : phi
+   OUTPUT    Vxc0 : NULL
+   OUTPUT    Vxc1 : NULL
+   OUTPUT    Vxc2 : NULL
+   OUTPUT    Vxc3 : NULL
+   OUTPUT    Axc[2(spin)][3(x,y,z)][My_NumGridD] : dfxc/d|\nabra n| *|d|\nabra n|/d\nabra n
+   OUTPUT    dDen_Grid[2(spin)][3(x,y,z)][My_NumGridD] : dn/dx, dn/dy, dn/dz 
+  ***********************************************************************************************/
 
   static int firsttime=1;
   int MN,MN1,MN2,i,j,k,ri,ri1,ri2;
   int i1,i2,j1,j2,k1,k2,n,nmax;
   int Ng1,Ng2,Ng3;
+  int dDen_Grid_NULL_flag;
+  int dEXC_dGD_NULL_flag;
   double den_min=1.0e-14; 
   double Ec_unif[1],Vc_unif[2],Exc[2],Vxc[2];
   double Ex_unif[1],Vx_unif[2],tot_den;
   double ED[2],GDENS[3][2];
   double DEXDD[2],DECDD[2];
   double DEXDGD[3][2],DECDGD[3][2];
-  double ***dEXC_dGD,***dDen_Grid;
   double up_x_a,up_x_b,up_x_c;
   double up_y_a,up_y_b,up_y_c;
   double up_z_a,up_z_b,up_z_c;
@@ -51,19 +69,20 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
   /* for OpenMP */
   int OMPID,Nthrds;
-
-  /****************************************************
-   when GGA, allocation
-
-   double dEXC_dGD[2][3][My_NumGridD]
-   double dDen_Grid[2][3][My_NumGridD]
-  ****************************************************/
-
+  
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  if (XC_switch==4){
+  /****************************************************
+                 allocation of arrays
+  ****************************************************/
+
+  dDen_Grid_NULL_flag = 0;
+
+  if (XC_switch==4 && dDen_Grid==NULL){
+
+    dDen_Grid_NULL_flag = 1;
 
     dDen_Grid = (double***)malloc(sizeof(double**)*2); 
     for (k=0; k<=1; k++){
@@ -73,30 +92,29 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
         for (j=0; j<My_NumGridD; j++) dDen_Grid[k][i][j] = 0.0;
       }
     }
+  }
 
-    if (XC_P_switch!=0){
-      dEXC_dGD = (double***)malloc(sizeof(double**)*2); 
-      for (k=0; k<=1; k++){
-        dEXC_dGD[k] = (double**)malloc(sizeof(double*)*3); 
-        for (i=0; i<3; i++){
-          dEXC_dGD[k][i] = (double*)malloc(sizeof(double)*My_NumGridD); 
-          for (j=0; j<My_NumGridD; j++) dEXC_dGD[k][i][j] = 0.0;
-        }
+  dEXC_dGD_NULL_flag = 0;
+
+  if (XC_switch==4 && dEXC_dGD==NULL){
+
+    dEXC_dGD_NULL_flag = 1;
+
+    dEXC_dGD = (double***)malloc(sizeof(double**)*2); 
+    for (k=0; k<=1; k++){
+      dEXC_dGD[k] = (double**)malloc(sizeof(double*)*3); 
+      for (i=0; i<3; i++){
+	dEXC_dGD[k][i] = (double*)malloc(sizeof(double)*My_NumGridD); 
+	for (j=0; j<My_NumGridD; j++) dEXC_dGD[k][i][j] = 0.0;
       }
     }
+  }
 
-    /* PrintMemory */
-
-    if (firsttime) {
-      PrintMemory("Set_XC_Grid: dDen_Grid", sizeof(double)*6*My_NumGridD, NULL);
-      PrintMemory("Set_XC_Grid: dEXC_dGD",  sizeof(double)*6*My_NumGridD, NULL);
-      /* turn off firsttime flag */
-      firsttime=0;
-    }
-
-    /****************************************************
+  /****************************************************
      calculate dDen_Grid
-    ****************************************************/
+  ****************************************************/
+
+  if (XC_switch==4){
  
     detA =   gtv[1][1]*gtv[2][2]*gtv[3][3]
            + gtv[1][2]*gtv[2][3]*gtv[3][1]
@@ -170,10 +188,10 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	      dn_a = Den1[MN2] - Den1[MN1];
 	    }
 	    else if (PCC_switch==1) {
-	      up_a = Den0[MN2] + PCCDensity_Grid_D[MN2]
-	           - Den0[MN1] - PCCDensity_Grid_D[MN1];
-	      dn_a = Den1[MN2] + PCCDensity_Grid_D[MN2]
-	           - Den1[MN1] - PCCDensity_Grid_D[MN1];
+	      up_a = Den0[MN2] + PCCDensity_Grid_D[0][MN2]
+	           - Den0[MN1] - PCCDensity_Grid_D[0][MN1];
+	      dn_a = Den1[MN2] + PCCDensity_Grid_D[1][MN2]
+	           - Den1[MN1] - PCCDensity_Grid_D[1][MN1];
 	    }
 
 	    /* b-axis */
@@ -186,10 +204,10 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	      dn_b = Den1[MN2] - Den1[MN1];
 	    }
 	    else if (PCC_switch==1) {
-	      up_b = Den0[MN2] + PCCDensity_Grid_D[MN2]
-	           - Den0[MN1] - PCCDensity_Grid_D[MN1];
-	      dn_b = Den1[MN2] + PCCDensity_Grid_D[MN2]
-	           - Den1[MN1] - PCCDensity_Grid_D[MN1];
+	      up_b = Den0[MN2] + PCCDensity_Grid_D[0][MN2]
+	           - Den0[MN1] - PCCDensity_Grid_D[0][MN1];
+	      dn_b = Den1[MN2] + PCCDensity_Grid_D[1][MN2]
+	           - Den1[MN1] - PCCDensity_Grid_D[1][MN1];
 	    }
 
 	    /* c-axis */
@@ -202,10 +220,10 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	      dn_c = Den1[MN2] - Den1[MN1];
 	    }
 	    else if (PCC_switch==1) {
-	      up_c = Den0[MN2] + PCCDensity_Grid_D[MN2]
-	           - Den0[MN1] - PCCDensity_Grid_D[MN1];
-	      dn_c = Den1[MN2] + PCCDensity_Grid_D[MN2]
-	           - Den1[MN1] - PCCDensity_Grid_D[MN1];
+	      up_c = Den0[MN2] + PCCDensity_Grid_D[0][MN2]
+	           - Den0[MN1] - PCCDensity_Grid_D[0][MN1];
+	      dn_c = Den1[MN2] + PCCDensity_Grid_D[1][MN2]
+	           - Den1[MN1] - PCCDensity_Grid_D[1][MN1];
 	    }
 
 	    /* up */
@@ -272,7 +290,7 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  tot_den += PCCDensity_Grid_D[MN]*2.0;
+	  tot_den += PCCDensity_Grid_D[0][MN] + PCCDensity_Grid_D[1][MN];
 	}
 
 	tmp0 = XC_Ceperly_Alder(tot_den,XC_P_switch);
@@ -302,8 +320,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  ED[0] += PCCDensity_Grid_D[MN];
-	  ED[1] += PCCDensity_Grid_D[MN];
+	  ED[0] += PCCDensity_Grid_D[0][MN];
+	  ED[1] += PCCDensity_Grid_D[1][MN];
 	}
 
 	XC_CA_LSDA(ED[0], ED[1], Exc, XC_P_switch);
@@ -326,8 +344,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  ED[0] += PCCDensity_Grid_D[MN];
-	  ED[1] += PCCDensity_Grid_D[MN];
+	  ED[0] += PCCDensity_Grid_D[0][MN];
+	  ED[1] += PCCDensity_Grid_D[1][MN];
 	}
 
 	if ((ED[0]+ED[1])<den_min){
@@ -446,8 +464,11 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	ED[1] = Den1[MN];
 
 	if ((ED[0]+ED[1])<den_min){
-	  Vxc0[MN] = 0.0;
-	  Vxc1[MN] = 0.0;
+
+          if (XC_P_switch!=3){
+  	    Vxc0[MN] = 0.0;
+	    Vxc1[MN] = 0.0;
+	  }
 
 	  /* later add its derivatives */
 	  if (XC_P_switch!=0){
@@ -471,8 +492,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	  GDENS[2][1] = dDen_Grid[1][2][MN];
 
 	  if (PCC_switch==1) {
-	    ED[0] += PCCDensity_Grid_D[MN];
-	    ED[1] += PCCDensity_Grid_D[MN];
+	    ED[0] += PCCDensity_Grid_D[0][MN];
+	    ED[1] += PCCDensity_Grid_D[1][MN];
 	  }
 
 	  XC_PBE(ED, GDENS, Exc, DEXDD, DECDD, DEXDGD, DECDGD);
@@ -505,10 +526,11 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	    dEXC_dGD[1][1][MN] = DEXDGD[1][1] + DECDGD[1][1];
 	    dEXC_dGD[1][2][MN] = DEXDGD[2][1] + DECDGD[2][1];
 	  }
+
 	}
-
+	
 	break;
-
+	
       /*---------- added by TOYODA 14/JAN/2010 from here */ 
       case 5: /* EXX-TEST */
         /* only X part of CA-LSDA XC is used */
@@ -518,8 +540,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  ED[0] += PCCDensity_Grid_D[MN];
-	  ED[1] += PCCDensity_Grid_D[MN];
+	  ED[0] += PCCDensity_Grid_D[0][MN];
+	  ED[1] += PCCDensity_Grid_D[1][MN];
 	}
 
 	EXX_XC_CA_LSDA(ED[0], ED[1], Exc, XC_P_switch);
@@ -532,7 +554,9 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
       } /* switch(XC_switch) */
     }   /* MN */
 
+    if (XC_switch==4){
 #pragma omp flush(dEXC_dGD)
+    }
 
   } /* #pragma omp parallel */
 
@@ -541,9 +565,9 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
                when GGA and XC_P_switch!=0
   ****************************************************/
 
-  if (XC_switch==4 && XC_P_switch!=0){
-
-#pragma omp parallel shared(My_NumGridD,XC_P_switch,Vxc0,Vxc1,Vxc2,Vxc3,igtv,dEXC_dGD,Den0,Den1,Den2,Den3,den_min) private(OMPID,Nthrds,nmax,i,j,k,ri,ri1,ri2,i1,i2,j1,j2,k1,k2,MN,MN1,MN2,up_x_a,up_y_a,up_z_a,dn_x_a,dn_y_a,dn_z_a,up_x_b,up_y_b,up_z_b,dn_x_b,dn_y_b,dn_z_b,up_x_c,up_y_c,up_z_c,dn_x_c,dn_y_c,dn_z_c,tmp0,tmp1,Ng1,Ng2,Ng3)
+  if (XC_switch==4 && (XC_P_switch==1 || XC_P_switch==2)){
+    
+#pragma omp parallel shared(Min_Grid_Index_D,Max_Grid_Index_D,My_NumGridD,XC_P_switch,Vxc0,Vxc1,Vxc2,Vxc3,igtv,dEXC_dGD,Den0,Den1,Den2,Den3,den_min) private(OMPID,Nthrds,nmax,i,j,k,ri,ri1,ri2,i1,i2,j1,j2,k1,k2,MN,MN1,MN2,up_x_a,up_y_a,up_z_a,dn_x_a,dn_y_a,dn_z_a,up_x_b,up_y_b,up_z_b,dn_x_b,dn_y_b,dn_z_b,up_x_c,up_y_c,up_z_c,dn_x_c,dn_y_c,dn_z_c,tmp0,tmp1,Ng1,Ng2,Ng3)
     {
 
       OMPID = omp_get_thread_num();
@@ -662,7 +686,7 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
             In case of non-collinear spin DFT 
   ****************************************************/
 
-  if (SpinP_switch==3 && XC_P_switch!=0){
+  if (SpinP_switch==3 && (XC_P_switch==1 || XC_P_switch==2)){
 
 #pragma omp parallel shared(Den0,Den1,Den2,Den3,Vxc0,Vxc1,Vxc2,Vxc3,My_NumGridD) private(OMPID,Nthrds,MN,tmp0,tmp1,theta,phi,sit,cot,sip,cop)
     {
@@ -717,11 +741,10 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
   }
 
   /****************************************************
-   In case of GGA, free arrays
+                 freeing of arrays
   ****************************************************/
 
-  if (XC_switch==4){
-
+  if (dDen_Grid_NULL_flag==1){
     for (k=0; k<=1; k++){
       for (i=0; i<3; i++){
         free(dDen_Grid[k][i]);
@@ -729,15 +752,16 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
       free(dDen_Grid[k]);
     }
     free(dDen_Grid);
-
-    if (XC_P_switch!=0){
-      for (k=0; k<=1; k++){
-        for (i=0; i<3; i++){
-          free(dEXC_dGD[k][i]);
-        }
-        free(dEXC_dGD[k]);
-      }
-      free(dEXC_dGD);
-    }
   }
+
+  if (dEXC_dGD_NULL_flag==1){
+    for (k=0; k<=1; k++){
+      for (i=0; i<3; i++){
+	free(dEXC_dGD[k][i]);
+      }
+      free(dEXC_dGD[k]);
+    }
+    free(dEXC_dGD);
+  }
+
 }

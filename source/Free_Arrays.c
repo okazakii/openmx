@@ -22,9 +22,9 @@ void Free_Arrays(int wherefrom)
 void array0()
 {
   int i,j,k,ii,l,L,n,ct_AN,h_AN,wan,al,tno,Cwan,Nc;
-  int tno0,tno1,Mc_AN,Gc_AN,Gh_AN,Hwan,m,so,s1,s2;
+  int tno0,tno1,tno2,Mc_AN,Gc_AN,Gh_AN,Hwan,m,so,s1,s2;
   int q_AN,Gq_AN,Qwan,Lmax,spe,ns,nc,spin,fan;
-  int num,n2,wanA,Gi,MAnum,Mh_AN,NO1;
+  int num,n2,wanA,wanB,Gi,MAnum,Mh_AN,NO1;
   int Anum,p,vsize,NUM;
   int numprocs,myid,ID;
 
@@ -143,7 +143,7 @@ void array0()
     }
 
     free(ADensity_Grid_B);
-    free(PCCDensity_Grid_B);
+    free(PCCDensity_Grid_B[1]); free(PCCDensity_Grid_B[0]);
     free(dVHart_Grid_B);
     free(RefVxc_Grid_B);
 
@@ -187,7 +187,7 @@ void array0()
 
     /* arrays for the partition D */
 
-    free(PCCDensity_Grid_D);
+    free(PCCDensity_Grid_D[1]); free(PCCDensity_Grid_D[0]);
 
     if (SpinP_switch==3){ /* spin non-collinear */
       for (k=0; k<=3; k++){
@@ -475,7 +475,7 @@ void array0()
 
     /* H_Hub  --- added by MJ */  
 
-    if (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
+    if (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
 
       for (k=0; k<=SpinP_switch; k++){
 
@@ -789,6 +789,276 @@ void array0()
       free(CntDS_NL);
     }
 
+    /* for RMM-DIISH */
+
+    if (Mixing_switch==5){
+
+      /* HisH1 */
+
+      for (m=0; m<List_YOUSO[39]; m++){
+	for (k=0; k<=SpinP_switch; k++){
+	  FNAN[0] = 0;
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	    if (Mc_AN==0){
+	      Gc_AN = 0;
+	      tno0 = 1;
+	    }
+	    else{
+	      Gc_AN = S_M2G[Mc_AN];
+	      Cwan = WhatSpecies[Gc_AN];
+	      tno0 = Spe_Total_NO[Cwan];  
+	    }    
+
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      if (Mc_AN==0){
+		tno1 = 1;  
+	      }
+	      else{
+		Gh_AN = natn[Gc_AN][h_AN];
+		Hwan = WhatSpecies[Gh_AN];
+		tno1 = Spe_Total_NO[Hwan];
+	      } 
+
+	      for (i=0; i<tno0; i++){
+		free(HisH1[m][k][Mc_AN][h_AN][i]);
+	      }
+              free(HisH1[m][k][Mc_AN][h_AN]);
+	    }
+            free(HisH1[m][k][Mc_AN]);
+	  }
+          free(HisH1[m][k]);
+	}
+        free(HisH1[m]);
+      }
+      free(HisH1);
+
+      /* HisH2 */
+
+      if (SpinP_switch==3){
+
+	for (m=0; m<List_YOUSO[39]; m++){
+	  for (k=0; k<SpinP_switch; k++){
+	    FNAN[0] = 0;
+	    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	      if (Mc_AN==0){
+		Gc_AN = 0;
+		tno0 = 1;
+	      }
+	      else{
+		Gc_AN = S_M2G[Mc_AN];
+		Cwan = WhatSpecies[Gc_AN];
+		tno0 = Spe_Total_NO[Cwan];  
+	      }    
+
+	      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+		if (Mc_AN==0){
+		  tno1 = 1;  
+		}
+		else{
+		  Gh_AN = natn[Gc_AN][h_AN];
+		  Hwan = WhatSpecies[Gh_AN];
+		  tno1 = Spe_Total_NO[Hwan];
+		} 
+
+		for (i=0; i<tno0; i++){
+		  free(HisH2[m][k][Mc_AN][h_AN][i]);
+		}
+                free(HisH2[m][k][Mc_AN][h_AN]);
+	      }
+              free(HisH2[m][k][Mc_AN]);
+	    }
+            free(HisH2[m][k]);
+	  }
+          free(HisH2[m]);
+	}
+        free(HisH2);
+
+      } /* if (SpinP_switch==3) */
+
+      /* ResidualH1 */
+
+      for (m=0; m<List_YOUSO[39]; m++){
+	for (k=0; k<=SpinP_switch; k++){
+	  FNAN[0] = 0;
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	    if (Mc_AN==0){
+	      Gc_AN = 0;
+	      tno0 = 1;
+	    }
+	    else{
+	      Gc_AN = S_M2G[Mc_AN];
+	      Cwan = WhatSpecies[Gc_AN];
+	      tno0 = Spe_Total_NO[Cwan];  
+	    }    
+
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      if (Mc_AN==0){
+		tno1 = 1;  
+	      }
+	      else{
+		Gh_AN = natn[Gc_AN][h_AN];
+		Hwan = WhatSpecies[Gh_AN];
+		tno1 = Spe_Total_NO[Hwan];
+	      } 
+
+	      for (i=0; i<tno0; i++){
+		free(ResidualH1[m][k][Mc_AN][h_AN][i]);
+	      }
+              free(ResidualH1[m][k][Mc_AN][h_AN]);
+	    }
+            free(ResidualH1[m][k][Mc_AN]);
+	  }
+          free(ResidualH1[m][k]);
+	}
+        free(ResidualH1[m]);
+      }
+      free(ResidualH1);
+
+      /* ResidualH2 */
+
+      if (SpinP_switch==3){
+
+	for (m=0; m<List_YOUSO[39]; m++){
+	  for (k=0; k<SpinP_switch; k++){
+	    FNAN[0] = 0;
+	    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	      if (Mc_AN==0){
+		Gc_AN = 0;
+		tno0 = 1;
+	      }
+	      else{
+		Gc_AN = S_M2G[Mc_AN];
+		Cwan = WhatSpecies[Gc_AN];
+		tno0 = Spe_Total_NO[Cwan];  
+	      }    
+
+	      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+		if (Mc_AN==0){
+		  tno1 = 1;  
+		}
+		else{
+		  Gh_AN = natn[Gc_AN][h_AN];
+		  Hwan = WhatSpecies[Gh_AN];
+		  tno1 = Spe_Total_NO[Hwan];
+		} 
+
+		for (i=0; i<tno0; i++){
+		  free(ResidualH2[m][k][Mc_AN][h_AN][i]);
+		}
+                free(ResidualH2[m][k][Mc_AN][h_AN]);
+	      }
+              free(ResidualH2[m][k][Mc_AN]);
+	    }
+            free(ResidualH2[m][k]);
+	  }
+          free(ResidualH2[m]);
+	}
+        free(ResidualH2);
+
+      } /* if (SpinP_switch==3) */
+
+    } /* if (Mixing_switch==5) */
+
+    /* for RMM-DIIS */
+
+    if (Mixing_switch==1 || Mixing_switch==6){
+
+      /* HisH1 */
+
+      for (m=0; m<List_YOUSO[39]; m++){
+	for (k=0; k<=SpinP_switch; k++){
+	  FNAN[0] = 0;
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	    if (Mc_AN==0){
+	      Gc_AN = 0;
+	      tno0 = 1;
+	    }
+	    else{
+	      Gc_AN = S_M2G[Mc_AN];
+	      Cwan = WhatSpecies[Gc_AN];
+	      tno0 = Spe_Total_NO[Cwan];  
+	    }    
+
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      if (Mc_AN==0){
+		tno1 = 1;  
+	      }
+	      else{
+		Gh_AN = natn[Gc_AN][h_AN];
+		Hwan = WhatSpecies[Gh_AN];
+		tno1 = Spe_Total_NO[Hwan];
+	      } 
+
+	      for (i=0; i<tno0; i++){
+		free(HisH1[m][k][Mc_AN][h_AN][i]);
+	      }
+              free(HisH1[m][k][Mc_AN][h_AN]);
+	    }
+            free(HisH1[m][k][Mc_AN]);
+	  }
+          free(HisH1[m][k]);
+	}
+        free(HisH1[m]);
+      }
+      free(HisH1);
+
+      /* HisH2 */
+
+      if (SpinP_switch==3){
+
+	for (m=0; m<List_YOUSO[39]; m++){
+	  for (k=0; k<SpinP_switch; k++){
+	    FNAN[0] = 0;
+	    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	      if (Mc_AN==0){
+		Gc_AN = 0;
+		tno0 = 1;
+	      }
+	      else{
+		Gc_AN = S_M2G[Mc_AN];
+		Cwan = WhatSpecies[Gc_AN];
+		tno0 = Spe_Total_NO[Cwan];  
+	      }    
+
+	      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+		if (Mc_AN==0){
+		  tno1 = 1;  
+		}
+		else{
+		  Gh_AN = natn[Gc_AN][h_AN];
+		  Hwan = WhatSpecies[Gh_AN];
+		  tno1 = Spe_Total_NO[Hwan];
+		} 
+
+		for (i=0; i<tno0; i++){
+		  free(HisH2[m][k][Mc_AN][h_AN][i]);
+		}
+                free(HisH2[m][k][Mc_AN][h_AN]);
+	      }
+              free(HisH2[m][k][Mc_AN]);
+	    }
+            free(HisH2[m][k]);
+	  }
+          free(HisH2[m]);
+	}
+        free(HisH2);
+
+      } /* if (SpinP_switch==3) */
+
+    } /* if (Mixing_switch==1 || Mixing_switch==6) */
+
     /* DM */  
 
     for (m=0; m<List_YOUSO[16]; m++){
@@ -854,7 +1124,7 @@ void array0()
 
     /* DM_onsite added by MJ */
 
-    if (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
+    if (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
 
       for (m=0; m<2; m++){
 	for (k=0; k<=SpinP_switch; k++){
@@ -885,7 +1155,7 @@ void array0()
 
     /* v_eff added by MJ */  
 
-    if (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
+    if (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
    
       for (k=0; k<=SpinP_switch; k++){
 
@@ -918,7 +1188,7 @@ void array0()
 
     /*  NC_OcpN */
 
-    if ( (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
+    if ( (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
           && SpinP_switch==3 ){
 
       for (m=0; m<2; m++){
@@ -952,7 +1222,7 @@ void array0()
 
     /*  NC_v_eff */
 
-    if ( (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) 
+    if ( (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) 
          && SpinP_switch==3 ){
 
       for (s1=0; s1<2; s1++){
@@ -983,7 +1253,7 @@ void array0()
 
     /* ResidualDM */  
 
-    if ( Mixing_switch==0 || Mixing_switch==1 || Mixing_switch==2 ){
+    if ( Mixing_switch==0 || Mixing_switch==1 || Mixing_switch==2 || Mixing_switch==6 ){
 
       for (m=0; m<List_YOUSO[16]; m++){
 	for (k=0; k<=SpinP_switch; k++){
@@ -1028,8 +1298,8 @@ void array0()
 
     /* iResidualDM */  
 
-    if ( (Mixing_switch==0 || Mixing_switch==1 || Mixing_switch==2)
-	 && SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1
+    if ( (Mixing_switch==0 || Mixing_switch==1 || Mixing_switch==2 || Mixing_switch==6)
+	 && SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
         || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) ){
 
       for (m=0; m<List_YOUSO[16]; m++){
@@ -1201,7 +1471,7 @@ void array0()
 
     /* S12 */  
 
-    if (Solver==1 || Solver==5){ /* for recursion, DC and EC */
+    if (Solver==1 || Solver==5){ /* for recursion and DC */
 
       for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
@@ -1496,7 +1766,7 @@ void array0()
       }
     }
 
-    if (Solver==8) { /* embedding cluster method */
+    if (Solver==8) { /* O(N) Krylov subspace method */
 
       for (i=0; i<=SpinP_switch; i++){
 	for (j=0; j<=Matomnum; j++){
@@ -1543,6 +1813,83 @@ void array0()
       free(scale_rc_EKC);
     }
 
+    /**************************
+            EC method
+    **************************/
+
+    if (Solver==10) { 
+
+      free(Msize_EC);
+      free(Each_EC_Sub_Dim);
+      free(rl_EC);
+
+      /* EVal_EC */
+      for (spin=0; spin<=SpinP_switch; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(EVal_EC[spin][Mc_AN]);
+	}
+        free(EVal_EC[spin]);
+      }
+      free(EVal_EC);
+
+      /* Residues_EC */
+      for (spin=0; spin<=SpinP_switch; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	  if (Mc_AN==0){
+	    Gc_AN = 0;  FNAN[0] = 1; tno1 = 1; 
+	  }
+	  else{
+	    Gc_AN = M2G[Mc_AN];
+	    wanA = WhatSpecies[Gc_AN];
+	    tno1 = Spe_Total_CNO[wanA];
+	  }
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    if (Mc_AN==0){
+	      tno2 = 1;
+	    }
+	    else {
+	      Gh_AN = natn[Gc_AN][h_AN];
+	      wanB = WhatSpecies[Gh_AN];
+	      tno2 = Spe_Total_CNO[wanB];
+	    }
+
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+		free(Residues_EC[spin][Mc_AN][h_AN][i][j]);
+	      }
+   	      free(Residues_EC[spin][Mc_AN][h_AN][i]);
+	    }
+            free(Residues_EC[spin][Mc_AN][h_AN]);
+	  }
+          free(Residues_EC[spin][Mc_AN]);
+	}
+        free(Residues_EC[spin]);
+      }
+      free(Residues_EC);
+
+      /* PDOS_EC */
+      for (spin=0; spin<=SpinP_switch; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(PDOS_EC[spin][Mc_AN]);
+	}
+        free(PDOS_EC[spin]);
+      }
+      free(PDOS_EC);
+
+      /* SubSpace_EC */
+      for (spin=0; spin<=SpinP_switch; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(SubSpace_EC[spin][Mc_AN]);
+	}
+        free(SubSpace_EC[spin]);
+      }
+      free(SubSpace_EC);
+
+    } /* if (Solver==10) */
+
     /* NEGF */
 
     if (Solver==4){
@@ -1554,6 +1901,120 @@ void array0()
       }
       free(TRAN_DecMulP);
     }
+
+    /* Energy decomposition */
+
+    if (Energy_Decomposition_flag==1){
+
+      /* DecEkin */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEkin[spin][Mc_AN]);
+	}
+        free(DecEkin[spin]);
+      }
+      free(DecEkin);
+
+      /* DecEna */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEna[spin][Mc_AN]);
+	}
+        free(DecEna[spin]);
+      }
+      free(DecEna);
+
+      /* DecEnl */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEnl[spin][Mc_AN]);
+	}
+        free(DecEnl[spin]);
+      }
+      free(DecEnl);
+
+      /* DecEdee */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEdee[spin][Mc_AN]);
+	}
+        free(DecEdee[spin]);
+      }
+      free(DecEdee);
+
+      /* DecExc */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecExc[spin][Mc_AN]);
+	}
+        free(DecExc[spin]);
+      }
+      free(DecExc);
+
+      /* DecEef */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEef[spin][Mc_AN]);
+	}
+        free(DecEef[spin]);
+      }
+      free(DecEef);
+
+      /* DecEscc */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEscc[spin][Mc_AN]);
+	}
+        free(DecEscc[spin]);
+      }
+      free(DecEscc);
+
+      /* DecEhub */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEhub[spin][Mc_AN]);
+	}
+        free(DecEhub[spin]);
+      }
+      free(DecEhub);
+
+      /* DecEcs */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEcs[spin][Mc_AN]);
+	}
+        free(DecEcs[spin]);
+      }
+      free(DecEcs);
+
+      /* DecEvdw */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEvdw[spin][Mc_AN]);
+	}
+        free(DecEvdw[spin]);
+      }
+      free(DecEvdw);
+
+      /* DecEzs */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEzs[spin][Mc_AN]);
+	}
+        free(DecEzs[spin]);
+      }
+      free(DecEzs);
+
+      /* DecEzo */
+      for (spin=0; spin<2; spin++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+	  free(DecEzo[spin][Mc_AN]);
+	}
+        free(DecEzo[spin]);
+      }
+      free(DecEzo);
+
+    } /* if (Energy_Decomposition_flag==1) */
 
   } /*  if (alloc_first[4]==0){ */
 
@@ -1711,7 +2172,7 @@ void array0()
   /* Allocation_Arrays(0) */
 
   /* arrays for LDA+U added by MJ */
-  if (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
+  if (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
     for (i=0; i<SpeciesNum; i++){
       for (l=0; l<(Spe_MaxL_Basis[i]+1); l++){
 	free(Hub_U_Basis[i][l]);
@@ -1724,7 +2185,7 @@ void array0()
   }
 
   /* arrays for DFTD-vdW okuno */
-  if(dftD_switch==1){
+  if(dftD_switch==1 && version_dftD==2){
 
     for(i=0; i<SpeciesNum; i++){
       free(C6ij_dftD[i]);
@@ -1738,6 +2199,39 @@ void array0()
 
   }
   /* okuno */
+
+  /* arrays for DFTD3_vdW Ellner */
+
+  if(dftD_switch==1 && version_dftD==3){
+
+    free(maxcn_dftD);
+    for(i=0; i<SpeciesNum; i++){
+      free(r0ab_dftD[i]);
+    }
+    free(r0ab_dftD);
+    for(i=0; i<SpeciesNum; i++){
+      free(r2r4ab_dftD[i]);
+    }
+    free(r2r4ab_dftD);
+    for(i=0; i<SpeciesNum; i++){
+      free(rcovab_dftD[i]);
+    }
+    free(rcovab_dftD);
+    for(i=0; i<SpeciesNum; i++){
+      for(j=0; j<SpeciesNum; j++){
+        for(k=0; k<5; k++){
+          for(l=0; l<5; l++){
+            free(C6ab_dftD[i][j][k][l]);
+          }
+          free(C6ab_dftD[i][j][k]);
+        }
+        free(C6ab_dftD[i][j]);
+      }
+      free(C6ab_dftD[i]);
+    }
+    free(C6ab_dftD);
+  }
+  /* Ellner */
 
   for (i=0; i<SpeciesNum; i++){
     free(SpeName[i]);
@@ -1773,6 +2267,8 @@ void array0()
   }  
   free(Spe_Num_CBasis);
 
+  free(Spe_OpenCore_flag);
+
   free(Spe_Spe2Ban);
   free(Species_Top);
   free(Species_End);
@@ -1799,6 +2295,9 @@ void array0()
   free(Num_Rcv_Grid_B_AB2CA);
   free(Num_Snd_Grid_B_CA2CB);
   free(Num_Rcv_Grid_B_CA2CB);
+/* added by mari 05.12.2014 */
+  free(Num_Snd_Grid_B_AB2C);
+  free(Num_Rcv_Grid_B_AB2C);
 
   if (alloc_first[26]==0){
 
@@ -1848,6 +2347,20 @@ void array0()
     free(GP_B_AB2CA_R);
   }
 
+/* added by mari 05.12.2014 */
+  if (alloc_first[31]==0){
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B_AB2C[ID]);
+    }  
+    free(Index_Snd_Grid_B_AB2C);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B_AB2C[ID]);
+    }  
+    free(Index_Rcv_Grid_B_AB2C);
+  }
+
   if (alloc_first[29]==0){
 
     for (ID=0; ID<numprocs; ID++){
@@ -1888,9 +2401,14 @@ void array0()
   }
   free(EH0_scaling);
 
+  for (i=0; i<SpeciesNum; i++){
+    free(SO_factor[i]);
+  }
+  free(SO_factor);
+
   /* Allocation_Arrays(1) */
 
-  for (i=0; i<(atomnum+1); i++){
+  for (i=0; i<(atomnum+4); i++){
     free(Gxyz[i]);
   }
   free(Gxyz);
@@ -1898,7 +2416,7 @@ void array0()
   num = M_GDIIS_HISTORY + 1;
 
   for(i=0; i<num; i++) {
-    for(j=0; j<(atomnum+1); j++) {
+    for(j=0; j<(atomnum+4); j++) {
       free(GxyzHistoryIn[i][j]);
     }
     free(GxyzHistoryIn[i]);
@@ -1906,7 +2424,7 @@ void array0()
   free(GxyzHistoryIn);
 
   for(i=0; i<num; i++) {
-    for(j=0; j<(atomnum+1); j++) {
+    for(j=0; j<(atomnum+4); j++) {
       free(GxyzHistoryR[i][j]);
     }
     free(GxyzHistoryR[i]);
@@ -1925,7 +2443,7 @@ void array0()
   }
   free(atom_Fixed_XYZ);
 
-  for (i=0; i<(atomnum+1); i++){
+  for (i=0; i<(atomnum+4); i++){
     free(Cell_Gxyz[i]);
   }      
   free(Cell_Gxyz);
@@ -1941,7 +2459,7 @@ void array0()
   free(S_G2M);
   free(time_per_atom);
 
-  if (Solver==1 || Solver==5 || Solver==6 || Solver==8){
+  if (Solver==1 || Solver==5 || Solver==6 || Solver==8 || Solver==10){
     free(orderN_FNAN_SNAN);
   }
 
@@ -1972,6 +2490,42 @@ void array0()
       free(Hessian[i]);
     }
     free(Hessian);
+  }
+
+  /* RFC */
+
+  if (MD_switch==18){
+
+    for (i=0; i<(3*atomnum+11); i++){
+      free(Hessian[i]);
+    }
+    free(Hessian);
+  }
+
+  /* for EC method */
+
+  if (Solver==10){
+
+    for (spin=0; spin<(SpinP_switch+1); spin++){
+      for (i=0; i<(atomnum+1); i++){
+	free(First_Moment_EC[spin][i]);
+      }
+      free(First_Moment_EC[spin]);
+    }
+    free(First_Moment_EC);
+
+    for (spin=0; spin<(SpinP_switch+1); spin++){
+      for (i=0; i<(atomnum+1); i++){
+	free(Second_Moment_EC[spin][i]);
+      }
+      free(Second_Moment_EC[spin]);
+    }
+    free(Second_Moment_EC);
+  }
+
+  /* Constraint_NCS_switch==2 */
+  if (Constraint_NCS_switch==2){
+    free(InitMagneticMoment);
   }
 
   /* for MD_VS4 */
@@ -2059,31 +2613,34 @@ void array0()
 
   if (remake_headfile==0){
 
-    for (i=0; i<SpeciesNum; i++){
-      free(GridX_EH0[i]);
-    }
-    free(GridX_EH0);
+    if (alloc_first[32]==0){
 
-    for (i=0; i<SpeciesNum; i++){
-      free(GridY_EH0[i]);
-    }
-    free(GridY_EH0);
+      for (i=0; i<SpeciesNum; i++){
+	free(GridX_EH0[i]);
+      }
+      free(GridX_EH0);
 
-    for (i=0; i<SpeciesNum; i++){
-      free(GridZ_EH0[i]);
-    }
-    free(GridZ_EH0);
+      for (i=0; i<SpeciesNum; i++){
+	free(GridY_EH0[i]);
+      }
+      free(GridY_EH0);
 
-    for (i=0; i<SpeciesNum; i++){
-      free(Arho_EH0[i]);
-    }
-    free(Arho_EH0);
+      for (i=0; i<SpeciesNum; i++){
+	free(GridZ_EH0[i]);
+      }
+      free(GridZ_EH0);
 
-    for (i=0; i<SpeciesNum; i++){
-      free(Wt_EH0[i]);
-    }
-    free(Wt_EH0);
+      for (i=0; i<SpeciesNum; i++){
+	free(Arho_EH0[i]);
+      }
+      free(Arho_EH0);
 
+      for (i=0; i<SpeciesNum; i++){
+	free(Wt_EH0[i]);
+      }
+      free(Wt_EH0);
+
+    }
   }
 
   /* Allocation_Arrays(5) */
@@ -2400,6 +2957,71 @@ void array0()
     free(Wannier_RotMat_for_Real_Func);
       
     free(Wannier_ProName2Num);
+  }
+
+  /* Allocation_Arrays(11) */ /* NBO by T.Ohwaki */
+
+  if (NBO_switch!=0){
+
+    free(NBO_FCenter);
+    free(Num_NHOs);
+
+    for (i=0; i<(NAO_Nkpoint+1); i++){
+      free(NAO_kpoint[i]);
+    }
+    free(NAO_kpoint);
+
+    free(rlmax_EC_NAO);
+    free(rlmax_EC2_NAO);
+    free(EKC_core_size_NAO);
+
+    free(F_Snd_Num_NAO);
+    free(S_Snd_Num_NAO);
+    free(F_Rcv_Num_NAO);
+    free(S_Rcv_Num_NAO);
+
+    free(F_TopMAN_NAO);
+    free(S_TopMAN_NAO);
+
+    free(F_G2M_NAO);
+    free(S_G2M_NAO);
+
+    free(Snd_HFS_Size_NAO);
+    free(Rcv_HFS_Size_NAO);
+
+    for (k=0; k<=SpinP_switch; k++){
+      for (i=0; i<Size_Total_Matrix; i++){
+	for (j=0; j<=atomnum; j++){
+	  free(NHOs_Coef[k][i][j]);
+	}
+	free(NHOs_Coef[k][i]);
+      }
+      free(NHOs_Coef[k]);
+    }
+    free(NHOs_Coef);
+
+    for (k=0; k<=SpinP_switch; k++){
+      for (i=0; i<Size_Total_Matrix; i++){
+	for (j=0; j<=atomnum; j++){
+	  free(NBOs_Coef_b[k][i][j]);
+	}
+	free(NBOs_Coef_b[k][i]);
+      }
+      free(NBOs_Coef_b[k]);
+    }
+    free(NBOs_Coef_b);
+
+    for (k=0; k<=SpinP_switch; k++){
+      for (i=0; i<Size_Total_Matrix; i++){
+	for (j=0; j<=atomnum; j++){
+	  free(NBOs_Coef_a[k][i][j]);
+	}
+	free(NBOs_Coef_a[k][i]);
+      }
+      free(NBOs_Coef_a[k]);
+    }
+    free(NBOs_Coef_a);
+
   }
 
 }

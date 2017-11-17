@@ -12,15 +12,18 @@
      11/Oct/2011  xsf files for non-collinear, pden.cube, dden.cube files
                   by T.Ozaki 
 ***********************************************************************/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "openmx_common.h"
 #include "mpi.h"
 #include <omp.h>
+
 
 #define CUBE_EXTENSION ".cube"
 
@@ -36,13 +39,16 @@ static void out_coordinates_bulk();
 static void out_Cluster_MO();
 static void out_Cluster_NC_MO();
 static void out_Bulk_MO();
+static void out_Cluster_NBO(); /* added by T.Ohwaki */
 static void out_OrbOpt(char *inputfile);
 static void out_Partial_Charge_Density();
 static void Set_Partial_Density_Grid(double *****CDM);
 static void Print_CubeTitle(FILE *fp, int EigenValue_flag, double EigenValue);
+static void Print_CubeTitle2(FILE *fp,int N1,int N2,int N3,double *sc_org,int atomnum_sc,int *a_sc);
 static void Print_CubeData(FILE *fp, char fext[], double *data, double *data1,char *op);
 static void Print_CubeCData_MO(FILE *fp,dcomplex *data,char *op);
 static void Print_CubeData_MO(FILE *fp, double *data, double *data1,char *op);
+static void Print_CubeData_MO2(FILE *fp,double *data,double *data1,char *op,int N1,int N2,int N3);
 static void Print_VectorData(FILE *fp, char fext[],
                              double *data0, double *data1,
                              double *data2, double *data3);
@@ -50,7 +56,7 @@ static void Print_VectorData(FILE *fp, char fext[],
 double OutData(char *inputfile)
 {
   char operate[YOUSO10];
-  int i,c;
+  int i,c,fd;
   int numprocs,myid;
   char fname1[300];
   char fname2[300];
@@ -100,6 +106,10 @@ double OutData(char *inputfile)
     out_OrbOpt(inputfile);    
   } 
 
+  /* NBO (addoed by T.Ohwaki) */
+
+  if(NHO_fileout==1 || NBO_fileout==1) out_Cluster_NBO();
+
   /*************************************************
      partial charge density for STM simulations 
      The routine, out_Partial_Charge_Density(), 
@@ -121,7 +131,7 @@ double OutData(char *inputfile)
 #ifdef xt3
 
       sprintf(fname1,"%s%s.Dos.vec",filepath,filename);
-      fp1 = fopen(fname1,"a");
+      fp1 = fopen(fname1,"ab");
 
       if (fp1!=NULL){
         remove(fname1); 
@@ -131,15 +141,19 @@ double OutData(char *inputfile)
       for (i=0; i<numprocs; i++){ 
 
         sprintf(fname1,"%s%s.Dos.vec",filepath,filename);
-        fp1 = fopen(fname1,"a");
+        fp1 = fopen(fname1,"ab");
         fseek(fp1,0,SEEK_END);
         sprintf(fname2,"%s%s.Dos.vec%i",filepath,filename,i);
-        fp2 = fopen(fname2,"r");
+        fp2 = fopen(fname2,"rb");
 
         if (fp2!=NULL){
           for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
+          fd = fileno(fp2); 
+          fsync(fd);
 	  fclose(fp2); 
         }
+        fd = fileno(fp1); 
+        fsync(fd);
         fclose(fp1); 
       }
 
@@ -157,8 +171,14 @@ double OutData(char *inputfile)
           sprintf(operate,"cat %s%s.Dos.vec%i >> tmp1",filepath,filename,i);
 
         system(operate);
+
+        sprintf(operate,"%s%s.Dos.vec%i",filepath,filename,i);
+        remove(operate);
+
+	/*
         sprintf(operate,"rm %s%s.Dos.vec%i",filepath,filename,i);
         system(operate);
+	*/
       }
 
       sprintf(operate,"mv tmp1 %s%s.Dos.vec",filepath,filename);
@@ -178,7 +198,7 @@ double OutData(char *inputfile)
 void out_density()
 {
   int ct_AN,spe,i1,i2,i3,GN,i,j,k;
-  int MN;
+  int MN,fd;
   double x,y,z,vx,vy,vz;
   double phi,theta,sden,oden;
   double xmin,ymin,zmin,xmax,ymax,zmax;
@@ -191,8 +211,8 @@ void out_density()
   char file10[YOUSO10] = ".ncsden.xsf";
   char file12[YOUSO10] = ".nco.xsf";
   char file11[YOUSO10] = ".dden";
-  FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
+  FILE *fp;
   int numprocs,myid,ID;
 
   /* MPI */
@@ -213,10 +233,6 @@ void out_density()
 
   if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
 
     for (MN=0; MN<My_NumGridB_AB; MN++){
@@ -224,7 +240,7 @@ void out_density()
                            +Density_Grid_B[1][MN] 
  	                 -2.0*ADensity_Grid_B[MN];
     }
-    
+
     Print_CubeData(fp,file11,ADensity_Grid_B,(void*)NULL,(void*)NULL);
   }
   else{
@@ -238,10 +254,6 @@ void out_density()
   sprintf(fname,"%s%s%s%i",filepath,filename,file1,myid);
 
   if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
 
@@ -272,10 +284,6 @@ void out_density()
 
     if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file2,Density_Grid_B[0],NULL,NULL);
     }
@@ -291,10 +299,6 @@ void out_density()
 
     if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file3,Density_Grid_B[1],NULL,NULL);
     }
@@ -309,10 +313,6 @@ void out_density()
     sprintf(fname,"%s%s%s%i",filepath,filename,file4,myid);
 
     if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file4,Density_Grid_B[0],Density_Grid_B[1],"diff");
@@ -333,10 +333,6 @@ void out_density()
     sprintf(fname,"%s%s%s%i",filepath,filename,file10,myid);
     if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  
-#endif
- 
       Print_VectorData(fp,file10,Density_Grid_B[0],Density_Grid_B[1],
 		       Density_Grid_B[2],Density_Grid_B[3]);
 
@@ -354,9 +350,7 @@ void out_density()
       sprintf(fname,"%s%s%s",filepath,filename,file9);
       if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
         setvbuf(fp,buf,_IOFBF,fp_bsize); 
-#endif
 
         fprintf(fp,"CRYSTAL\n");
         fprintf(fp,"PRIMVEC\n");
@@ -386,6 +380,8 @@ void out_density()
 		  vx,vy,vz);
  	}
 
+	fd = fileno(fp); 
+	fsync(fd);
         fclose(fp);
       }
       else{
@@ -398,9 +394,7 @@ void out_density()
       sprintf(fname,"%s%s%s",filepath,filename,file12);
       if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
         setvbuf(fp,buf,_IOFBF,fp_bsize); 
-#endif
 
         fprintf(fp,"CRYSTAL\n");
         fprintf(fp,"PRIMVEC\n");
@@ -431,6 +425,8 @@ void out_density()
 		  vx,vy,vz);
  	}
 
+	fd = fileno(fp); 
+	fsync(fd);
         fclose(fp);
       }
       else{
@@ -450,7 +446,6 @@ static void out_Vhart()
   char fname[YOUSO10];
   char file1[YOUSO10] = ".vhart";
   FILE *fp;
-  char buf[fp_bsize];          /* setvbuf */
   int numprocs,myid,ID;
 
   /* MPI */
@@ -465,10 +460,6 @@ static void out_Vhart()
 
   sprintf(fname,"%s%s%s%i",filepath,filename,file1,myid);
   if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
     Print_CubeData(fp,file1,dVHart_Grid_B,NULL,NULL);
@@ -488,7 +479,6 @@ static void out_Vna()
   char fname[YOUSO10];
   char file1[YOUSO10] = ".vna";
   FILE *fp;
-  char buf[fp_bsize];          /* setvbuf */
   int numprocs,myid,ID;
 
   /* MPI */
@@ -504,10 +494,6 @@ static void out_Vna()
   sprintf(fname,"%s%s%s%i",filepath,filename,file1,myid);
 
   if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
     Print_CubeData(fp,file1,VNA_Grid_B,NULL,NULL);
@@ -531,7 +517,6 @@ static void out_Vxc()
   char fname[YOUSO10];
   char file1[YOUSO10] = ".vxc0";
   char file2[YOUSO10] = ".vxc1";
-  char buf[fp_bsize];          /* setvbuf */
   FILE *fp;
   int numprocs,myid,ID,IDS,IDR,tag=999;
   MPI_Status stat;
@@ -651,10 +636,6 @@ static void out_Vxc()
   sprintf(fname,"%s%s%s%i",filepath,filename,file1,myid);
   if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
     Print_CubeData(fp,file1,Work_Array_B[0],NULL,NULL);
   }
@@ -671,10 +652,6 @@ static void out_Vxc()
     sprintf(fname,"%s%s%s%i",filepath,filename,file2,myid);
 
     if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file2,Work_Array_B[1],NULL,NULL);
@@ -708,11 +685,10 @@ static void out_Veff()
   char file1[YOUSO10] = ".v0";
   char file2[YOUSO10] = ".v1";
   FILE *fp;
-  char buf[fp_bsize];          /* setvbuf */
   int numprocs,myid,ID,IDS,IDR,tag=999;
   MPI_Status stat;
   MPI_Request request;
-
+  
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
@@ -827,10 +803,6 @@ static void out_Veff()
   sprintf(fname,"%s%s%s%i",filepath,filename,file1,myid);
   if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
     Print_CubeData(fp,file1,Work_Array_B[0],NULL,NULL);
   }
@@ -846,10 +818,6 @@ static void out_Veff()
 
     sprintf(fname,"%s%s%s%i",filepath,filename,file2,myid);
     if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file2,Work_Array_B[1],NULL,NULL);
@@ -873,7 +841,7 @@ static void out_Veff()
 
 static void out_grid()
 {
-  int N;
+  int N,fd;
   char file1[YOUSO10] = ".grid";
   int numprocs,myid,ID;
   double x,y,z;
@@ -895,9 +863,7 @@ static void out_grid()
 
     if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       for (N=0; N<TNumGrid; N++){
         Get_Grid_XYZ(N,Cxyz);
@@ -906,6 +872,9 @@ static void out_grid()
         z = Cxyz[3];
         fprintf(fp,"%5d  %19.12f %19.12f %19.12f\n", N,BohrR*x,BohrR*y,BohrR*z);
       }
+
+      fd = fileno(fp); 
+      fsync(fd);
       fclose(fp);
     }
     else{
@@ -922,7 +891,7 @@ static void out_grid()
 
 static void out_atomxyz()
 {
-  int ct_AN,spe,i1,i2,i3,GN,i,j,k;
+  int ct_AN,spe,i1,i2,i3,GN,i,j,k,fd;
   char filexyz[YOUSO10] = ".xyz";
   char buf[fp_bsize];          /* setvbuf */
   FILE *fp;
@@ -941,9 +910,7 @@ static void out_atomxyz()
     fnjoint(filepath,filename,filexyz);
     if ((fp = fopen(filexyz,"w")) != NULL){
 
-#ifdef xt3
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       fprintf(fp,"%i \n\n",atomnum);
       for (k=1; k<=atomnum; k++){
@@ -954,6 +921,9 @@ static void out_atomxyz()
 	        Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
 	        Gxyz[k][17],Gxyz[k][18],Gxyz[k][19]);
       }
+
+      fd = fileno(fp); 
+      fsync(fd);
       fclose(fp);
     }
     else{
@@ -966,7 +936,7 @@ static void out_atomxyz()
 
 static void out_atomxsf()
 {
-  int ct_AN,spe,i1,i2,i3,GN,i,j,k;
+  int ct_AN,spe,i1,i2,i3,GN,i,j,k,fd;
   char filexsf[YOUSO10] = ".coord.xsf";
   char buf[fp_bsize];          /* setvbuf */
   FILE *fp;
@@ -985,9 +955,7 @@ static void out_atomxsf()
     fnjoint(filepath,filename,filexsf);
     if ((fp = fopen(filexsf,"w")) != NULL){
 
-#ifdef xt3
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       fprintf(fp,"CRYSTAL\n");
       fprintf(fp,"PRIMVEC\n");
@@ -1005,6 +973,9 @@ static void out_atomxsf()
 	        Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
 	        Gxyz[k][24],Gxyz[k][25],Gxyz[k][26]);
       }
+
+      fd = fileno(fp); 
+      fsync(fd);
       fclose(fp);
     }
     else{
@@ -1017,7 +988,7 @@ static void out_atomxsf()
 
 void out_coordinates_bulk()
 {
-  int n,i1,i2,i3,ct_AN,i,j;
+  int n,i1,i2,i3,ct_AN,i,j,fd;
   double tx,ty,tz,x,y,z;
   char file1[YOUSO10] = ".bulk.xyz";
   char buf[fp_bsize];          /* setvbuf */
@@ -1040,9 +1011,7 @@ void out_coordinates_bulk()
 
     if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       fprintf(fp,"%d\n\n",atomnum*(2*n+1)*(2*n+1)*(2*n+1));
 
@@ -1067,6 +1036,8 @@ void out_coordinates_bulk()
         }
       }
 
+      fd = fileno(fp); 
+      fsync(fd);
       fclose(fp);
     }
     else{
@@ -1081,7 +1052,7 @@ void out_coordinates_bulk()
 void out_Cluster_MO()
 { 
   int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc;
-  int orbit,GN,spe,i,i1,i2,i3,so;
+  int orbit,GN,spe,i,i1,i2,i3,so,fd;
   double *MO_Grid_tmp;
   double *MO_Grid;
   char file1[YOUSO10];
@@ -1156,12 +1127,11 @@ void out_Cluster_MO()
 
 	  if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
 	    Print_CubeTitle(fp,1,HOMOs_Coef[0][spin][orbit][0][0].r);
 	    Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
+
+	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
 	  else{
@@ -1228,12 +1198,13 @@ void out_Cluster_MO()
 
 	  if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
 	    Print_CubeTitle(fp,1,LUMOs_Coef[0][spin][orbit][0][0].r);
 	    Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
+
+	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
 	  else{
@@ -1257,10 +1228,425 @@ void out_Cluster_MO()
 } 
 
 
+void out_Cluster_NBO() /* added by T.Ohwaki */
+{
+  int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc,num,tnum;
+  int orbit,GN,GNs,spe,i,i1,i2,i3,so,j,k;
+  double tmp1,tmp2,tmp3;
+  double *MO_Grid_tmp,*MO_Grid_tmp2;
+  double *MO_Grid;
+
+  double Leng_A,Leng_B,Leng_C,SCell_Origin[4];
+  double SCell_A1,SCell_A2,SCell_B1,SCell_B2,SCell_C1,SCell_C2;
+  int SCell_Grid_A1,SCell_Grid_A2,SCell_Grid_B1,SCell_Grid_B2,SCell_Grid_C1,SCell_Grid_C2;
+  int SCell_GridN_A,SCell_GridN_B,SCell_GridN_C,TNumAtom_SCell;
+  int TNumGrid_SCell,SCell_Grid_Origin,*GridList_L2SCell,*SCell_Atom;
+
+  char file1[YOUSO10];
+  char buf[fp_bsize];          /* setvbuf */
+  FILE *fp;
+  int numprocs,myid,ID;
+
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /***********************************************
+    Small cell for small-size output of orbitals
+  ***********************************************/
+
+  if (NBO_SmallCell_Switch == 1){
+    Leng_A = sqrt(tv[1][1]*tv[1][1] + tv[1][2]*tv[1][2] + tv[1][3]*tv[1][3]);
+    Leng_B = sqrt(tv[2][1]*tv[2][1] + tv[2][2]*tv[2][2] + tv[2][3]*tv[2][3]);
+    Leng_C = sqrt(tv[3][1]*tv[3][1] + tv[3][2]*tv[3][2] + tv[3][3]*tv[3][3]);
+
+if(myid==Host_ID) printf("   $$$ Cell size: %10.6f %10.6f %10.6f \n",Leng_A,Leng_B,Leng_C);
+
+    SCell_Origin[1] = tv[1][1] * NBO_SmallCellFrac[1][1]
+                    + tv[2][1] * NBO_SmallCellFrac[2][1]
+                    + tv[3][1] * NBO_SmallCellFrac[3][1]
+                    + Grid_Origin[1];
+    SCell_Origin[2] = tv[1][2] * NBO_SmallCellFrac[1][1]
+                    + tv[2][2] * NBO_SmallCellFrac[2][1]
+                    + tv[3][2] * NBO_SmallCellFrac[3][1]
+                    + Grid_Origin[2];
+    SCell_Origin[3] = tv[1][3] * NBO_SmallCellFrac[1][1]
+                    + tv[2][3] * NBO_SmallCellFrac[2][1]
+                    + tv[3][3] * NBO_SmallCellFrac[3][1]
+                    + Grid_Origin[3];
+
+    SCell_A1 = Leng_A * NBO_SmallCellFrac[1][1];
+    SCell_A2 = Leng_A * NBO_SmallCellFrac[1][2];
+    SCell_B1 = Leng_B * NBO_SmallCellFrac[2][1];
+    SCell_B2 = Leng_B * NBO_SmallCellFrac[2][2];
+    SCell_C1 = Leng_C * NBO_SmallCellFrac[3][1];
+    SCell_C2 = Leng_C * NBO_SmallCellFrac[3][2];
+
+if(myid==Host_ID){
+printf("   $$$ SCell size: %10.6f %10.6f \n",SCell_A1,SCell_A2);
+printf("   $$$ SCell size: %10.6f %10.6f \n",SCell_B1,SCell_B2);
+printf("   $$$ SCell size: %10.6f %10.6f \n",SCell_C1,SCell_C2);
+}
+
+    SCell_Grid_A1 = (int)(SCell_A1 / length_gtv[1]) + 1;
+    SCell_Grid_A2 = (int)(SCell_A2 / length_gtv[1])    ;
+    SCell_Grid_B1 = (int)(SCell_B1 / length_gtv[2]) + 1;
+    SCell_Grid_B2 = (int)(SCell_B2 / length_gtv[2])    ;
+    SCell_Grid_C1 = (int)(SCell_C1 / length_gtv[3]) + 1;
+    SCell_Grid_C2 = (int)(SCell_C2 / length_gtv[3])    ;
+
+    SCell_GridN_A = SCell_Grid_A2 - SCell_Grid_A1 + 1;
+    SCell_GridN_B = SCell_Grid_B2 - SCell_Grid_B1 + 1;
+    SCell_GridN_C = SCell_Grid_C2 - SCell_Grid_C1 + 1;
+
+    TNumGrid_SCell = SCell_GridN_A * SCell_GridN_B * SCell_GridN_C;
+
+    SCell_Grid_Origin = Ngrid2 * Ngrid3 * SCell_Grid_A1
+                      + Ngrid2 * SCell_Grid_B1
+                      + SCell_Grid_C1;
+
+    GridList_L2SCell = (int*)malloc(sizeof(int)*TNumGrid_SCell);
+
+    tnum = 0;
+    for (i=0; i<SCell_GridN_A; i++){
+    for (j=0; j<SCell_GridN_B; j++){
+    for (k=0; k<SCell_GridN_C; k++){
+      GridList_L2SCell[tnum] = SCell_Grid_Origin
+                             + Ngrid2 * Ngrid3 * i
+                             + Ngrid3 * j
+                             + k;
+      tnum++;
+    }
+    }
+    }
+    tnum = 0;
+/*
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+      if (Gxyz[Gc_AN][1]>=SCell_A1 && Gxyz[Gc_AN][1]<=SCell_A2){
+      if (Gxyz[Gc_AN][2]>=SCell_B1 && Gxyz[Gc_AN][2]<=SCell_B2){
+      if (Gxyz[Gc_AN][3]>=SCell_C1 && Gxyz[Gc_AN][3]<=SCell_C2){
+        tnum++;
+      }
+      }
+      }
+    }
+*/
+
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      tmp1 = Gxyz[Gc_AN][1] - Grid_Origin[1];
+      tmp2 = Gxyz[Gc_AN][2] - Grid_Origin[2];
+      tmp3 = Gxyz[Gc_AN][3] - Grid_Origin[3];
+
+if(myid==Host_ID) printf("   $$$ Gxyz[%d] : %10.6f %10.6f %10.6f\n",Gc_AN,tmp1,tmp2,tmp3);
+
+      if (tmp1 >= SCell_A1 && tmp1 <=SCell_A2 &&
+          tmp2 >= SCell_B1 && tmp2 <=SCell_B2 &&
+          tmp3 >= SCell_C1 && tmp3 <=SCell_C2){
+        tnum++;
+      }
+    }
+    TNumAtom_SCell = tnum;
+if(myid==Host_ID) printf("   $$$ TNumAtom_SCell = %d\n",TNumAtom_SCell);
+
+    SCell_Atom = (int*)malloc(sizeof(int)*(TNumAtom_SCell+1));
+
+    tnum = 1;
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      tmp1 = Gxyz[Gc_AN][1] - Grid_Origin[1];
+      tmp2 = Gxyz[Gc_AN][2] - Grid_Origin[2];
+      tmp3 = Gxyz[Gc_AN][3] - Grid_Origin[3];
+
+      if (tmp1 >= SCell_A1 && tmp1 <=SCell_A2 &&
+          tmp2 >= SCell_B1 && tmp2 <=SCell_B2 &&
+          tmp3 >= SCell_C1 && tmp3 <=SCell_C2){
+        SCell_Atom[tnum] = Gc_AN;
+        tnum++;
+      }
+    }
+
+if(myid==Host_ID){
+for (i=1; i<=TNumAtom_SCell; i++){
+printf("   $$$ Atom in SCell[%d] = %d\n",i,SCell_Atom[i]);
+}
+}
+
+  } /* if NBO_SmallCell_Switch = on */
+
+  /****************************************************
+    allocation of arrays:
+
+    double MO_Grid_tmp[TNumGrid];
+    double MO_Grid[TNumGrid];
+  ****************************************************/
+
+  if (NBO_SmallCell_Switch == 0){
+    MO_Grid_tmp = (double*)malloc(sizeof(double)*TNumGrid);
+    MO_Grid     = (double*)malloc(sizeof(double)*TNumGrid);
+  }
+  else{
+    MO_Grid_tmp  = (double*)malloc(sizeof(double)*TNumGrid);
+    MO_Grid_tmp2 = (double*)malloc(sizeof(double)*TNumGrid_SCell);
+    MO_Grid      = (double*)malloc(sizeof(double)*TNumGrid_SCell);
+  }
+
+  /*************
+       NHOs
+  *************/
+
+  /* calc. NHO on grids */
+
+  if(NHO_fileout==1){
+
+    if (myid == Host_ID) printf("<NBO> Construction of NHO-cube files \n\n");
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+
+      for (orbit=0; orbit<Total_Num_NHO; orbit++){
+
+        for (GN=0; GN<TNumGrid; GN++) MO_Grid_tmp[GN] = 0.0;
+
+        for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+          Gc_AN = M2G[Mc_AN];
+          Cwan = WhatSpecies[Gc_AN];
+          NO0 = Spe_Total_CNO[Cwan];
+
+          for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+            GN = GridListAtom[Mc_AN][Nc];
+            for (i=0; i<NO0; i++){
+              MO_Grid_tmp[GN] += NHOs_Coef[spin][orbit][Gc_AN][i] *
+                                 Orbs_Grid[Mc_AN][Nc][i];
+            }
+          }
+
+        }
+
+      if (NBO_SmallCell_Switch == 0){
+        MPI_Reduce(&MO_Grid_tmp[0], &MO_Grid[0], TNumGrid, MPI_DOUBLE,
+                   MPI_SUM, Host_ID, mpi_comm_level1);
+      }
+      else{
+        for (GNs=0; GNs<TNumGrid_SCell; GNs++){
+          GN = GridList_L2SCell[GNs];
+          MO_Grid_tmp2[GNs] = MO_Grid_tmp[GN];
+        }
+        MPI_Reduce(&MO_Grid_tmp2[0], &MO_Grid[0], TNumGrid_SCell, MPI_DOUBLE,
+                   MPI_SUM, Host_ID, mpi_comm_level1);
+      }
+
+      /* output NHO on grids */
+
+        if (myid==Host_ID){
+            sprintf(file1,"%s%s.NHO%i_%i%s",filepath,filename,spin,orbit,CUBE_EXTENSION);
+          if ((fp = fopen(file1,"w")) != NULL){
+
+#ifdef xt3
+            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+            if (NBO_SmallCell_Switch == 0){
+              Print_CubeTitle(fp,0,0.0);
+              Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
+              fclose(fp);
+            }
+            else{
+              Print_CubeTitle2(fp,SCell_GridN_A,SCell_GridN_B,SCell_GridN_C,
+                               SCell_Origin,TNumAtom_SCell,SCell_Atom);
+              Print_CubeData_MO2(fp,MO_Grid,NULL,NULL,SCell_GridN_A,SCell_GridN_B,SCell_GridN_C);
+              fclose(fp);
+            }
+
+          }
+          else{
+            printf("Failure of saving MOs\n");
+          }
+
+        }
+
+      }
+    } /* spin */
+
+  }
+
+  /**************
+    Bonding NBOs
+  **************/
+
+  /* calc. bonding NBO on grids */
+
+  if(NBO_fileout==1){
+
+    if (myid == Host_ID) printf("<NBO> Construction of NBO-cube files \n\n");
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+
+      for (orbit=0; orbit<Total_Num_NBO; orbit++){
+
+        for (GN=0; GN<TNumGrid; GN++) MO_Grid_tmp[GN] = 0.0;
+
+        for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+          Gc_AN = M2G[Mc_AN];
+          Cwan = WhatSpecies[Gc_AN];
+          NO0 = Spe_Total_CNO[Cwan];
+
+          for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+            GN = GridListAtom[Mc_AN][Nc];
+            for (i=0; i<NO0; i++){
+              MO_Grid_tmp[GN] += NBOs_Coef_b[spin][orbit][Gc_AN][i] *
+                                 Orbs_Grid[Mc_AN][Nc][i];
+            }
+          }
+
+        }
+
+      if (NBO_SmallCell_Switch == 0){
+        MPI_Reduce(&MO_Grid_tmp[0], &MO_Grid[0], TNumGrid, MPI_DOUBLE,
+                   MPI_SUM, Host_ID, mpi_comm_level1);
+      }
+      else{
+        for (GNs=0; GNs<TNumGrid_SCell; GNs++){
+          GN = GridList_L2SCell[GNs];
+          MO_Grid_tmp2[GNs] = MO_Grid_tmp[GN];
+        }
+        MPI_Reduce(&MO_Grid_tmp2[0], &MO_Grid[0], TNumGrid_SCell, MPI_DOUBLE,
+                   MPI_SUM, Host_ID, mpi_comm_level1);
+      }
+
+      /* output bonding NBO on grids */
+
+        if (myid==Host_ID){
+            sprintf(file1,"%s%s.NBO-b%i_%i%s",filepath,filename,spin,orbit,CUBE_EXTENSION);
+          if ((fp = fopen(file1,"w")) != NULL){
+
+#ifdef xt3
+            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+            if (NBO_SmallCell_Switch == 0){
+              Print_CubeTitle(fp,0,0.0);
+              Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
+              fclose(fp);
+            }
+            else{
+              Print_CubeTitle2(fp,SCell_GridN_A,SCell_GridN_B,SCell_GridN_C,
+                               SCell_Origin,TNumAtom_SCell,SCell_Atom);
+              Print_CubeData_MO2(fp,MO_Grid,NULL,NULL,SCell_GridN_A,SCell_GridN_B,SCell_GridN_C);
+              fclose(fp);
+            }
+
+          }
+          else{
+            printf("Failure of saving MOs\n");
+          }
+
+        }
+
+      }
+
+    } /* spin */
+
+  /*******************
+    Anti-bonding NBOs
+  *******************/
+
+      /* calc. bonding NBO on grids */
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+
+      for (orbit=0; orbit<Total_Num_NBO; orbit++){
+
+        for (GN=0; GN<TNumGrid; GN++) MO_Grid_tmp[GN] = 0.0;
+
+        for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+          Gc_AN = M2G[Mc_AN];
+          Cwan = WhatSpecies[Gc_AN];
+          NO0 = Spe_Total_CNO[Cwan];
+
+          for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+            GN = GridListAtom[Mc_AN][Nc];
+            for (i=0; i<NO0; i++){
+              MO_Grid_tmp[GN] += NBOs_Coef_a[spin][orbit][Gc_AN][i] *
+                                 Orbs_Grid[Mc_AN][Nc][i];
+            }
+          }
+
+        }
+
+      if (NBO_SmallCell_Switch == 0){
+        MPI_Reduce(&MO_Grid_tmp[0], &MO_Grid[0], TNumGrid, MPI_DOUBLE,
+                   MPI_SUM, Host_ID, mpi_comm_level1);
+      }
+      else{
+        for (GNs=0; GNs<TNumGrid_SCell; GNs++){
+          GN = GridList_L2SCell[GNs];
+          MO_Grid_tmp2[GNs] = MO_Grid_tmp[GN];
+        }
+        MPI_Reduce(&MO_Grid_tmp2[0], &MO_Grid[0], TNumGrid_SCell, MPI_DOUBLE,
+                   MPI_SUM, Host_ID, mpi_comm_level1);
+      }
+
+      /* output bonding NBO on grids */
+
+        if (myid==Host_ID){
+            sprintf(file1,"%s%s.NBO-a%i_%i%s",filepath,filename,spin,orbit,CUBE_EXTENSION);
+          if ((fp = fopen(file1,"w")) != NULL){
+
+#ifdef xt3
+            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
+#endif
+
+            if (NBO_SmallCell_Switch == 0){
+              Print_CubeTitle(fp,0,0.0);
+              Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
+              fclose(fp);
+            }
+            else{
+              Print_CubeTitle2(fp,SCell_GridN_A,SCell_GridN_B,SCell_GridN_C,
+                               SCell_Origin,TNumAtom_SCell,SCell_Atom);
+              Print_CubeData_MO2(fp,MO_Grid,NULL,NULL,SCell_GridN_A,SCell_GridN_B,SCell_GridN_C);
+              fclose(fp);
+            }
+          }
+          else{
+            printf("Failure of saving MOs\n");
+          }
+
+        }
+
+      }
+
+    } /* spin */
+
+  }
+
+  /****************************************************
+    freeing of arrays:
+
+    double MO_Grid[TNumGrid];
+    double MO_Grid_tmp[TNumGrid];
+  ****************************************************/
+
+  if (NBO_SmallCell_Switch == 0){
+    free(MO_Grid);
+    free(MO_Grid_tmp);
+  }
+  else{
+    free(MO_Grid);
+    free(MO_Grid_tmp);
+    free(MO_Grid_tmp2);
+    free(GridList_L2SCell);
+    free(SCell_Atom);
+  }
+
+}
+
+
+
 void out_Cluster_NC_MO()
 { 
   int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc;
-  int orbit,GN,spe,i,i1,i2,i3;
+  int orbit,GN,spe,i,i1,i2,i3,fd;
   dcomplex *MO_Grid;
   double *RMO_Grid_tmp,*IMO_Grid_tmp;
   double *RMO_Grid,*IMO_Grid;
@@ -1338,12 +1724,11 @@ void out_Cluster_NC_MO()
 
 	if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-          setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
 	  Print_CubeTitle(fp,1,HOMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"r");
+
+	  fd = fileno(fp); 
+	  fsync(fd);
 	  fclose(fp);
 	}
 	else{
@@ -1357,13 +1742,11 @@ void out_Cluster_NC_MO()
 
 	if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-          setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
 	  Print_CubeTitle(fp,1,HOMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"i");
 
+	  fd = fileno(fp); 
+	  fsync(fd);
 	  fclose(fp);
 	}
 	else{
@@ -1423,12 +1806,11 @@ void out_Cluster_NC_MO()
 
 	if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-          setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
 	  Print_CubeTitle(fp,1,LUMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"r");
+
+	  fd = fileno(fp); 
+	  fsync(fd);
 	  fclose(fp);
 	}
 	else{
@@ -1442,13 +1824,11 @@ void out_Cluster_NC_MO()
 
 	if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-          setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
 	  Print_CubeTitle(fp,1,LUMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"i");
 
+	  fd = fileno(fp); 
+	  fsync(fd);
 	  fclose(fp);
 	}
 	else{
@@ -1481,7 +1861,7 @@ void out_Cluster_NC_MO()
 
 void out_Bulk_MO()
 { 
-  int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc;
+  int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc,fd;
   int kloop,Mh_AN,h_AN,Gh_AN,Rnh,Hwan;
   int NO1,l1,l2,l3,Nog,RnG,Nh,Rn;
   int orbit,GN,spe,i,j,i1,i2,i3,spinmax;
@@ -1492,7 +1872,6 @@ void out_Bulk_MO()
   double *IMO_Grid_tmp;
   dcomplex *MO_Grid;
   char file1[YOUSO10];
-  char buf[fp_bsize];          /* setvbuf */
   FILE *fp;
   int numprocs,myid,ID;
 
@@ -1531,6 +1910,7 @@ void out_Bulk_MO()
     k3 = MO_kpoint[kloop][3];
 
     for (spin=0; spin<=spinmax; spin++){
+
       for (orbit=0; orbit<Bulk_Num_HOMOs[kloop]; orbit++){ 
 
 	/* calc. MO on grids */
@@ -1587,12 +1967,11 @@ void out_Bulk_MO()
   
   	  if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
             Print_CubeTitle(fp,1,HOMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"r");
+
+  	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
 	  else{
@@ -1606,13 +1985,11 @@ void out_Bulk_MO()
 
 	  if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
             Print_CubeTitle(fp,1,HOMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"i");
 
+  	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
   	  else{
@@ -1638,6 +2015,7 @@ void out_Bulk_MO()
     k3 = MO_kpoint[kloop][3];
 
     for (spin=0; spin<=spinmax; spin++){
+
       for (orbit=0; orbit<Bulk_Num_LUMOs[kloop]; orbit++){
 
 	/* calc. MO on grids */
@@ -1694,12 +2072,11 @@ void out_Bulk_MO()
 
   	  if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
             Print_CubeTitle(fp,1,LUMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"r");
+
+  	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
 	  else{
@@ -1714,12 +2091,11 @@ void out_Bulk_MO()
 
   	  if ((fp = fopen(file1,"w")) != NULL){
 
-#ifdef xt3
-            setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
             Print_CubeTitle(fp,1,LUMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"i");
+
+  	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
 	  else{
@@ -1790,11 +2166,44 @@ static void Print_CubeTitle(FILE *fp, int EigenValue_flag, double EigenValue)
 
 
 
+static void Print_CubeTitle2(FILE *fp, int N1, int N2, int N3,
+                             double *sc_org, int atomnum_sc, int *a_sc)
+{
+
+  int ct_AN,Gc_AN;
+  int spe;
+
+  fprintf(fp," SYS1\n SYS1\n");
+  fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf\n",
+          atomnum_sc,sc_org[1],sc_org[2],sc_org[3]);
+  fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf\n",
+          N1,gtv[1][1],gtv[1][2],gtv[1][3]);
+  fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf\n",
+          N2,gtv[2][1],gtv[2][2],gtv[2][3]);
+  fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf\n",
+          N3,gtv[3][1],gtv[3][2],gtv[3][3]);
+
+  for (ct_AN=1; ct_AN<=atomnum_sc; ct_AN++){
+    Gc_AN = a_sc[ct_AN];
+    spe = WhatSpecies[Gc_AN];
+    fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf%12.6lf\n",
+            Spe_WhatAtom[spe],
+            Spe_Core_Charge[spe]-InitN_USpin[Gc_AN]-InitN_DSpin[Gc_AN],
+            Gxyz[Gc_AN][1],Gxyz[Gc_AN][2],Gxyz[Gc_AN][3]);
+  }
+
+}
+
+
 
 static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, char *op)
 {
-  int myid,numprocs,ID,BN_AB,n3,cmd;
-  char operate[300];
+  int fd,myid,numprocs,ID,BN_AB,n3,cmd,c;
+  char operate[300],operate1[300],operate2[300];
+  FILE *fp1,*fp2;
+  char buf[fp_bsize];          /* setvbuf */
+
+  setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
@@ -1836,6 +2245,8 @@ static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, 
   fclose(fp);
   ****************************************************/
 
+  fd = fileno(fp); 
+  fsync(fd);
   fclose(fp);
 
   /****************************************************
@@ -1857,11 +2268,49 @@ static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, 
       system(operate);
     }
 
+    /* check whether the file exists, and if it exists, remove it. */
+
+    /*
+    sprintf(operate1,"%s%s%s",filepath,filename,fext);
+    fp1 = fopen(operate1, "r");   
+    if (fp1!=NULL){
+      fclose(fp1); 
+      remove(operate1);
+    }
+    else{
+      fclose(fp1); 
+    }
+    */
+
+    /* merge all the fraction files */
+
+    /*
     for (ID=0; ID<numprocs; ID++){
-      sprintf(operate,"rm %s%s%s%i",filepath,filename,fext,ID);
-      system(operate);
+
+      sprintf(operate1,"%s%s%s",filepath,filename,fext);
+      fp1 = fopen(operate1, "a");   
+      fseek(fp1,0,SEEK_END);
+
+      sprintf(operate2,"%s%s%s%i",filepath,filename,fext,ID);
+      fp2 = fopen(operate2,"r");
+
+      if (fp2!=NULL){
+        for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
+	fclose(fp2); 
+      }
+
+      fclose(fp1); 
+    }
+    */
+
+    /* remove all the fraction files */
+
+    for (ID=0; ID<numprocs; ID++){
+      sprintf(operate,"%s%s%s%i",filepath,filename,fext,ID);
+      remove(operate);
     }
   }
+
 
 }
 
@@ -1870,7 +2319,7 @@ static void Print_VectorData(FILE *fp, char fext[],
                              double *data0, double *data1,
                              double *data2, double *data3)
 {
-  int i,j,k,i1,i2,i3,c,GridNum;
+  int i,j,k,i1,i2,i3,c,GridNum,fd;
   int GN_AB,n1,n2,n3,interval;
   int BN_AB,N2D,GNs,GN;
   double x,y,z,vx,vy,vz;
@@ -1880,6 +2329,9 @@ static void Print_VectorData(FILE *fp, char fext[],
 
   MPI_Status stat;
   MPI_Request request;
+  char buf[fp_bsize];          /* setvbuf */
+
+  setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -1964,6 +2416,8 @@ static void Print_VectorData(FILE *fp, char fext[],
   fclose(fp);
   ****************************************************/
 
+  fd = fileno(fp); 
+  fsync(fd);
   fclose(fp);
 
   /****************************************************
@@ -1986,8 +2440,14 @@ static void Print_VectorData(FILE *fp, char fext[],
     }
 
     for (ID=0; ID<numprocs; ID++){
+
+      sprintf(operate,"%s%s%s%i",filepath,filename,fext,ID);
+      remove(operate);
+
+      /*
       sprintf(operate,"rm %s%s%s%i",filepath,filename,fext,ID);
       system(operate);
+      */
     }
   }
 }
@@ -1999,7 +2459,7 @@ void out_OrbOpt(char *inputfile)
 {
   int i,j,natom,po,al,p,wan,L0,Mul0,M0;
   int num,Mc_AN,Gc_AN,pmax,Mul1;
-  int al1,al0;
+  int al1,al0,fd;
   double sum,Max0;
   double ***tmp_coes;
   char file1[YOUSO10] = ".oopt";
@@ -2255,6 +2715,9 @@ void out_OrbOpt(char *inputfile)
         }
       } /* if (myid==Host_ID) */
     }   /* Gc_AN */
+
+    fd = fileno(fp); 
+    fsync(fd);
     fclose(fp);
   }
   else{
@@ -2455,6 +2918,8 @@ void out_OrbOpt(char *inputfile)
 	      }
 	    }while(po==0);
                  
+	    fd = fileno(fp); 
+	    fsync(fd);
 	    fclose(fp);
 	  }
   	  else{
@@ -2494,6 +2959,8 @@ void out_OrbOpt(char *inputfile)
             fprintf(fp2,"pseudo.atomic.orbitals.L=%d>\n",L0);
 	  }
 
+	  fd = fileno(fp2); 
+	  fsync(fd);
           fclose(fp2);
 
         }
@@ -2531,6 +2998,9 @@ static void Print_CubeData_MO(FILE *fp, double *data, double *data1,char *op)
   int i1,i2,i3;
   int GN;
   int cmd;
+  char buf[fp_bsize];          /* setvbuf */
+
+  setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 
   if (op==NULL) { cmd=0; }
   else if (strcmp(op,"add")==0)  { cmd=1; }
@@ -2564,12 +3034,55 @@ static void Print_CubeData_MO(FILE *fp, double *data, double *data1,char *op)
 }
 
 
+static void Print_CubeData_MO2(FILE *fp, double *data, double *data1, char *op,
+                               int N1, int N2, int N3)
+{
+  int i1,i2,i3;
+  int GN;
+  int cmd;
+
+  if (op==NULL) { cmd=0; }
+  else if (strcmp(op,"add")==0)  { cmd=1; }
+  else if (strcmp(op,"diff")==0) { cmd=2; }
+  else {
+    printf("Print_CubeData: op=%s not supported\n",op);
+    return;
+  }
+
+  for (i1=0; i1<N1; i1++){
+    for (i2=0; i2<N2; i2++){
+      for (i3=0; i3<N3; i3++){
+        GN = i1*N2*N3 + i2*N3 + i3;
+        switch (cmd) {
+        case 0:
+          fprintf(fp,"%13.3E",data[GN]);
+          break;
+        case 1:
+          fprintf(fp,"%13.3E",data[GN]+data1[GN]);
+          break;
+        case 2:
+          fprintf(fp,"%13.3E",data[GN]-data1[GN]);
+          break;
+        }
+        if ((i3+1)%6==0) { fprintf(fp,"\n"); }
+      }
+      if (N3%6!=0) fprintf(fp,"\n");
+    }
+  }
+
+}
+
+
+
 
 static void Print_CubeCData_MO(FILE *fp, dcomplex *data,char *op)
 {
   int i1,i2,i3;
   int GN;
   int cmd;
+  char buf[fp_bsize];          /* setvbuf */
+
+  setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 
   if (strcmp(op,"r")==0) { cmd=1; }
   else if (strcmp(op,"i")==0) {cmd=2; }
@@ -2612,7 +3125,6 @@ void out_Partial_Charge_Density()
   char file2[YOUSO10] = ".pden0";
   char file3[YOUSO10] = ".pden1";
   FILE *fp;
-  char buf[fp_bsize];          /* setvbuf */
   int numprocs,myid,ID;
 
   /* MPI */
@@ -2637,10 +3149,6 @@ void out_Partial_Charge_Density()
   sprintf(fname,"%s%s%s%i",filepath,filename,file1,myid);
 
   if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
     if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
 
@@ -2671,10 +3179,6 @@ void out_Partial_Charge_Density()
 
     if ((fp = fopen(fname,"w")) != NULL){
 
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file2,Density_Grid_B[0],NULL,NULL);
     }
@@ -2689,10 +3193,6 @@ void out_Partial_Charge_Density()
     sprintf(fname,"%s%s%s%i",filepath,filename,file3,myid);
 
     if ((fp = fopen(fname,"w")) != NULL){
-
-#ifdef xt3
-      setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
 
       if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
       Print_CubeData(fp,file3,Density_Grid_B[1],NULL,NULL);
@@ -2775,7 +3275,7 @@ void Set_Partial_Density_Grid(double *****CDM)
               calculate Tmp_Den_Grid
   ***********************************************/
     
-#pragma omp parallel shared(myid,G2ID,Orbs_Grid_FNAN,List_YOUSO,time_per_atom,Tmp_Den_Grid,Orbs_Grid,COrbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,CDM,SpinP_switch,WhatSpecies,ncn,F_G2M,natn,Spe_Total_CNO,M2G) private(OMPID,Nthrds,Nprocs,Mc_AN,h_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,NO0,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,i,j,tmp_CDM,Nog,Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3,orbs0_0,orbs0_1,orbs0_2,orbs0_3,orbs1_0,orbs1_1,orbs1_2,orbs1_3,sum_0,sum_1,sum_2,sum_3,tmp0_0,tmp0_1,tmp0_2,tmp0_3,Nc,Nh,orbs0,orbs1,sum,tmp0)
+#pragma omp parallel shared(FNAN,GridN_Atom,Matomnum,myid,G2ID,Orbs_Grid_FNAN,List_YOUSO,time_per_atom,Tmp_Den_Grid,Orbs_Grid,COrbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,CDM,SpinP_switch,WhatSpecies,ncn,F_G2M,natn,Spe_Total_CNO,M2G) private(OMPID,Nthrds,Nprocs,Mc_AN,h_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,NO0,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,i,j,tmp_CDM,Nog,Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3,orbs0_0,orbs0_1,orbs0_2,orbs0_3,orbs1_0,orbs1_1,orbs1_2,orbs1_3,sum_0,sum_1,sum_2,sum_3,tmp0_0,tmp0_1,tmp0_2,tmp0_3,Nc,Nh,orbs0,orbs1,sum,tmp0)
   {
 
     orbs0 = (double*)malloc(sizeof(double)*List_YOUSO[7]);

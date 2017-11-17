@@ -17,40 +17,84 @@
 #include "openmx_common.h"
 #include "mpi.h"
  
-
 static void H_U_onsite();
 static void H_U_full(int SCF_iter, double ****OLP0);
 static void H_U_dual(int SCF_iter, double ****OLP0);
 
 void Eff_Hub_Pot(int SCF_iter, double ****OLP0)
 {
-  int spin,a,b;  
-  int l,fan,j,k,i,jg,kg,ig,wakg,waig,kl,il1,il2,m,n;
-  int Cwan,Hwan,Mul1,tno0,tno1,tno2;
-  int Mc_AN,Gc_AN,Mj_AN,Mi_AN,Mk_AN;
-  double sum;
-
   /****************************************************
     Important note: 
 
     In case of orbital optimization, the U potential
     is applied to the primitive orbital.
   ****************************************************/
+  int spin,a,b;  
+  int l,fan,j,k,i,jg,kg,ig,wakg,waig,kl,il1,il2,m,n;
+  int Cwan,Hwan,Mul1,tno0,tno1,tno2;
+  int Mc_AN,Gc_AN,Mj_AN,Mi_AN,Mk_AN;
+  double sum;
 
-  /* on site */
-  if      (Hub_U_occupation==0){
-    H_U_onsite();
-  }
+  /* in case of correction */
 
-  /* full */
-  else if (Hub_U_occupation==1){
-    H_U_full(SCF_iter, OLP0);
-  }
+  if (      Hub_U_switch==1 
+	 || 1<=Constraint_NCS_switch
+	 || Zeeman_NCS_switch==1 
+	 || Zeeman_NCO_switch==1) { 
 
-  /* dual */
-  else if (Hub_U_occupation==2){
-    H_U_dual(SCF_iter, OLP0);
-  }
+    /* on site */
+    if      (Hub_U_occupation==0){
+      H_U_onsite();
+    }
+
+    /* full */
+    else if (Hub_U_occupation==1){
+      H_U_full(SCF_iter, OLP0);
+    }
+
+    /* dual */
+    else if (Hub_U_occupation==2){
+      H_U_dual(SCF_iter, OLP0);
+    }
+
+  } /* if */
+
+  /* in case of no correction */
+
+  else {
+
+    /* According to the report 44, iHNL0 is copied to iHNL. */
+
+    if (SpinP_switch==3 && SO_switch==1){
+
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	Gc_AN = M2G[Mc_AN];
+	Cwan = WhatSpecies[Gc_AN];
+	fan = FNAN[Gc_AN];
+	tno0 = Spe_Total_NO[Cwan];
+
+	for (j=0; j<=fan; j++){
+	  jg = natn[Gc_AN][j];
+	  Mj_AN = F_G2M[jg];
+	  Hwan = WhatSpecies[jg];
+	  tno1 = Spe_Total_NO[Hwan];
+
+	  for (m=0; m<tno0; m++){
+	    for (n=0; n<tno1; n++){
+
+	      /* imaginary part */
+
+	      iHNL[0][Mc_AN][j][m][n] = iHNL0[0][Mc_AN][j][m][n];
+	      iHNL[1][Mc_AN][j][m][n] = iHNL0[1][Mc_AN][j][m][n];
+	      iHNL[2][Mc_AN][j][m][n] = iHNL0[2][Mc_AN][j][m][n];
+	    }
+	  }
+	}
+      }
+    }
+
+  } /* else */
 
 } 
 
@@ -645,4 +689,5 @@ void H_U_dual(int SCF_iter, double ****OLP0)
   }
 
 }
+
 

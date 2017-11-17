@@ -28,7 +28,12 @@ void Eigen_lapack2(double *a, int csize, double *ko, int n, int EVmax)
 {
   int info;
 
+#ifdef kcomp
   Eigen_HH2(a, csize, ko, n, EVmax);
+#else 
+  info = Eigen_lapack_x2(a, csize, ko, n, EVmax);
+#endif      
+
 
   /*
   if (dste_flag==2){

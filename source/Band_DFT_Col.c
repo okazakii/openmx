@@ -628,7 +628,7 @@ double Band_DFT_Col(int SCF_iter,
 
   /* set S1 */
 
-  if (SCF_iter==1 || all_knum!=1){
+  if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
     size_H1 = Get_OneD_HS_Col(1, CntOLP,   S1, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
   }
 
@@ -672,7 +672,7 @@ diagonalize1:
 
     /* make S and H */
 
-    if (SCF_iter==1 || all_knum!=1){
+    if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
 
       for (i1=0; i1<n*n; i1++) BLAS_S[i1] = Complex(0.0,0.0);
 
@@ -722,7 +722,7 @@ diagonalize1:
 
 	  }
 
-          if (SCF_iter==1 || all_knum!=1){
+          if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
 
             k -= tnoB; 
 
@@ -765,14 +765,14 @@ diagonalize1:
     if (parallel_mode==0){
       EigenBand_lapack(S,ko,n,n,1);
     }
-    else if (SCF_iter==1 || all_knum!=1){
+    else if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
       Eigen_PHH(MPI_CommWD2[myworld2],S,ko,n,n,1);
     }
 
     dtime(&Etime);
     time2 += Etime - Stime;
 
-    if (SCF_iter==1 || all_knum!=1){
+    if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
 
       if (3<=level_stdout){
 	printf(" myid0=%2d spin=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
@@ -1607,13 +1607,7 @@ diagonalize1:
       if (MPI_CDM1_flag[ID]){
         k = SP_NZeros[ID];
         MPI_Reduce(&CDM1[k], &H1[k], My_NZeros[ID], MPI_DOUBLE, MPI_SUM, 0, MPI_CommWD_CDM1[ID]);
-
-	/*
-        if (SCF_iter%3==1){ 
-	*/
-        if (1){ 
-          MPI_Reduce(&EDM1[k], &S1[k], My_NZeros[ID], MPI_DOUBLE, MPI_SUM, 0, MPI_CommWD_CDM1[ID]);
-	}
+        MPI_Reduce(&EDM1[k], &S1[k], My_NZeros[ID], MPI_DOUBLE, MPI_SUM, 0, MPI_CommWD_CDM1[ID]);
       }
     }
 
@@ -1643,13 +1637,7 @@ diagonalize1:
 	    if (1<=MA_AN && MA_AN<=Matomnum){   
 
 	      CDM[spin][MA_AN][LB_AN][i][j] = H1[k];
-
-	      /*
-              if (SCF_iter%3==1){ 
-	      */
-              if (1){ 
-  	        EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
-	      }
+              EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
 	    }
 
 	    k++;
@@ -1712,21 +1700,16 @@ diagonalize1:
 
 	    /* EDM1 */
 
-	    /*
-	    if (SCF_iter%3==1){ 
-	    */
-	    if (1){ 
-	      if (myid0==IDS){
-		MPI_Isend(&S1[k], My_NZeros[IDR], MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
-	      } 
+	    if (myid0==IDS){
+	      MPI_Isend(&S1[k], My_NZeros[IDR], MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
+	    } 
 
-	      if (myid0==IDR){
-		MPI_Recv(&EDM1[k], My_NZeros[IDR], MPI_DOUBLE, IDS, tag, mpi_comm_level1, &stat);
-	      }
+	    if (myid0==IDR){
+	      MPI_Recv(&EDM1[k], My_NZeros[IDR], MPI_DOUBLE, IDS, tag, mpi_comm_level1, &stat);
+	    }
 
-	      if (myid0==IDS){
-		MPI_Wait(&request,&stat);
-	      }
+	    if (myid0==IDS){
+	      MPI_Wait(&request,&stat);
 	    }
 
 	  }
@@ -1753,13 +1736,7 @@ diagonalize1:
 
 	      if (1<=MA_AN && MA_AN<=Matomnum){   
 		CDM[spin][MA_AN][LB_AN][i][j] = CDM1[k];
-
-		/*
-                if (SCF_iter%3==1){ 
-		*/
-                if (1){ 
-	  	  EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
-		}
+                EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
 	      }
 
 	      k++;
@@ -1917,14 +1894,7 @@ diagonalize1:
 	for (i=0; i<tnoA; i++){
 	  for (j=0; j<tnoB; j++){
 	    CDM[spin][MA_AN][LB_AN][i][j] = 0.0;
-
-	    /*
-            if (SCF_iter%3==1){ 
-	    */
-            if (1){ 
-	      EDM[spin][MA_AN][LB_AN][i][j] = 0.0;
-	    }
-
+            EDM[spin][MA_AN][LB_AN][i][j] = 0.0;
 	    iDM[0][0][MA_AN][LB_AN][i][j] = 0.0;
 	    iDM[0][1][MA_AN][LB_AN][i][j] = 0.0;
 	  }
@@ -2543,13 +2513,7 @@ diagonalize1:
 	    if (1<=MA_AN && MA_AN<=Matomnum){   
 
 	      CDM[spin][MA_AN][LB_AN][i][j] = H1[k];
-
-	      /*
-              if (SCF_iter%3==1){ 
-	      */
-              if (1){ 
-	        EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
-	      }
+              EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
 	    }
 
 	    k++;
@@ -2641,13 +2605,7 @@ diagonalize1:
 
 	      if (1<=MA_AN && MA_AN<=Matomnum){   
 		CDM[spin][MA_AN][LB_AN][i][j] = CDM1[k];
-
-		/*
-                if (SCF_iter%3==1){ 
-		*/
-                if (1){ 
-		  EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
-		}
+   	        EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
 	      }
 
 	      k++;
@@ -2687,14 +2645,7 @@ diagonalize1:
 	for (i=0; i<tnoA; i++){
 	  for (j=0; j<tnoB; j++){
 	    CDM[spin][MA_AN][LB_AN][i][j]    = CDM[spin][MA_AN][LB_AN][i][j]*dum;
-
-	    /*
-            if (SCF_iter%3==1){ 
-	    */
-            if (1){ 
-  	      EDM[spin][MA_AN][LB_AN][i][j]    = EDM[spin][MA_AN][LB_AN][i][j]*dum;
-	    }
-
+            EDM[spin][MA_AN][LB_AN][i][j]    = EDM[spin][MA_AN][LB_AN][i][j]*dum;
 	    iDM[0][spin][MA_AN][LB_AN][i][j] = iDM[0][spin][MA_AN][LB_AN][i][j]*dum;
 	  }
 	}

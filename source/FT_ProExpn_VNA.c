@@ -67,7 +67,7 @@ void FT_ProExpn_VNA()
      In case of Scf_RestartFromFile==1, read Spe_VNA_Bessel
   ***********************************************************/
 
-  if (Scf_RestartFromFile){
+  if (Scf_RestartFromFile==1){
 
     /****************************************************
          regenerate radial grids in the k-space
@@ -138,7 +138,7 @@ void FT_ProExpn_VNA()
 
       /* loop for kj */
 
-#pragma omp parallel shared(List_YOUSO,GL_Weight,GL_Abscissae,Dr,Dk,Sk,RGL,Projector_VNA,Spe_VPS_RV,Spe_Num_Mesh_VPS,Spe_VNA_Bessel)  private(SumTmp,SphB,tmp_SphB,tmp_SphBp,OMPID,Nthrds,Nprocs,kj,norm_k,i,r,L,Mul,tmp0,dum0)
+#pragma omp parallel shared(spe,List_YOUSO,GL_Weight,GL_Abscissae,Dr,Dk,Sk,RGL,Projector_VNA,Spe_VPS_RV,Spe_Num_Mesh_VPS,Spe_VNA_Bessel)  private(SumTmp,SphB,tmp_SphB,tmp_SphBp,OMPID,Nthrds,Nprocs,kj,norm_k,i,r,L,Mul,tmp0,dum0)
 
       {
 

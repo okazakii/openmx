@@ -70,10 +70,10 @@ static double Krylov_Col(char *mode,
 			 double Eele1[2]);
 
 
-/*
-The following subroutines are called only when 
-Matomnum==1 && openmp_threads_num>1
-*/
+/*******************************************************
+  The following subroutines are called only when 
+  Matomnum==1 && openmp_threads_num>1
+*******************************************************/
 
 static double Krylov_Col_trd(char *mode,
 			 int SCF_iter,
@@ -769,7 +769,7 @@ static double Krylov_Col(char *mode,
 
   if (measure_time==1) dtime(&Stime2);
 
-#pragma omp parallel shared(List_YOUSO,Residues,EDM,CDM,HO_TC,LO_TC,ChemP,EVal,RMI1,S_G2M,EC_matrix,recalc_flag,recalc_EM,Krylov_U,SpinP_switch,EKC_core_size,EKC_core_size_max,rlmax_EC,rlmax_EC2,time11,time10,time9,time8,time7,time6,time5,time4,time3,time2,Hks,OLP0,EKC_Exact_invS_flag,SCF_iter,Msize3,Msize2,Msize,Msize2_max,natn,FNAN,SNAN,Spe_Total_CNO,WhatSpecies,M2G,Matomnum,myid,time_per_atom,firsttime) 
+#pragma omp parallel shared(EKC_invS_flag,List_YOUSO,Residues,EDM,CDM,HO_TC,LO_TC,ChemP,EVal,RMI1,S_G2M,EC_matrix,recalc_flag,recalc_EM,Krylov_U,SpinP_switch,EKC_core_size,EKC_core_size_max,rlmax_EC,rlmax_EC2,time11,time10,time9,time8,time7,time6,time5,time4,time3,time2,Hks,OLP0,EKC_Exact_invS_flag,SCF_iter,Msize4,Msize3,Msize2,Msize,Msize2_max,natn,FNAN,SNAN,Spe_Total_CNO,WhatSpecies,M2G,Matomnum,myid,time_per_atom,firsttime) 
   {
     int OMPID,Nthrds,Nprocs;
     int Mc_AN,Gc_AN,wan,spin;
@@ -939,7 +939,7 @@ static double Krylov_Col(char *mode,
 
 	if (measure_time==1) dtime(&Stime1);
 
-	if (recalc_EM==1 || SCF_iter<=3 || recalc_flag==1){
+	if (recalc_EM==1 || SCF_iter==1 || recalc_flag==1){
 
 	  Embedding_Matrix( spin, Mc_AN, Hks, Krylov_U, EC_matrix, MP, Msize, Msize2, Msize3, tmpvec1);
 	}
@@ -1526,7 +1526,7 @@ static double Krylov_Col(char *mode,
 
   if (measure_time==1) dtime(&Stime1);
 
-#pragma omp parallel shared(time_per_atom,EDM,CDM,Residues,natn,max_x,Beta,ChemP,EVal,LO_TC,HO_TC,Spe_Total_CNO,WhatSpecies,M2G,SpinP_switch,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,spin,Stime_atom,Gc_AN,wanA,tno1,i1,x,FermiF,h_AN,Gh_AN,wanB,tno2,i,j,tmp1,Etime_atom)
+#pragma omp parallel shared(FNAN,time_per_atom,EDM,CDM,Residues,natn,max_x,Beta,ChemP,EVal,LO_TC,HO_TC,Spe_Total_CNO,WhatSpecies,M2G,SpinP_switch,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,spin,Stime_atom,Gc_AN,wanA,tno1,i1,x,FermiF,h_AN,Gh_AN,wanB,tno2,i,j,tmp1,Etime_atom)
   {
 
     /* get info. on OpenMP */ 
@@ -3773,6 +3773,8 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 
   double mmArr[8];
   double sum0,sum1,sum2,sum3,sum4,sum5,sum6,sum7;
+  double stime,etime;
+  double time1,time2,time3,time4,time5,time6,time7,time8;
 
   ct_AN = M2G[Mc_AN];
   fan = FNAN[ct_AN];
@@ -3789,10 +3791,21 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
   KU_d1 = EKC_core_size[Mc_AN]*Msize2[Mc_AN];
   KU_d2 = Msize2[Mc_AN];
 
+  if (measure_time==1){ 
+    time1 = 0.0;
+    time2 = 0.0;
+    time3 = 0.0;
+    time4 = 0.0;
+    time5 = 0.0;
+    time6 = 0.0;
+    time7 = 0.0;
+    time8 = 0.0;
+  }
+
   /*******************************
             u1^+ C^+ u2 
   *******************************/
-   
+    
   for (rl=0; rl<rlmax_EC[Mc_AN]; rl++){
 
     /* C^+ u2 */
@@ -3821,6 +3834,8 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 
 #ifdef nosse
 
+          if (measure_time==1) dtime(&stime);
+
 	  /* Original version */
 	  /**/	  
 	  for (m=0; m<ian; m++){
@@ -3836,7 +3851,13 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 	  }
 	  /**/
 
+          if (measure_time==1){ 
+            dtime(&etime);
+            time1 += etime - stime;
+	  }
+
 #else
+          if (measure_time==1) dtime(&stime);
 
 	  /* Unrolling + SSE version */
 	  /**/
@@ -3909,7 +3930,11 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 	      tmpvec1[n][Anum+m] += sum;
 	    }
 	  } 
-	  /**/
+
+          if (measure_time==1){ 
+            dtime(&etime);
+            time1 += etime - stime;
+	  }
 #endif
 
 	}
@@ -3919,6 +3944,8 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
     /* u1^+ C^+ u2 */
 
 #ifdef nosse
+
+    if (measure_time==1) dtime(&stime);
 
     /* Original version */
     /**/    
@@ -3935,7 +3962,18 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
     }
     /**/
 
+    if (measure_time==1){ 
+      dtime(&etime);
+      time2 += etime - stime;
+    }
+
 #else
+
+    /*
+    printf("ABC1 Mc_AN=%2d %2d %2d %2d\n",Mc_AN,rlmax_EC[Mc_AN],EKC_core_size[Mc_AN],Msize[Mc_AN]);
+    */
+
+    if (measure_time==1) dtime(&stime);
 
     /* Unrolling + SSE version */
     /**/
@@ -4011,6 +4049,11 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
     }
     /**/
 
+    if (measure_time==1){ 
+      dtime(&etime);
+      time2 += etime - stime;
+    }
+
 #endif
 
   } /* rl */
@@ -4063,6 +4106,8 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 
 #ifdef nosse
 
+          if (measure_time==1) dtime(&stime);
+
 	  /* Original version */
 	  /**/	  
 	  for (m=0; m<ian; m++){
@@ -4078,7 +4123,14 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 	  }
 	  /**/
 
+	  if (measure_time==1){ 
+	    dtime(&etime);
+	    time3 += etime - stime;
+	  }
+
 #else
+
+          if (measure_time==1) dtime(&stime);
 
 	  /* Unrolling + SSE version */
 	  /**/
@@ -4153,6 +4205,11 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
 	  } 
 	  /**/ 
 
+	  if (measure_time==1){ 
+	    dtime(&etime);
+	    time3 += etime - stime;
+	  }
+
 #endif
 
 	}
@@ -4162,6 +4219,8 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
     /* u2^+ B u2 */
 
 #ifdef nosse
+
+    if (measure_time==1) dtime(&stime);
 
     /* Original version */
     /**/    
@@ -4178,7 +4237,14 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
     }
     /**/
 
+    if (measure_time==1){ 
+      dtime(&etime);
+      time4 += etime - stime;
+    }
+
 #else
+
+    if (measure_time==1) dtime(&stime);
 
     /* Unrolling + SSE version */
     /**/
@@ -4254,10 +4320,19 @@ void Embedding_Matrix(int spin, int Mc_AN, double *****Hks,
     }
     /**/
 
+    if (measure_time==1){ 
+      dtime(&etime);
+      time4 += etime - stime;
+    }
+
 #endif
 
   } /* rl */
 
+  if (measure_time==1){ 
+    printf("Embedding_Matrix time1=%5.3f time2=%5.3f time3=%5.3f time4=%5.3f\n",
+            time1,time2,time3,time4);
+  }
 }
 
 
@@ -5241,10 +5316,10 @@ static double Krylov_Col_trd(char *mode,
 			 double Eele0[2],
 			 double Eele1[2])
 
-/* The structure of this subroutine is exactly the same as the original Krylov_Col,
-except for the main loop where OMP parallelization at the atom level
-is removed
-*/
+/**********************************************************************************
+  The structure of this subroutine is exactly the same as the original Krylov_Col,
+  except for the main loop where OMP parallelization at the atom level is removed.
+**********************************************************************************/
 
 {
   static int firsttime=1,recalc_firsttime=1,recalc_flag;
@@ -8609,6 +8684,7 @@ except that Eigen_lapack is replaced with Eigen_lapack_d, _x, or _r
 
   }
 
+
   info = Eigen_lapack_d(FS,ko,Msize3[Mc_AN],Msize3[Mc_AN]);
   if (info!=0){
     info = Eigen_lapack_x(FS,ko,Msize3[Mc_AN],Msize3[Mc_AN]);
@@ -9672,6 +9748,7 @@ except that Eigen_lapack is replaced with Eigen_lapack_d, _x, or _r
       tmpmat0[1][1] = 1.0;
     }
     else{
+
       info = Eigen_lapack_d(tmpmat0, ko, EKC_core_size[Mc_AN], EKC_core_size[Mc_AN]);
       if (info!=0){
 	info = Eigen_lapack_x(tmpmat0, ko, EKC_core_size[Mc_AN], EKC_core_size[Mc_AN]);
@@ -9847,13 +9924,6 @@ except that Eigen_lapack is replaced with Eigen_lapack_d, _x, or _r
     }
   }
 
-
-  
-
-
-
-
-
   /*
   {
 
@@ -9935,13 +10005,6 @@ except that Eigen_lapack is replaced with Eigen_lapack_d, _x, or _r
     exit(0);
   }
   */
-
-
-
-
-
-
-
 
   /* freeing of arrays */
 
@@ -10223,6 +10286,7 @@ except that Eigen_lapack is replaced with Eigen_lapack_d, _x, or _r
     tmpmat0[1][1] = 1.0;
   }
   else{
+
     info = Eigen_lapack_d(tmpmat0, ko, EKC_core_size[Mc_AN], EKC_core_size[Mc_AN]);
     if (info!=0){
       info = Eigen_lapack_x(tmpmat0, ko, EKC_core_size[Mc_AN], EKC_core_size[Mc_AN]);
@@ -10230,7 +10294,6 @@ except that Eigen_lapack is replaced with Eigen_lapack_d, _x, or _r
 	Eigen_lapack_r(tmpmat0, ko, EKC_core_size[Mc_AN], EKC_core_size[Mc_AN]);
       }
     }
-
   }
 
   ZeroNum = 0;
@@ -10336,26 +10399,24 @@ int Eigen_lapack_x(double **a, double *ko, int n0, int EVmax)
            &ABSTOL, &M, ko, Z, &LDZ, WORK, &LWORK, IWORK,
            IFAIL, &INFO ); 
 
+  if (INFO==0){
 
-  /* store eigenvectors */
-  for (i=0;i<EVmax;i++) {
-    for (j=0;j<n;j++) {
-      /*  a[i+1][j+1]= Z[i*n+j]; */
-      a[j+1][i+1]= Z[i*n+j];
+    /* store eigenvectors */
+    for (i=0;i<EVmax;i++) {
+      for (j=0;j<n;j++) {
+	/*  a[i+1][j+1]= Z[i*n+j]; */
+	a[j+1][i+1]= Z[i*n+j];
+      }
+    }
+
+    /* shift ko by 1 */
+    for (i=EVmax; i>=1; i--){
+      ko[i]= ko[i-1];
     }
   }
 
-  /* shift ko by 1 */
-  for (i=EVmax; i>=1; i--){
-    ko[i]= ko[i-1];
-  }
-
-  if (INFO>0) {
-    printf("\n%s: error in dsyevx_, info=%d\n\n",name,INFO);
-  }
-  if (INFO<0) {
-     printf("%s: info=%d\n",name,INFO);
-     exit(10);
+  if (INFO!=0) {
+    /* printf("\n%s: error in dsyevx_, info=%d\n\n",name,INFO); */
   }
    
   free(IFAIL); free(IWORK); free(WORK); free(Z); free(A);
@@ -10428,25 +10489,24 @@ int Eigen_lapack_d(double **a, double *ko, int n0, int EVmax)
 
   F77_NAME(dsyevd,DSYEVD)( JOBZ, UPLO, &n, A, &LDA, ko, WORK, &LWORK, IWORK, &LIWORK, &INFO ); 
 
-  /* store eigenvectors */
-  for (i=0;i<EVmax;i++) {
-    for (j=0;j<n;j++) {
-      /* a[i+1][j+1]= Z[i*n+j]; */
-      a[j+1][i+1]= A[i*n+j];
+  if (INFO==0){
+
+    /* store eigenvectors */
+    for (i=0;i<EVmax;i++) {
+      for (j=0;j<n;j++) {
+	/* a[i+1][j+1]= Z[i*n+j]; */
+	a[j+1][i+1]= A[i*n+j];
+      }
+    }
+
+    /* shift ko by 1 */
+    for (i=EVmax; i>=1; i--){
+      ko[i]= ko[i-1];
     }
   }
 
-  /* shift ko by 1 */
-  for (i=EVmax; i>=1; i--){
-    ko[i]= ko[i-1];
-  }
-
-  if (INFO>0) {
-     printf("\n%s: error in dsyevd_, info=%d\n\n",name,INFO);
-  }
-  if (INFO<0) {
-     printf("%s: info=%d\n",name,INFO);
-     exit(10);
+  if (INFO!=0) {
+    /* printf("\n%s: error in dsyevd_, info=%d\n\n",name,INFO); */
   }
    
   free(IWORK); free(WORK); free(A);
@@ -10524,29 +10584,29 @@ int Eigen_lapack_r(double **a, double *ko, int n0, int EVmax)
            &ABSTOL, &M, ko, Z, &LDZ, ISUPPZ, WORK, &LWORK,
            IWORK, &LIWORK, &INFO ); 
 
-  /* store eigenvectors */
-  for (i=0;i<EVmax;i++) {
-    for (j=0;j<n;j++) {
-      /*  a[i+1][j+1]= Z[i*n+j]; */
-      a[j+1][i+1]= Z[i*n+j];
+  if (INFO==0){
+
+    /* store eigenvectors */
+    for (i=0;i<EVmax;i++) {
+      for (j=0;j<n;j++) {
+	/*  a[i+1][j+1]= Z[i*n+j]; */
+	a[j+1][i+1]= Z[i*n+j];
+      }
+    }
+
+    /* shift ko by 1 */
+    for (i=EVmax; i>=1; i--){
+      ko[i]= ko[i-1];
     }
   }
 
-  /* shift ko by 1 */
-  for (i=EVmax; i>=1; i--){
-    ko[i]= ko[i-1];
-  }
-
-  if (INFO>0) {
+  if (INFO!=0) {
      printf("\n%s: error in dsyevr_, info=%d\n\n",name,INFO);
-  }
-  if (INFO<0) {
-     printf("%s: info=%d\n",name,INFO);
+     MPI_Finalize();
      exit(10);
   }
    
   free(ISUPPZ); free(IWORK); free(WORK); free(Z); free(A);
 
   return INFO;
-
 }

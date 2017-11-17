@@ -26,11 +26,15 @@
 #include "mpi.h"
 #include <omp.h>
 
-static double VNA_BesselF(int Gensi, int L1, int Mul1, double R);
 static double Set_ProExpn(double ****HVNA, Type_DS_VNA *****DS_VNA);
 static double Set_VNA2(double ****HVNA, double *****HVNA2);
 static double Set_VNA3(double *****HVNA3);
 
+#ifdef kcomp
+static void Spherical_Bessel2( double x, int lmax, double *sb, double *dsb );
+#else 
+inline void Spherical_Bessel2( double x, int lmax, double *sb, double *dsb );
+#endif      
 
 
 double Set_ProExpn_VNA(double ****HVNA, double *****HVNA2, Type_DS_VNA *****DS_VNA)
@@ -470,10 +474,13 @@ double Set_ProExpn(double ****HVNA, Type_DS_VNA *****DS_VNA)
         Lmax_Four_Int = 2*Spe_MaxL_Basis[Cwan];
 
       /* calculate SphB and SphBp */
-
+#ifdef kcomp
+#else 
+#pragma forceinline recursive
+#endif      
       for (i=0; i<GL_Mesh; i++){
         Normk = GL_NormK[i];
-        Spherical_Bessel(Normk*r,Lmax_Four_Int,tmp_SphB,tmp_SphBp);
+        Spherical_Bessel2(Normk*r,Lmax_Four_Int,tmp_SphB,tmp_SphBp);
         for(LL=0; LL<=Lmax_Four_Int; LL++){ 
           SphB[LL][i]  = tmp_SphB[LL]; 
           SphBp[LL][i] = tmp_SphBp[LL]; 
@@ -789,78 +796,6 @@ double Set_ProExpn(double ****HVNA, Type_DS_VNA *****DS_VNA)
 
     /* freeing of arrays */
 
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<Num_RVNA; l++){
-	    free(TmpNL[i][j][k][l]);
-	  }
-	  free(TmpNL[i][j][k]);
-	}
-	free(TmpNL[i][j]);
-      }
-      free(TmpNL[i]);
-    }
-    free(TmpNL);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<Num_RVNA; l++){
-	    free(TmpNLr[i][j][k][l]);
-	  }
-	  free(TmpNLr[i][j][k]);
-	}
-	free(TmpNLr[i][j]);
-      }
-      free(TmpNLr[i]);
-    }
-    free(TmpNLr);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<Num_RVNA; l++){
-	    free(TmpNLt[i][j][k][l]);
-	  }
-	  free(TmpNLt[i][j][k]);
-	}
-	free(TmpNLt[i][j]);
-      }
-      free(TmpNLt[i]);
-    }
-    free(TmpNLt);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
-	  for (l=0; l<Num_RVNA; l++){
-	    free(TmpNLp[i][j][k][l]);
-	  }
-	  free(TmpNLp[i][j][k]);
-	}
-	free(TmpNLp[i][j]);
-      }
-      free(TmpNLp[i]);
-    }
-    free(TmpNLp);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	free(SumNL0[i][j]);
-      }
-      free(SumNL0[i]);
-    }
-    free(SumNL0);
-
-    for (i=0; i<(List_YOUSO[25]+1); i++){
-      for (j=0; j<List_YOUSO[24]; j++){
-	free(SumNLr0[i][j]);
-      }
-      free(SumNLr0[i]);
-    }
-    free(SumNLr0);
-
     for (i=0; i<(2*(List_YOUSO[25]+1)+1); i++){
       free(CmatNL0[i]);
     }
@@ -883,6 +818,78 @@ double Set_ProExpn(double ****HVNA, Type_DS_VNA *****DS_VNA)
 
     free(Bes00);
     free(Bes01);
+
+    for (i=0; i<(List_YOUSO[25]+1); i++){
+      for (j=0; j<List_YOUSO[24]; j++){
+	free(SumNLr0[i][j]);
+      }
+      free(SumNLr0[i]);
+    }
+    free(SumNLr0);
+
+    for (i=0; i<(List_YOUSO[25]+1); i++){
+      for (j=0; j<List_YOUSO[24]; j++){
+	free(SumNL0[i][j]);
+      }
+      free(SumNL0[i]);
+    }
+    free(SumNL0);
+
+    for (i=0; i<(List_YOUSO[25]+1); i++){
+      for (j=0; j<List_YOUSO[24]; j++){
+	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
+	  for (l=0; l<Num_RVNA; l++){
+	    free(TmpNLp[i][j][k][l]);
+	  }
+          free(TmpNLp[i][j][k]);
+	}
+        free(TmpNLp[i][j]);
+      }
+      free(TmpNLp[i]);
+    }
+    free(TmpNLp);
+
+    for (i=0; i<(List_YOUSO[25]+1); i++){
+      for (j=0; j<List_YOUSO[24]; j++){
+	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
+	  for (l=0; l<Num_RVNA; l++){
+	    free(TmpNLt[i][j][k][l]);
+	  }
+	  free(TmpNLt[i][j][k]);
+	}
+	free(TmpNLt[i][j]);
+      }
+      free(TmpNLt[i]);
+    }
+    free(TmpNLt);
+
+    for (i=0; i<(List_YOUSO[25]+1); i++){
+      for (j=0; j<List_YOUSO[24]; j++){
+	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
+	  for (l=0; l<Num_RVNA; l++){
+	    free(TmpNLr[i][j][k][l]);
+	  }
+	  free(TmpNLr[i][j][k]);
+	}
+	free(TmpNLr[i][j]);
+      }
+      free(TmpNLr[i]);
+    }
+    free(TmpNLr);
+
+    for (i=0; i<(List_YOUSO[25]+1); i++){
+      for (j=0; j<List_YOUSO[24]; j++){
+	for (k=0; k<(2*(List_YOUSO[25]+1)+1); k++){
+	  for (l=0; l<Num_RVNA; l++){
+	    free(TmpNL[i][j][k][l]);
+	  }
+	  free(TmpNL[i][j][k]);
+	}
+	free(TmpNL[i][j]);
+      }
+      free(TmpNL[i]);
+    }
+    free(TmpNL);
 
 #pragma omp flush(DS_VNA)
 
@@ -1092,7 +1099,7 @@ double Set_ProExpn(double ****HVNA, Type_DS_VNA *****DS_VNA)
 		kl = RMI1[Mc_AN][j][k];
 
 		if (0<=kl){
-
+#pragma omp parallel for private(m, n, sum, L ,L1, GL, Mul1, ene, L2 ,tmp0, L3) default(shared) if(Spe_Total_NO[Cwan] > 8)
 		  for (m=0; m<Spe_Total_NO[Cwan]; m++){
 		    for (n=0; n<Spe_Total_NO[Hwan]; n++){
 
@@ -1660,10 +1667,13 @@ double Set_VNA2(double ****HVNA, double *****HVNA2)
       tmp_SphBp = (double*)malloc(sizeof(double)*(Lmax_Four_Int+3));
 
       /* calculate SphB and SphBp */
-
+#ifdef kcomp
+#else 
+#pragma forceinline recursive
+#endif      
       for (i=0; i<GL_Mesh; i++){
 	Normk = GL_NormK[i];
-	Spherical_Bessel(Normk*r,Lmax_Four_Int,tmp_SphB,tmp_SphBp);
+	Spherical_Bessel2(Normk*r,Lmax_Four_Int,tmp_SphB,tmp_SphBp);
 	for(LL=0; LL<=Lmax_Four_Int; LL++){ 
 	  SphB[LL][i]  = tmp_SphB[LL]; 
 	  SphBp[LL][i] = tmp_SphBp[LL]; 
@@ -2377,10 +2387,13 @@ double Set_VNA3(double *****HVNA3)
       tmp_SphBp = (double*)malloc(sizeof(double)*(Lmax_Four_Int+3));
 
       /* calculate SphB and SphBp */
-
+#ifdef kcomp
+#else 
+#pragma forceinline recursive
+#endif      
       for (i=0; i<GL_Mesh; i++){
 	Normk = GL_NormK[i];
-	Spherical_Bessel(Normk*r,Lmax_Four_Int,tmp_SphB,tmp_SphBp);
+	Spherical_Bessel2(Normk*r,Lmax_Four_Int,tmp_SphB,tmp_SphBp);
 	for(LL=0; LL<=Lmax_Four_Int; LL++){ 
 	  SphB[LL][i]  = tmp_SphB[LL]; 
 	  SphBp[LL][i] = tmp_SphBp[LL]; 
@@ -2788,93 +2801,129 @@ double Set_VNA3(double *****HVNA3)
 } 
 
 
+#define xmin  0.0
+#define asize_lmax 20
 
-double VNA_BesselF(int Gensi, int L1, int Mul1, double R)
+#ifdef kcomp
+static void Spherical_Bessel2( double x, int lmax, double *sb, double *dsb )
+#else 
+inline void Spherical_Bessel2( double x, int lmax, double *sb, double *dsb )
+#endif      
 {
-  int mp_min,mp_max,m,po;
-  double h1,h2,h3,f1,f2,f3,f4;
-  double g1,g2,x1,x2,y1,y2,f;
-  double result;
+  int m,n,nmax;
+  double tsb[asize_lmax+10];
+  double invx,vsb0,vsb1,vsb2,vsbi;
+  double j0,j1,j0p,j1p,sf,tmp,si,co,ix,ix2;
 
-  mp_min = 0;
-  mp_max = Ngrid_NormK - 1;
-  po = 0;
-
-  if (R<NormK[0]){
-    m = 1;
-  }
-  else if (NormK[mp_max]<R){
-    result = 0.0;
-    po = 1;
-  }
-  else{
-    do{
-      m = (mp_min + mp_max)/2;
-      if (NormK[m]<R)
-        mp_min = m;
-      else 
-        mp_max = m;
-    }
-    while((mp_max-mp_min)!=1);
-    m = mp_max;
+  if (x<0.0){
+    printf("minus x is invalid for Spherical_Bessel\n");
+    exit(0);
   }
 
-  /****************************************************
-                 Spline like interpolation
-  ****************************************************/
+  /* find an appropriate nmax */
 
-  if (po==0){
+  nmax = lmax + 3*x + 20;
+  if (nmax<100) nmax = 100;
 
-    if (m==1){
-      h2 = NormK[m]   - NormK[m-1];
-      h3 = NormK[m+1] - NormK[m];
-
-      f2 = Spe_VNA_Bessel[Gensi][L1][Mul1][m-1];
-      f3 = Spe_VNA_Bessel[Gensi][L1][Mul1][m];
-      f4 = Spe_VNA_Bessel[Gensi][L1][Mul1][m+1];
-
-      h1 = -(h2+h3);
-      f1 = f4;
-    }
-    else if (m==(Ngrid_NormK-1)){
-      h1 = NormK[m-1] - NormK[m-2];
-      h2 = NormK[m]   - NormK[m-1];
-
-      f1 = Spe_VNA_Bessel[Gensi][L1][Mul1][m-2];
-      f2 = Spe_VNA_Bessel[Gensi][L1][Mul1][m-1];
-      f3 = Spe_VNA_Bessel[Gensi][L1][Mul1][m];
-
-      h3 = -(h1+h2);
-      f4 = f1;
-    }
-    else{
-      h1 = NormK[m-1] - NormK[m-2];
-      h2 = NormK[m]   - NormK[m-1];
-      h3 = NormK[m+1] - NormK[m];
-
-      f1 = Spe_VNA_Bessel[Gensi][L1][Mul1][m-2];
-      f2 = Spe_VNA_Bessel[Gensi][L1][Mul1][m-1];
-      f3 = Spe_VNA_Bessel[Gensi][L1][Mul1][m];
-      f4 = Spe_VNA_Bessel[Gensi][L1][Mul1][m+1];
-    }
-
-    /****************************************************
-                Calculate the value at R
-    ****************************************************/
-
-    g1 = ((f3-f2)*h1/h2 + (f2-f1)*h2/h1)/(h1+h2);
-    g2 = ((f4-f3)*h2/h3 + (f3-f2)*h3/h2)/(h2+h3);
-
-    x1 = R - NormK[m-1];
-    x2 = R - NormK[m];
-    y1 = x1/h2;
-    y2 = x2/h2;
-
-    f =  y2*y2*(3.0*f2 + h2*g1 + (2.0*f2 + h2*g1)*y2)
-       + y1*y1*(3.0*f3 - h2*g2 - (2.0*f3 - h2*g2)*y1);
-
-    result = f;
+  if (asize_lmax<(lmax+1)){
+    printf("asize_lmax should be larger than %d in Spherical_Bessel.c\n",lmax+1);
+    exit(0);
   }
-  
-  return result;
+
+  /* if x is larger than xmin */
+
+  if ( xmin < x ){
+
+    invx = 1.0/x;
+
+    /* initial values */
+
+    vsb0 = 0.0;
+    vsb1 = 1.0e-14;
+
+    /* downward recurrence from nmax-2 to lmax+2 */
+
+    for ( n=nmax-1; (lmax+2)<n; n-- ){
+
+      vsb2 = (2.0*n + 1.0)*invx*vsb1 - vsb0;
+
+      if (1.0e+250<vsb2){
+        tmp = 1.0/vsb2;
+        vsb2 *= tmp;
+        vsb1 *= tmp;
+      }
+
+      vsbi = vsb0;
+      vsb0 = vsb1;
+      vsb1 = vsb2;
+    }
+
+    /* downward recurrence from lmax+1 to 0 */
+
+    n = lmax + 3;
+    tsb[n-1] = vsb1;
+    tsb[n  ] = vsb0;
+    tsb[n+1] = vsbi;
+
+    tmp = tsb[n-1];
+    tsb[n-1] /= tmp;
+    tsb[n  ] /= tmp;
+
+    for ( n=lmax+2; 0<n; n-- ){
+
+      tsb[n-1] = (2.0*n + 1.0)*invx*tsb[n] - tsb[n+1];
+
+      if (1.0e+250<tsb[n-1]){
+        tmp = tsb[n-1];
+        for (m=n-1; m<=lmax+1; m++){
+          tsb[m] /= tmp;
+        }
+      }
+    }
+
+    /* normalization */
+
+    si = sin(x);
+    co = cos(x);
+    ix = 1.0/x;
+    ix2 = ix*ix;
+    j0 = si*ix;
+    j1 = si*ix*ix - co*ix;
+
+    if (fabs(tsb[1])<fabs(tsb[0])) sf = j0/tsb[0];
+    else                           sf = j1/tsb[1];
+
+    /* tsb to sb */
+
+    for ( n=0; n<=lmax+1; n++ ){
+      sb[n] = tsb[n]*sf;
+    }
+
+    /* derivative of sb */
+
+    dsb[0] = co*ix - si*ix*ix;
+    for ( n=1; n<=lmax; n++ ){
+      dsb[n] = ( (double)n*sb[n-1] - (double)(n+1.0)*sb[n+1] )/(2.0*(double)n + 1.0);
+    }
+
+  }
+
+  /* if x is smaller than xmin */
+
+  else {
+
+    /* sb */
+
+    for ( n=0; n<=lmax; n++ ){
+      sb[n] = 0.0;
+    }
+    sb[0] = 1.0;
+
+    /* derivative of sb */
+
+    dsb[0] = 0.0;
+    for ( n=1; n<=lmax; n++ ){
+      dsb[n] = ( (double)n*sb[n-1] - (double)(n+1.0)*sb[n+1] )/(2.0*(double)n + 1.0);
+    }
+  }
 }

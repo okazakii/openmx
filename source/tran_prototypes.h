@@ -32,6 +32,9 @@ typedef struct { double r,i; } dcomplex;
 #endif
 
 
+typedef float     Type_Orbs_Grid;       /* type of Orbs_Grid */
+
+
 int Lapack_LU_Zinverse(int , dcomplex *);
 
 
@@ -111,11 +114,8 @@ void TRAN_Calc_CentGreenLesser(
                       int nc, 
                       int Order_Lead_Side[2],
                       dcomplex *SigmaL,
-                      dcomplex *SigmaL_Ad,
                       dcomplex *SigmaR, 
-                      dcomplex *SigmaR_Ad, 
                       dcomplex *GC, 
-                      dcomplex *GC_Ad, 
                       dcomplex *HCCk, 
                       dcomplex *SCC, 
 
@@ -126,8 +126,7 @@ void TRAN_Calc_CentGreenLesser(
                       /*  output */ 
                       dcomplex *Gless 
                       );
-
-
+  
  
 /* TRAN_Calc_GridBound.c  */
 void TRAN_Calc_GridBound(MPI_Comm mpi_comm_level1,
@@ -405,6 +404,7 @@ void  TRAN_Output_Trans_HS(
         double *****H,
         double *****iHNL,
         double *****OLP,
+        double *****H0,
         int atomnum,
         int SpeciesNum,
         int *WhatSpecies,
@@ -454,8 +454,18 @@ double TRAN_Poisson(double *ReRhok, double *ImRhok);
 double FFT2D_Density(int den_flag, 
                      double *ReRhok, double *ImRhok);
 
+/* added by mari 08.12.2014 */
+double FFT1D_Density(int den_flag, 
+                     double *ReRhok, double *ImRhok,
+                     dcomplex ***VHart_Boundary_a, 
+                     dcomplex **VHart_Boundary_b);
+
 /* Get_Value_inReal2D.c  */
 void Get_Value_inReal2D(int complex_flag,
+                        double *ReVr, double *ImVr, 
+                        double *ReVk, double *ImVk);
+/* added by mari 18.12.2014 */
+void Get_Value_inReal1D(int complex_flag,
                         double *ReVr, double *ImVr, 
                         double *ReVk, double *ImVk);
 
@@ -673,6 +683,28 @@ int TRAN_Check_Region(
                       double *Spe_Atom_Cut1,
                       double **Gxyz
                       );
+
+/* TRAN_Main_Analysis.c */
+void TRAN_Main_Analysis(MPI_Comm comm1, 
+                        int argc, char *argv[], 
+                        int Matomnum, int *M2G, 
+                        int *GridN_Atom, 
+                        int **GridListAtom,
+                        int **CellListAtom,
+                        Type_Orbs_Grid ***Orbs_Grid,
+                        int TNumGrid);
+
+/* TRAN_Main_Analysis_NC.c */
+void TRAN_Main_Analysis_NC( MPI_Comm comm1, 
+                            int argc, char *argv[], 
+                            int Matomnum, int *M2G, 
+                            int *GridN_Atom, 
+                            int **GridListAtom,
+                            int **CellListAtom,
+                            Type_Orbs_Grid ***Orbs_Grid,
+                            int TNumGrid );
+
+
 
 /* revised by Y. Xiao for Noncollinear NEGF calculations */
 double TRAN_DFT_NC(

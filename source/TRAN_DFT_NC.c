@@ -1,14 +1,15 @@
 /**********************************************************************
   TRAN_DFT_NC.c:
 
-  TRAN_DFT.c is a subroutine to perform self-consistent calculations
+  TRAN_DFT_NC.c is a subroutine to perform self-consistent calculations
   of a central region with left and right infinite leads based on
-  a non-equilibrium Green's function method.
+  a non-equilibrium Green's function method coupled with NC-DFT.
 
   Log of TRAN_DFT_NC.c:
 
      11/Dec/2005   Released by H.Kino
      24/July/2008  Modified by T.Ozaki
+     27/June/2016  Modified by T.Ozaki
 
 ***********************************************************************/
 /* revised by Y. Xiao for Noncollinear NEGF calculations */
@@ -74,8 +75,8 @@ static double TRAN_DFT_Original(
                 int level_stdout,
 		int iter, 
 		int SpinP_switch,
-		double *****nh,  /* H */
-		double *****ImNL, /* not used, s-o coupling */
+		double *****nh,    /* H */
+		double *****ImNL,  /* SO coupling */
 		double ****CntOLP, 
 		int atomnum,
 		int Matomnum,
@@ -116,8 +117,8 @@ static void TRAN_DFT_Kdependent(
                           double **H1,
                           double **H2,
                           double *S1,
-			  double *****nh,  /* H */
-			  double *****ImNL, /* not used, s-o coupling */
+			  double *****nh,   /* H */
+			  double *****ImNL, /* SO coupling */
 			  double ****CntOLP, 
 			  int atomnum,
 			  int Matomnum,
@@ -144,8 +145,8 @@ double TRAN_DFT_NC(
                 int level_stdout,
 		int iter, 
 		int SpinP_switch,
-		double *****nh,  /* H */
-		double *****ImNL, /* not used, s-o coupling */
+		double *****nh,   /* H */
+		double *****ImNL, /* SO coupling */
 		double ****CntOLP, 
 		int atomnum,
 		int Matomnum,
@@ -178,13 +179,13 @@ double TRAN_DFT_NC(
   ******************************************************/
 
   if (TRAN_SCF_Iter_Band<iter || SucceedReadingDMfile==1){ 
-/*  if (3<iter || SucceedReadingDMfile==1){   */
+
     TRAN_DFT_Original( comm1,
 		       level_stdout,
 		       iter, 
 		       SpinP_switch,
 		       nh,   /* H */
-		       ImNL, /* not used, s-o coupling */
+		       ImNL, /* SO coupling */
 		       CntOLP, 
 		       atomnum,
 		       Matomnum,
@@ -207,21 +208,21 @@ double TRAN_DFT_NC(
 		       ChemP_e0); 
   }
 
-  /*************************************************
-    if SCF_iter<=3, employ the band diagonalization
-  *************************************************/
+  /*************************************************************
+   if TRAN_SCF_Iter_Band<iter, employ the band diagonalization
+  *************************************************************/
 
   else {
-       int knum_i, knum_j, knum_k;
+    int knum_i, knum_j, knum_k;
 
-            knum_i = 1;
-            knum_j = TRAN_Kspace_grid2;
-            knum_k = TRAN_Kspace_grid3;
+    knum_i = 1;
+    knum_j = TRAN_Kspace_grid2;
+    knum_k = TRAN_Kspace_grid3;
 
-          time5 =      Band_DFT_NonCol(iter, koS, S, knum_i, knum_j, knum_k, SpinP_switch,
-                               nh, ImNL, CntOLP, CDM, EDM, Eele0, Eele1); 
+    time5 = Band_DFT_NonCol(iter, koS, S, knum_i, knum_j, knum_k, SpinP_switch,
+			    nh, ImNL, CntOLP, CDM, EDM, Eele0, Eele1); 
 
-       }     
+  }     
 
   dtime(&TEtime);
   return TEtime - TStime;
@@ -237,8 +238,8 @@ double TRAN_DFT_Original(
                 int level_stdout,
 		int iter, 
 		int SpinP_switch,
-		double *****nh,  /* H */
-		double *****ImNL, /* not used, s-o coupling */
+		double *****nh,   /* H */
+		double *****ImNL, /* SO coupling */
 		double ****CntOLP, 
 		int atomnum,
 		int Matomnum,
@@ -340,30 +341,9 @@ double TRAN_DFT_Original(
   for (i2=0; i2<TRAN_Kspace_grid2; i2++){
     op_flag[i2] = (int*)malloc(sizeof(int)*TRAN_Kspace_grid3); 
     for (i3=0; i3<TRAN_Kspace_grid3; i3++){
-/*      op_flag[i2][i3] = -999;  */
         op_flag[i2][i3] = 1;
     }
   }
-
-/* The symmetry consideration in Non-collinear case is not valid. *****Y. Xiao*/
-/*  
-for (i2=0; i2<TRAN_Kspace_grid2; i2++){
-    for (i3=0; i3<TRAN_Kspace_grid3; i3++){
-
-      if (op_flag[i2][i3]<0){
- 
-	if ( (TRAN_Kspace_grid2-1-i2)==i2 && (TRAN_Kspace_grid3-1-i3)==i3 ){
-	  op_flag[i2][i3] = 1;
-	}
-	else{
-	  op_flag[i2][i3] = 2;
-	  op_flag[TRAN_Kspace_grid2-1-i2][TRAN_Kspace_grid3-1-i3] = 0;
-	} 
-      }
-
-    }
-  } 
-*/
 
   /***********************************
        one-dimentionalize for MPI
@@ -789,8 +769,6 @@ for (i2=0; i2<TRAN_Kspace_grid2; i2++){
                TRAN_DecMulP[spin][MA_AN][i] = sum;
             }
 
-	/*    TRAN_DecMulP[spin][MA_AN][i] = sum;  */
-
 	  } /* i */
 	} /* spin */
       } 
@@ -903,8 +881,8 @@ static void TRAN_DFT_Kdependent(
                           double **H1,
                           double **H2,
                           double *S1,
-			  double *****nh,  /* H */
-			  double *****ImNL, /* not used, SO-coupling */
+			  double *****nh,    /* H */
+			  double *****ImNL,  /* SO-coupling */
 			  double ****CntOLP, 
 			  int atomnum,
 			  int Matomnum,
@@ -921,19 +899,13 @@ static void TRAN_DFT_Kdependent(
 			  double *****CDM,  /* output, charge density */
 			  double *****EDM,  /* not used */
 			  double Eele0[2], double Eele1[2]) /* not used */
-
-#define GC_ref(i,j) GC[ NUM_c*((j)-1) + (i)-1 ] 
-#define Gless_ref(i,j) Gless[ NUM_c*((j)-1) + (i)-1 ]
-
 {
   int i,j,k,iside,spinsize; 
   int *MP;
   int  iw,iw_method;
   dcomplex w, w_weight;
-  dcomplex *GC_Ad;
   dcomplex *GC,*GRL,*GRR;
   dcomplex *SigmaL, *SigmaR; 
-  dcomplex *SigmaL_Ad, *SigmaR_Ad; 
   dcomplex *work1,*work2,*Gless;
   dcomplex **v2,*v20;
   double dum;
@@ -947,12 +919,11 @@ static void TRAN_DFT_Kdependent(
   double time_a0, time_a1, time_a2; 
 
   /* setup MP */
-/*  TRAN_Set_MP(0, atomnum, WhatSpecies, Spe_Total_CNO, &NUM_c, &i); */
 
   MP = (int*)malloc(sizeof(int)*(atomnum+1));
   TRAN_Set_MP(1, atomnum, WhatSpecies, Spe_Total_CNO, &NUM_c, MP);
-  NUM_c0=NUM_c;  
-  NUM_c=2*NUM_c; 
+  NUM_c0 = NUM_c;  
+  NUM_c = 2*NUM_c; 
  
   /* initialize */
   TRAN_Set_Value_double(SCC_nc,NUM_c*NUM_c,    0.0,0.0);
@@ -1006,19 +977,15 @@ static void TRAN_DFT_Kdependent(
   
   /* added by Y. Xiao */
   v20 = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-    TRAN_Set_Value_double( v20, NUM_c*NUM_c, 0.0, 0.0);
+  TRAN_Set_Value_double( v20, NUM_c*NUM_c, 0.0, 0.0);
 
   GC = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-  GC_Ad = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
 
   GRL = (dcomplex*)malloc(sizeof(dcomplex)*NUM_e[0]* NUM_e[0]);
   GRR = (dcomplex*)malloc(sizeof(dcomplex)*NUM_e[1]* NUM_e[1]);
 
   SigmaL = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
   SigmaR = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-
-  SigmaL_Ad = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
-  SigmaR_Ad = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
 
   work1 = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
   work2 = (dcomplex*)malloc(sizeof(dcomplex)*NUM_c* NUM_c);
@@ -1039,10 +1006,7 @@ static void TRAN_DFT_Kdependent(
   **************************************************************/
 
   for ( Miw=myid; Miw<tran_omega_n_scf; Miw+=numprocs ) {
-/*  for ( Miw=myid; Miw<tran_omega_n_scf*spinsize; Miw+=numprocs ) { */
 
-/*    k = Miw/tran_omega_n_scf; */
-/*    iw = Miw - k*tran_omega_n_scf; */
     iw = Miw; 
     w = tran_omega_scf[iw];
     w_weight  = tran_omega_weight_scf[iw];
@@ -1077,64 +1041,52 @@ static void TRAN_DFT_Kdependent(
 
     TRAN_Calc_CentGreen(w, NUM_c, SigmaL, SigmaR, HCC_nc, SCC_nc, GC);
 
-
     /***********************************************
        The non-equilibrium part is calculated by 
         using the lesser Green's function.
     ***********************************************/
+
     /* calculation of central advanced Green's function */
 
     if (iw_method==2){
-
-      /* conjugate complex */
-      w.i = -w.i;
-
-      /* calculation of surface Green's function and self energy from the LEFT lead */
-
-      iside = 0;
-
-      TRAN_Calc_SurfGreen_direct(w, NUM_e[iside], H00_nc_e[iside], H01_nc_e[iside],
-				 S00_nc_e[iside], S01_nc_e[iside], tran_surfgreen_iteration_max,
-				 tran_surfgreen_eps, GRL);
-
-      TRAN_Calc_SelfEnergy(w, NUM_e[iside], GRL, NUM_c, HCL_nc, SCL_nc, SigmaL_Ad);
-
-      /* calculation of surface Green's function and self energy from the RIGHT lead */
-
-      iside = 1;
-
-      TRAN_Calc_SurfGreen_direct(w, NUM_e[iside], H00_nc_e[iside], H01_nc_e[iside],
-				 S00_nc_e[iside], S01_nc_e[iside], tran_surfgreen_iteration_max,
-				 tran_surfgreen_eps, GRR);
-
-      TRAN_Calc_SelfEnergy(w, NUM_e[iside], GRR, NUM_c, HCR_nc, SCR_nc, SigmaR_Ad);
-
-      /* calculation of central advanced Green's function */
-
-      TRAN_Calc_CentGreen(w, NUM_c, SigmaL_Ad, SigmaR_Ad, HCC_nc, SCC_nc, GC_Ad);
-
-      /* conjugate complex */
-      w.i = -w.i;
 
       /* calculation of central lesser Green's function */
 
       TRAN_Calc_CentGreenLesser( w, ChemP_e, NUM_c, 
 				 Order_Lead_Side, 
-				 SigmaL, SigmaL_Ad, 
-				 SigmaR, SigmaR_Ad, 
-				 GC, GC_Ad, 
+				 SigmaL, 
+				 SigmaR, 
+				 GC, 
 				 HCC_nc, SCC_nc,
 				 work1, work2, Gless);
+
     } /* if (iw_method==2) */
 
     /***********************************************
-            add it to construct the density matrix
+        add it to construct the density matrix
     ***********************************************/
 
-    if (iw_method==1)
+    if      (iw_method==0)
+      TRAN_Add_MAT( 0, NUM_c, w_weight, GC,     v20);
+    else if (iw_method==1)
       TRAN_Add_MAT( 1, NUM_c, w_weight, GC,     v20);
     else if (iw_method==2)
       TRAN_Add_MAT( 1, NUM_c, w_weight, Gless,  v20);
+
+    /*
+    if (Miw==0){
+
+      for (i=0; i<NUM_c; i++){
+        for (j=0; j<NUM_c; j++){
+          printf("Miw=%3d iw_method=%2d i=%3d j=%3d re=%15.12f im=%15.12f\n",Miw,iw_method,i,j,v20[NUM_c*j+i].r,v20[NUM_c*j+i].i);
+        }
+      }
+
+      MPI_Finalize();
+      exit(0);
+    }
+    */
+
 
   } /* iw */
 
@@ -1338,13 +1290,10 @@ static void TRAN_DFT_Kdependent(
   free(Gless);
   free(work2);
   free(work1);
-  free(SigmaL_Ad);
-  free(SigmaR_Ad);
   free(SigmaR);
   free(SigmaL);
   free(GRR);
   free(GRL);
-  free(GC_Ad);
   free(GC);
 
   for (k=0; k<=SpinP_switch; k++) {
@@ -1365,23 +1314,38 @@ static void TRAN_Add_MAT(
     dcomplex *v,
     dcomplex *out
 )
+
+#define v_ref(i,j)        v[NUM_c*(j)+(i)]
+#define out_ref(i,j)      out[NUM_c*(j)+(i)]
+
 {
-  int i;
-  double dum; 
+  int i,j;
+  double re,im; 
 
   switch (mode) {
+
   case 0:
-    for (i=0; i<NUM_c*NUM_c; i++) {
-      out[i].r =  0.0;
-      out[i].i =  0.0;
+
+    for (i=0; i<NUM_c; i++) {
+      for (j=0; j<NUM_c; j++) {
+        re = v_ref(i,j).r + v_ref(j,i).r; 
+        im = v_ref(i,j).i - v_ref(j,i).i; 
+        out_ref(i,j).r += re*w_weight.r - im*w_weight.i;
+        out_ref(i,j).i += re*w_weight.i + im*w_weight.r;
+      }
     }
+
     break;
+
   case 1:
+
     for (i=0; i<NUM_c*NUM_c; i++) {
-      out[i].r += ( v[i].r*w_weight.r - v[i].i*w_weight.i );
-      out[i].i += ( v[i].r*w_weight.i + v[i].i*w_weight.r );
+      out[i].r += v[i].r*w_weight.r - v[i].i*w_weight.i;
+      out[i].i += v[i].r*w_weight.i + v[i].i*w_weight.r;
     }
+
     break;
+
   }
 
 }

@@ -65,7 +65,7 @@ void FT_PAO()
       In case of Scf_RestartFromFile==1, read Spe_RF_Bessel
   ***********************************************************/
 
-  if (Scf_RestartFromFile){
+  if (Scf_RestartFromFile==1){
 
     /****************************************************
           generate radial grids in the k-space

@@ -76,8 +76,6 @@ int main(int argc, char *argv[])
 { 
   static int numprocs,myid;
   static int MD_iter,i,j,po,ip;
-  static char fileE[YOUSO10] = ".ene"; 
-  static char fileDRC[YOUSO10] = ".md";
   static char fileMemory[YOUSO10]; 
   double TStime,TEtime;
 
@@ -267,6 +265,19 @@ int main(int argc, char *argv[])
   }
 
   /****************************************************
+   ./openmx -maketestC
+
+    making of *.out files in order to check whether 
+    OpenMX normally runs for geometry optimization
+    on many platforms or not
+  ****************************************************/
+
+  if ( (argc==2 || argc==3) && strcmp(argv[1],"-maketestC")==0){
+    Maketest("C",argc,argv);
+    exit(1);
+  }
+
+  /****************************************************
    ./openmx -runtestG
 
    check whether OpenMX normally runs for geometry 
@@ -276,6 +287,19 @@ int main(int argc, char *argv[])
 
   if (strcmp(argv[1],"-runtestG")==0){
     Runtest("G",argc,argv);
+  }
+
+  /****************************************************
+   ./openmx -runtestC
+
+   check whether OpenMX normally runs for simultaneous 
+   optimization for cell and geometry on many platforms 
+   or not by comparing the stored *.out and generated
+   *.out on your machine.
+  ****************************************************/
+
+  if (strcmp(argv[1],"-runtestC")==0){
+    Runtest("C",argc,argv);
   }
 
   /****************************************************
@@ -352,6 +376,31 @@ int main(int argc, char *argv[])
     Force_test(argc,argv);
     exit(1);
   }
+
+  /*******************************************************
+   check consistency between analytic and numerical stress
+  *******************************************************/
+
+  if ( (argc==3 || argc==4) && strcmp(argv[1],"-stresstest")==0){
+
+    if      (strcmp(argv[2],"0")==0) stress_flag = 0; 
+    else if (strcmp(argv[2],"1")==0) stress_flag = 1; 
+    else if (strcmp(argv[2],"2")==0) stress_flag = 2; 
+    else if (strcmp(argv[2],"3")==0) stress_flag = 3; 
+    else if (strcmp(argv[2],"4")==0) stress_flag = 4; 
+    else if (strcmp(argv[2],"5")==0) stress_flag = 5; 
+    else if (strcmp(argv[2],"6")==0) stress_flag = 6; 
+    else if (strcmp(argv[2],"7")==0) stress_flag = 7;
+    else if (strcmp(argv[2],"8")==0) stress_flag = 8;
+    else {
+      printf("unsupported flag for -stresstest\n");
+      exit(1);
+    }
+
+    Stress_test(argc,argv);
+    MPI_Finalize();
+    exit(1);
+  }
   
   /*******************************************************
     check the NEB calculation or not, and if yes, go to 
@@ -374,7 +423,7 @@ int main(int argc, char *argv[])
     printf("\n*******************************************************\n"); 
     printf("*******************************************************\n"); 
     printf(" Welcome to OpenMX   Ver. %s                           \n",Version_OpenMX); 
-    printf(" Copyright (C), 2002-2013, T. Ozaki                    \n"); 
+    printf(" Copyright (C), 2002-2014, T. Ozaki                    \n"); 
     printf(" OpenMX comes with ABSOLUTELY NO WARRANTY.             \n"); 
     printf(" This is free software, and you are welcome to         \n"); 
     printf(" redistribute it under the constitution of the GNU-GPL.\n");
@@ -407,10 +456,9 @@ int main(int argc, char *argv[])
   init();
 
   /* for DFTD-vdW by okuno */
-  if(dftD_switch==1) DFTDvdW_init();
-
-  fnjoint(filepath,filename,fileE);
-  fnjoint(filepath,filename,fileDRC);
+  /* for version_dftD by Ellner*/
+  if(dftD_switch==1 && version_dftD==2) DFTDvdW_init();
+  if(dftD_switch==1 && version_dftD==3) DFTD3vdW_init();
 
   /* check "-mltest2" mode */
 
@@ -466,17 +514,64 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  /* check "-stresstest2" mode */
+
+  po = 0;
+  if (myid==Host_ID){
+
+
+    for (i=0; i<argc; i++){
+      if ( strcmp(argv[i],"-stresstest2")==0 ){
+
+        po = 1;
+        ip = i;
+      }
+    }
+  }
+
+  MPI_Bcast(&po, 1, MPI_INT, Host_ID, MPI_COMM_WORLD1);
+  MPI_Bcast(&ip, 1, MPI_INT, Host_ID, MPI_COMM_WORLD1);
+
+  if ( po==1 ){
+    stress_flag = atoi(argv[ip+1]);
+    StressConsistency_flag = 1;
+  }
+
+  /* check stress consistency 
+     the number of processes 
+     should be less than 2.
+  */
+
+  if (StressConsistency_flag==1){
+    Check_Stress(argv);
+    CompTime[myid][20] = OutData(argv[1]);
+    Merge_LogFile(argv[1]);
+    Free_Arrays(0);
+    MPI_Finalize();
+    exit(0); 
+    return 1;
+  }
+
+  /*******************************************************
+        optimization of cell and internal coordinates
+  *******************************************************/
+
+  if (CellOpt_switch!=0) cellopt(argv, CompTime);
+
   /****************************************************
       SCF-DFT calculations, MD and geometrical
       optimization.
   ****************************************************/
 
   MD_iter = 1;
+  Temp_MD_iter = 1;
 
   do {
 
     if (MD_switch==12)
       CompTime[myid][2] += truncation(1,1);  /* EvsLC */
+    else if (MD_cellopt_flag==1)
+      CompTime[myid][2] += truncation(1,1);  /* cell optimization */
     else 
       CompTime[myid][2] += truncation(MD_iter,1);
 
@@ -489,17 +584,20 @@ int main(int argc, char *argv[])
       /* output: TRAN_region[], TRAN_grid_bound */
     }
 
-    CompTime[myid][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
+    if (Solver!=4 || TRAN_SCF_skip==0){
 
-    iterout(MD_iter+MD_Current_Iter,MD_TimeStep*(MD_iter+MD_Current_Iter-1),fileE,fileDRC);
+      CompTime[myid][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
 
-    /* MD or geometry optimization */
+      iterout(MD_iter+MD_Current_Iter,MD_TimeStep*(MD_iter+MD_Current_Iter-1),filepath,filename);
 
-    if (ML_flag==0) CompTime[myid][4] += MD_pac(MD_iter,argv[1]);
+      /* MD or geometry optimization */
+      if (ML_flag==0) CompTime[myid][4] += MD_pac(MD_iter,argv[1]);
+    }
 
     MD_iter++;
+    Temp_MD_iter++;
 
-  } while(MD_Opt_OK==0 && MD_iter<=MD_IterNumber);
+  } while(MD_Opt_OK==0 && (MD_iter+MD_Current_Iter)<=MD_IterNumber);
 
   if ( TRAN_output_hks ) {
      /* left is dummy */
@@ -517,6 +615,12 @@ int main(int argc, char *argv[])
   ****************************************************/
  
   if (Voronoi_OrbM_flag==1) Voronoi_Orbital_Moment();
+
+  /****************************************************
+        output analysis of decomposed energies
+  ****************************************************/
+ 
+  if (Energy_Decomposition_flag==1) Output_Energy_Decomposition();
  
   /****************************************************
   making of a file *.frac for the fractional coordinates
@@ -533,6 +637,29 @@ int main(int argc, char *argv[])
     if (myid==Host_ID) printf("Calling Generate_Wannier...\n");fflush(0);
 
     Generate_Wannier(argv[1]);
+  }
+
+  /*********************************************************
+     Electronic transport calculations based on NEGF:
+     transmission, current, eigen channel analysis, and
+     real space analysis of current
+  *********************************************************/
+
+  if (Solver==4 && TRAN_analysis==1) {
+
+    /* if SCF is skipped, calculate values of basis functions on each grid */ 
+    if (1<=TRAN_SCF_skip) i = Set_Orbitals_Grid(0); 
+
+    if (SpinP_switch==3) {
+      TRAN_Main_Analysis_NC( mpi_comm_level1, argc, argv, Matomnum, M2G,  
+                             GridN_Atom, GridListAtom, CellListAtom, 
+                             Orbs_Grid, TNumGrid );
+    }
+    else {
+      TRAN_Main_Analysis( mpi_comm_level1, argc, argv, Matomnum, M2G,  
+                          GridN_Atom, GridListAtom, CellListAtom, 
+                          Orbs_Grid, TNumGrid );
+    }
   }
 
   /****************************************************
@@ -576,7 +703,6 @@ int main(int argc, char *argv[])
   /* free arrays */
 
   Free_Arrays(0);
-
   /* print memory */
 
   PrintMemory("total",0,"sum");

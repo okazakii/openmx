@@ -701,13 +701,13 @@ double Set_Density_Grid(int Cnt_kind, int Calc_CntOrbital_ON, double *****CDM)
   ******************************************************/
 
   /* initialize arrays */
-
+  
   for (spin=0; spin<(SpinP_switch+1); spin++){
     for (BN=0; BN<My_NumGridB_AB; BN++){
       Density_Grid_B[spin][BN] = 0.0;
     }
   }
-
+  
   /* superposition of densities rho_i */
 
   for (ID=0; ID<numprocs; ID++){
@@ -1279,7 +1279,7 @@ void diagonalize_nc_density()
      Density_Grid in the partition B
   ************************************/
 
-#pragma omp parallel shared(Density_Grid_B,My_NumGridB_AB) private(OMPID,Nthrds,BN,Re11,Re22,Re12,Im12,Nup,Ndown,theta,phi)
+#pragma omp parallel shared(Density_Grid_B,My_NumGridB_AB) private(OMPID,Nthrds,BN,Re11,Re22,Re12,Im12,Nup,Ndown,theta,phi) default(none)
   {
 
     /* get info. on OpenMP */ 
@@ -1310,7 +1310,7 @@ void diagonalize_nc_density()
      Density_Grid in the partition D
   ************************************/
 
-#pragma omp parallel shared(Density_Grid_D,My_NumGridD) private(OMPID,Nthrds,DN,Re11,Re22,Re12,Im12,Nup,Ndown,theta,phi)
+#pragma omp parallel shared(Density_Grid_D,My_NumGridD) private(OMPID,Nthrds,DN,Re11,Re22,Re12,Im12,Nup,Ndown,theta,phi) default(none)
   {
 
     /* get info. on OpenMP */ 

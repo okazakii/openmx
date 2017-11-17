@@ -22,6 +22,8 @@
 #include <omp.h>
 
 #define CUBE_EXTENSION ".cube.bin"
+#define CAT_FLAG 0
+
 
 static void out_density();
 static void out_Veff();
@@ -115,53 +117,60 @@ double OutData_Binary(char *inputfile)
 
     if (myid==Host_ID){
 
-#ifdef xt3
+      if (CAT_FLAG){
 
-      sprintf(fname1,"%s%s.Dos.vec",filepath,filename);
-      fp1 = fopen(fname1,"a");
+	/* merge files */
 
-      if (fp1!=NULL){
-        remove(fname1); 
-        fclose(fp1); 
+	for (i=0; i<numprocs; i++){
+	  if (i==0) 
+	    sprintf(operate,"cat %s%s.Dos.vec%i >  tmp1",filepath,filename,i);
+	  else
+	    sprintf(operate,"cat %s%s.Dos.vec%i >> tmp1",filepath,filename,i);
+
+	  system(operate);
+
+	  sprintf(operate,"rm %s%s.Dos.vec%i",filepath,filename,i);
+	  system(operate);
+	}
+
+	sprintf(operate,"mv tmp1 %s%s.Dos.vec",filepath,filename);
+	system(operate);
+
       }
+
+      else {
+
+	/* merge files */
+
+	sprintf(fname1,"%s%s.Dos.vec",filepath,filename);
+	fp1 = fopen(fname1,"ab");
+
+	if (fp1!=NULL){
+	  remove(fname1); 
+	  fclose(fp1); 
+	}
   
-      for (i=0; i<numprocs; i++){ 
+	for (i=0; i<numprocs; i++){ 
 
-        sprintf(fname1,"%s%s.Dos.vec",filepath,filename);
-        fp1 = fopen(fname1,"a");
-        fseek(fp1,0,SEEK_END);
-        sprintf(fname2,"%s%s.Dos.vec%i",filepath,filename,i);
-        fp2 = fopen(fname2,"r");
+	  sprintf(fname1,"%s%s.Dos.vec",filepath,filename);
+	  fp1 = fopen(fname1,"ab");
+	  fseek(fp1,0,SEEK_END);
+	  sprintf(fname2,"%s%s.Dos.vec%i",filepath,filename,i);
+	  fp2 = fopen(fname2,"rb");
 
-        if (fp2!=NULL){
-          for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
-	  fclose(fp2); 
-        }
-        fclose(fp1); 
+	  if (fp2!=NULL){
+	    for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
+	    fclose(fp2); 
+	  }
+	  fclose(fp1); 
+	}
+
+	for (i=0; i<numprocs; i++){
+	  sprintf(fname2,"%s%s.Dos.vec%i",filepath,filename,i);
+	  remove(fname2);
+	}
+
       }
-
-      for (i=0; i<numprocs; i++){
-        sprintf(fname2,"%s%s.Dos.vec%i",filepath,filename,i);
-        remove(fname2);
-      }
-
-#else
-
-      for (i=0; i<numprocs; i++){
-        if (i==0) 
-          sprintf(operate,"cat %s%s.Dos.vec%i >  tmp1",filepath,filename,i);
-        else
-          sprintf(operate,"cat %s%s.Dos.vec%i >> tmp1",filepath,filename,i);
-
-        system(operate);
-        sprintf(operate,"rm %s%s.Dos.vec%i",filepath,filename,i);
-        system(operate);
-      }
-
-      sprintf(operate,"mv tmp1 %s%s.Dos.vec",filepath,filename);
-      system(operate);
-
-#endif
 
     }
   }
@@ -1797,8 +1806,9 @@ static void Print_CubeTitle(FILE *fp, int EigenValue_flag, double EigenValue)
 
 static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, char *op)
 {
-  int myid,numprocs,ID,BN_AB,n3,cmd,digit;
-  char operate[300];
+  int myid,numprocs,ID,BN_AB,n3,cmd,digit,fd,c;
+  char operate[300],operate1[300],operate2[300];
+  FILE *fp1,*fp2;
 
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
@@ -1843,9 +1853,11 @@ static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, 
   }
 
   /****************************************************
-  fclose(fp);
+                       fclose(fp);
   ****************************************************/
 
+  fd = fileno(fp); 
+  fsync(fd);
   fclose(fp);
 
   /****************************************************
@@ -1856,13 +1868,51 @@ static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, 
 
   if (myid==Host_ID){
 
-    sprintf(operate,"cat %s%s%s_* > %s%s%s",
-            filepath,filename,fext,filepath,filename,fext);
-    system(operate);
+    if (CAT_FLAG) {
 
+      sprintf(operate,"cat %s%s%s_* > %s%s%s",
+	      filepath,filename,fext,filepath,filename,fext);
+      system(operate);
+
+    }
+
+    else {
+
+      /* check whether the file exists, and if it exists, remove it. */
+
+      sprintf(operate1,"%s%s%s",filepath,filename,fext);
+      fp1 = fopen(operate1, "rb");   
+      if (fp1!=NULL){
+	fclose(fp1); 
+	remove(operate1);
+      }
+
+      /* merge all the fraction files */
+
+      for (ID=0; ID<numprocs; ID++){
+
+	sprintf(operate1,"%s%s%s",filepath,filename,fext);
+	fp1 = fopen(operate1, "ab");   
+	fseek(fp1,0,SEEK_END);
+
+	sprintf(operate2,"%s%s%s_%0*i",filepath,filename,fext,digit,ID);
+	fp2 = fopen(operate2,"rb");
+  
+	if (fp2!=NULL){
+	  for (c=getc(fp2); c!=EOF; c=getc(fp2)) putc(c,fp1); 
+	  fclose(fp2); 
+	}
+
+	fclose(fp1); 
+      }
+    }
+
+    /* remove all the fraction files */
     sprintf(operate,"rm %s%s%s_*",filepath,filename,fext);
     system(operate);
+
   }
+
 }
 
 
@@ -1871,21 +1921,25 @@ static void Print_VectorData(FILE *fp, char fext[],
                              double *data2, double *data3)
 {
   int i,j,k,i1,i2,i3,n,c,GridNum;
-  int GN_AB,n1,n2,n3,interval;
+  int GN_AB,n1,n2,n3,interval,digit;
   int BN_AB,N2D,GNs,GN;
   double x,y,z,vx,vy,vz;
   double sden,Cxyz[4],theta,phi;
   double tv0[4][4];
   double *dlist;
   char operate[300];
+  char operate1[300];
+  char operate2[300];
   char clist[300];
   int numprocs,myid,ID;
   MPI_Status stat;
   MPI_Request request;
+  FILE *fp1,*fp2;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
+  digit = (int)log10(numprocs) + 1;
 
   /****************************************************
                     output data 
@@ -2000,14 +2054,51 @@ static void Print_VectorData(FILE *fp, char fext[],
 
   if (myid==Host_ID){
 
-    sprintf(operate,"cat %s%s%s_* > %s%s%s",
-            filepath,filename,fext,filepath,filename,fext);
-    system(operate);
+    if (CAT_FLAG) {
+
+      sprintf(operate,"cat %s%s%s_* > %s%s%s",
+	      filepath,filename,fext,filepath,filename,fext);
+      system(operate);
+
+    }
+
+    else {
+
+      /* check whether the file exists, and if it exists, remove it. */
+
+      sprintf(operate1,"%s%s%s",filepath,filename,fext);
+      fp1 = fopen(operate1, "rb");   
+      if (fp1!=NULL){
+	fclose(fp1); 
+	remove(operate1);
+      }
+
+      /* merge all the fraction files */
+
+      for (ID=0; ID<numprocs; ID++){
+
+	sprintf(operate1,"%s%s%s",filepath,filename,fext);
+	fp1 = fopen(operate1, "ab");   
+	fseek(fp1,0,SEEK_END);
+
+	sprintf(operate2,"%s%s%s_%0*i",filepath,filename,fext,digit,ID);
+	fp2 = fopen(operate2,"rb");
+  
+	if (fp2!=NULL){
+	  for (c=getc(fp2); c!=EOF; c=getc(fp2)) putc(c,fp1); 
+	  fclose(fp2); 
+	}
+
+	fclose(fp1); 
+      }
+    }
 
     sprintf(operate,"rm %s%s%s_*",filepath,filename,fext);
     system(operate);
+
   }
 }
+
 
 
 
@@ -2761,7 +2852,7 @@ void Set_Partial_Density_Grid(double *****CDM)
               calculate Tmp_Den_Grid
   ***********************************************/
     
-#pragma omp parallel shared(myid,G2ID,Orbs_Grid_FNAN,List_YOUSO,time_per_atom,Tmp_Den_Grid,Orbs_Grid,COrbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,CDM,SpinP_switch,WhatSpecies,ncn,F_G2M,natn,Spe_Total_CNO,M2G) private(OMPID,Nthrds,Nprocs,Mc_AN,h_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,NO0,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,i,j,tmp_CDM,Nog,Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3,orbs0_0,orbs0_1,orbs0_2,orbs0_3,orbs1_0,orbs1_1,orbs1_2,orbs1_3,sum_0,sum_1,sum_2,sum_3,tmp0_0,tmp0_1,tmp0_2,tmp0_3,Nc,Nh,orbs0,orbs1,sum,tmp0)
+#pragma omp parallel shared(FNAN,GridN_Atom,Matomnum,myid,G2ID,Orbs_Grid_FNAN,List_YOUSO,time_per_atom,Tmp_Den_Grid,Orbs_Grid,COrbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,CDM,SpinP_switch,WhatSpecies,ncn,F_G2M,natn,Spe_Total_CNO,M2G) private(OMPID,Nthrds,Nprocs,Mc_AN,h_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,NO0,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,i,j,tmp_CDM,Nog,Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3,orbs0_0,orbs0_1,orbs0_2,orbs0_3,orbs1_0,orbs1_1,orbs1_2,orbs1_3,sum_0,sum_1,sum_2,sum_3,tmp0_0,tmp0_1,tmp0_2,tmp0_3,Nc,Nh,orbs0,orbs1,sum,tmp0)
   {
 
     orbs0 = (double*)malloc(sizeof(double)*List_YOUSO[7]);

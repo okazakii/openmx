@@ -52,7 +52,13 @@ void Eigen_PReHH(MPI_Comm MPI_Current_Comm_WD,
                  double **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
 
-  if (scf_eigen_lib_flag==0 || n<100)
+  if (n<20)
+    Eigen_lapack(ac,ko,n,EVmax);
+
+  else if (rediagonalize_flag_overlap_matrix_ELPA1==1)
+    Eigen_ELPA1_Re(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag); 
+
+  else if (scf_eigen_lib_flag==0 || n<100)
     Eigen_Improved_PReHH(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag); 
 
   else if (scf_eigen_lib_flag==1)
@@ -76,7 +82,10 @@ void Eigen_ELPA1_Re(MPI_Comm MPI_Current_Comm_WD,
 
   int na = n;
   int nev = EVmax;
+  int nblk = 4;
+  /*
   int nblk = 16;
+  */
 
   int np_rows, np_cols, na_rows, na_cols;
   int myid, numprocs, my_prow, my_pcol;
@@ -323,12 +332,11 @@ void Eigen_Improved_PReHH(MPI_Comm MPI_Current_Comm_WD,
 
   if ( numprocs<=EVmax ){
 
-    av_num = (double)EVmax/(double)numprocs;
-
-    for (ID=0; ID<numprocs; ID++){
-      is1[ID] = (int)(av_num*(double)ID) + 1; 
-      ie1[ID] = (int)(av_num*(double)(ID+1)); 
-    }
+    av_num = (double)EVmax/(double)numprocs;                                                                
+    for (ID=0; ID<numprocs; ID++){                                                                          
+      is1[ID] = (int)(av_num*(double)ID) + 1;                                                               
+      ie1[ID] = (int)(av_num*(double)(ID+1));                                                               
+    }                                               
 
     is1[0] = 1;
     ie1[numprocs-1] = EVmax; 
@@ -504,6 +512,7 @@ void Eigen_Improved_PReHH(MPI_Comm MPI_Current_Comm_WD,
       sum = sum + ac[j][i] * ac[j][i];
     }
     sum = 1.0/sqrt(sum);
+
     for (i=1; i<=n; i++){
       ac[j][i] = ac[j][i] * sum;
     }
@@ -681,7 +690,6 @@ void myHH( MPI_Comm MPI_Current_Comm_WD, int numprocs, int myid, int n, double *
   if ( numprocs<=(n-1) ){
 
     av_num = (double)(n-1)/(double)numprocs;
-
     for (ID=0; ID<numprocs; ID++){
       is2[ID] = (int)(av_num*(double)ID) + 2;
       ie2[ID] = (int)(av_num*(double)(ID+1)) + 1;
@@ -1091,12 +1099,6 @@ void Eigen_Original_PReHH(MPI_Comm MPI_Current_Comm_WD,
     }
   }
 
-  /*
-  for (ID=0; ID<numprocs; ID++){
-    printf("myid=%2d ID=%2d is1=%3d ie1=%3d\n",myid,ID,is1[ID],ie1[ID]);
-  }
-  */
-
   /****************************************************
     allocation of arrays:
   ****************************************************/
@@ -1190,8 +1192,6 @@ void Eigen_Original_PReHH(MPI_Comm MPI_Current_Comm_WD,
       }
 
       if (measure_time==1) dtime(&Stime1);
-
-      printf("i=%2d r=%18.15f\n",i,r);
 
       r = r / u2;
       for (i1=i+1; i1<=n; i1++){

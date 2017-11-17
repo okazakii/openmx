@@ -7,7 +7,7 @@
 
      08/Apr/2011  Released by Yukihiro Okuno
 
-     The original code is taken from the pwscf Quantum Espresso. 
+     The original code is taken from the PWSCF Quantum Espresso. 
 
 ***********************************************************************/
 

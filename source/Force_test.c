@@ -37,12 +37,12 @@ static int
   {1,1,1,1,1,1,1},
   {0,0,0,0,0,0,0},
   {1,0,0,0,0,0,0},
-  {0,1,0,0,0,0,0},
-  {0,0,1,0,0,0,0},
-  {0,0,0,1,0,0,0},
-  {0,0,0,0,1,0,0},
-  {0,0,0,0,0,1,0},
-  {0,0,0,0,0,0,1}
+  {1,1,0,0,0,0,0},
+  {1,0,1,0,0,0,0},
+  {1,0,0,1,0,0,0},
+  {1,0,0,0,1,0,0},
+  {1,0,0,0,0,1,0},
+  {1,0,0,0,0,0,1}
 };
 
 
@@ -178,10 +178,41 @@ void Force_test(int argc, char *argv[])
  
       /* run openmx */
 
-      if (argc==3)
+      if (argc==3){
         sprintf(operate,"./openmx %s -forcetest2 %i ",fname_dat,force_flag);
-      else if (argc==4)
-        sprintf(operate,"%s %s -forcetest2 %i ",argv[3],fname_dat,force_flag);
+      }
+      else if (argc==4){
+
+        int p;
+        char *tp;
+	char str[10][300];
+        char tmp_argv[300];
+
+        sprintf(str[0],"");
+        sprintf(str[1],"");
+        sprintf(str[2],"");
+        sprintf(str[3],"");
+        sprintf(str[4],"");
+        sprintf(str[5],"");
+
+        strcpy(tmp_argv,argv[3]); 
+
+        tp = strtok(tmp_argv," ");
+        sprintf(str[0],tp);
+ 
+        p = 1; 
+        while (tp != NULL ){
+          tp = strtok(NULL," ");   
+          if (tp!=NULL){ 
+            sprintf(str[p],tp); 
+            p++;
+          }
+	}
+
+        sprintf(operate,"%s %s %s %s %s %s %s -forcetest2 %i",
+                str[0],str[1],str[2],str[3],fname_dat,str[4],str[5],force_flag);
+
+      }
 
       system(operate);
     }

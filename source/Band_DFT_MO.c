@@ -460,6 +460,13 @@ static void Band_DFT_MO_Col(
       /* diagonalization of C */
       Eigen_PHH(mpi_comm_level1,C[spin],ko[spin],n,n,0);
 
+      if (3<=level_stdout){
+	printf("  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",kloop,k1,k2,k3);
+	for (i1=1; i1<=n; i1++){
+	  printf("  Eigenvalues of Hks  %2d  %15.12f\n",i1,ko[spin][i1]);
+	}
+      }
+
       for (i1=1; i1<=n; i1++){
         EIGEN[kloop][spin][i1] = ko[spin][i1];
       }

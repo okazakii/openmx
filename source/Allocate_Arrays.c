@@ -5,7 +5,7 @@
 
 void Allocate_Arrays(int wherefrom)
 {
-  int i,j,k,ii,L,ct_AN,wan,p,l,al,so;
+  int i,j,k,ii,L,ct_AN,wan,p,l,al,so,spin;
   int Lmax,num,m,n,spe;
 
   switch(wherefrom){  
@@ -57,6 +57,11 @@ void Allocate_Arrays(int wherefrom)
         } 
       } 
 
+      Spe_OpenCore_flag = (int*)malloc(sizeof(int)*SpeciesNum);
+      for (p=0; p<SpeciesNum; p++){
+        Spe_OpenCore_flag[p] = 0;
+      }
+
       Spe_Spe2Ban = (int*)malloc(sizeof(int)*SpeciesNum);
       Species_Top = (int*)malloc(sizeof(int)*Num_Procs);
       Species_End = (int*)malloc(sizeof(int)*Num_Procs);
@@ -83,6 +88,9 @@ void Allocate_Arrays(int wherefrom)
       Num_Rcv_Grid_B_AB2CA = (int*)malloc(sizeof(int)*Num_Procs);
       Num_Snd_Grid_B_CA2CB = (int*)malloc(sizeof(int)*Num_Procs);
       Num_Rcv_Grid_B_CA2CB = (int*)malloc(sizeof(int)*Num_Procs);
+/* added by mari 05.12.2014 */
+      Num_Snd_Grid_B_AB2C = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Rcv_Grid_B_AB2C = (int*)malloc(sizeof(int)*Num_Procs);
 
       VPS_j_dependency = (int*)malloc(sizeof(int)*SpeciesNum);
 
@@ -91,13 +99,18 @@ void Allocate_Arrays(int wherefrom)
         EH0_scaling[i] = (double*)malloc(sizeof(double)*SpeciesNum);
       }
 
+      SO_factor = (double**)malloc(sizeof(double*)*SpeciesNum);
+      for (i=0; i<SpeciesNum; i++){
+        SO_factor[i] = (double*)malloc(sizeof(double)*4);
+      }
+
     break;
 
     case 1:
       /* call from Input_std.c */
 
-      Gxyz = (double**)malloc(sizeof(double*)*(atomnum+1));
-      for (i=0; i<(atomnum+1); i++){
+      Gxyz = (double**)malloc(sizeof(double*)*(atomnum+4));
+      for (i=0; i<(atomnum+4); i++){
         Gxyz[i] = (double*)malloc(sizeof(double)*YOUSO26);
         for (j=0; j<YOUSO26; j++){
           Gxyz[i][j] = 0.0;
@@ -108,8 +121,8 @@ void Allocate_Arrays(int wherefrom)
       
       GxyzHistoryIn= (double***)malloc(sizeof(double**)*num);
       for(i=0; i<num; i++) {
-        GxyzHistoryIn[i] = (double**)malloc(sizeof(double*)*(atomnum+1));
-        for(j=0; j<(atomnum+1); j++) {
+        GxyzHistoryIn[i] = (double**)malloc(sizeof(double*)*(atomnum+4));
+        for(j=0; j<(atomnum+4); j++) {
           GxyzHistoryIn[i][j] = (double*)malloc(sizeof(double)*4);
           for (k=0; k<4; k++){
             GxyzHistoryIn[i][j][k] = 0.0;
@@ -119,8 +132,8 @@ void Allocate_Arrays(int wherefrom)
 
       GxyzHistoryR= (double***)malloc(sizeof(double**)*num);
       for(i=0; i<num; i++) {
-        GxyzHistoryR[i] = (double**)malloc(sizeof(double*)*(atomnum+1));
-        for(j=0; j<(atomnum+1); j++) {
+        GxyzHistoryR[i] = (double**)malloc(sizeof(double*)*(atomnum+4));
+        for(j=0; j<(atomnum+4); j++) {
           GxyzHistoryR[i][j] = (double*)malloc(sizeof(double)*4);
           for (k=0; k<4; k++){
             GxyzHistoryR[i][j][k] = 0.0;
@@ -142,8 +155,8 @@ void Allocate_Arrays(int wherefrom)
         atom_Fixed_XYZ[i][3] = 0;
       }
 
-      Cell_Gxyz = (double**)malloc(sizeof(double*)*(atomnum+1));
-      for (i=0; i<(atomnum+1); i++){
+      Cell_Gxyz = (double**)malloc(sizeof(double*)*(atomnum+4));
+      for (i=0; i<(atomnum+4); i++){
         Cell_Gxyz[i] = (double*)malloc(sizeof(double)*4);
       }      
 
@@ -167,7 +180,7 @@ void Allocate_Arrays(int wherefrom)
 
       time_per_atom = (double*)malloc(sizeof(double)*(atomnum+1));
 
-      if (Solver==1 || Solver==5 || Solver==6 || Solver==8){
+      if (Solver==1 || Solver==5 || Solver==6 || Solver==8 || Solver==10){
         orderN_FNAN_SNAN = (int*)malloc(sizeof(int)*(atomnum+1)); 
       }
 
@@ -208,7 +221,7 @@ void Allocate_Arrays(int wherefrom)
 
       /* arrays for LDA+U added by MJ */
 
-      if (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
+      if (Hub_U_switch==1 || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
 	Hub_U_Basis =  (double***)malloc(sizeof(double**)*SpeciesNum);
 	for (i=0; i<SpeciesNum; i++){
 	  Hub_U_Basis[i] = (double**)malloc(sizeof(double*)*(Spe_MaxL_Basis[i]+1));
@@ -257,6 +270,54 @@ void Allocate_Arrays(int wherefrom)
             Hessian[i][j] = 0.0;
 	  }
 	}
+      }
+
+      /* RFC */
+
+      if (MD_switch==18){
+
+        Hessian = (double**)malloc(sizeof(double*)*(3*atomnum+11));
+	for (i=0; i<(3*atomnum+11); i++){
+          Hessian[i] = (double*)malloc(sizeof(double)*(3*atomnum+11));
+  	  for (j=0; j<(3*atomnum+11); j++){
+            Hessian[i][j] = 0.0;
+	  }
+	}
+      }
+
+      /* for EC method */
+
+      if (Solver==10){
+
+	for (spe=0; spe<SpeciesNum; spe++){
+
+	  num = 0;
+	  for (L=0; L<=Spe_MaxL_Basis[spe]; L++){
+	    num += Spe_Num_Basis[spe][L]*(2*L + 1);
+	  }
+	  if (List_YOUSO[7]<=num) List_YOUSO[7] = num;
+	}
+
+	First_Moment_EC = (double***)malloc(sizeof(double**)*(SpinP_switch+1));
+	for (spin=0; spin<(SpinP_switch+1); spin++){
+	  First_Moment_EC[spin] = (double**)malloc(sizeof(double*)*(atomnum+1));
+	  for (i=0; i<(atomnum+1); i++){
+	    First_Moment_EC[spin][i] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	  }
+	}
+
+	Second_Moment_EC = (double***)malloc(sizeof(double**)*(SpinP_switch+1));
+	for (spin=0; spin<(SpinP_switch+1); spin++){
+	  Second_Moment_EC[spin] = (double**)malloc(sizeof(double*)*(atomnum+1));
+	  for (i=0; i<(atomnum+1); i++){
+	    Second_Moment_EC[spin][i] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	  }
+	}
+      }
+
+      /* Constraint_NCS_switch==2 */
+      if (Constraint_NCS_switch==2){
+        InitMagneticMoment = (double*)malloc(sizeof(double)*(atomnum+1));
       }
 
     break;
@@ -351,6 +412,34 @@ void Allocate_Arrays(int wherefrom)
 
     case 4:
 
+      if (alloc_first[32]==0){
+
+	for (i=0; i<SpeciesNum; i++){
+	  free(GridX_EH0[i]);
+	}
+        free(GridX_EH0);
+
+	for (i=0; i<SpeciesNum; i++){
+	  free(GridY_EH0[i]);
+	}
+        free(GridY_EH0);
+
+	for (i=0; i<SpeciesNum; i++){
+	  free(GridZ_EH0[i]);
+	}
+        free(GridZ_EH0);
+
+	for (i=0; i<SpeciesNum; i++){
+	  free(Arho_EH0[i]);
+	}
+        free(Arho_EH0);
+
+	for (i=0; i<SpeciesNum; i++){
+	  free(Wt_EH0[i]);
+	}
+        free(Wt_EH0);
+      }
+
       /* call from Total_Energy.c */
 
       GridX_EH0 = (double**)malloc(sizeof(double*)*SpeciesNum);
@@ -377,6 +466,8 @@ void Allocate_Arrays(int wherefrom)
       for (i=0; i<SpeciesNum; i++){
         Wt_EH0[i] = (double*)malloc(sizeof(double)*Max_TGN_EH0);
       }
+
+      alloc_first[32] = 0;
 
     break;
 
@@ -684,6 +775,48 @@ void Allocate_Arrays(int wherefrom)
     AtomGr = (int*)malloc(sizeof(int)*(atomnum+1));
     atnum_AtGr = (int*)malloc(sizeof(int)*(num_AtGr+1));
     Temp_AtGr = (double*)malloc(sizeof(double)*(num_AtGr+1));
+
+    break;
+
+  case 11: /* NBO by T.Ohwaki */
+
+    NBO_FCenter = (int*)malloc(sizeof(int)*(Num_NBO_FCenter+1));
+
+    Num_NHOs = (int*)malloc(sizeof(int)*(atomnum+1));
+
+    NAO_kpoint = (double**)malloc(sizeof(double*)*(NAO_Nkpoint+1));
+    for (i=0; i<(NAO_Nkpoint+1); i++){
+      NAO_kpoint[i] = (double*)malloc(sizeof(double)*4);
+    }
+
+    rlmax_EC_NAO = (int*)malloc(sizeof(int)*(atomnum+1));
+    for (i=0; i<=atomnum; i++){
+      rlmax_EC_NAO[i] = 0;
+    }
+
+    rlmax_EC2_NAO = (int*)malloc(sizeof(int)*(atomnum+1));
+    for (i=0; i<=atomnum; i++){
+      rlmax_EC2_NAO[i] = 0;
+    }
+
+    EKC_core_size_NAO = (int*)malloc(sizeof(int)*(atomnum+1));
+    for (i=0; i<=atomnum; i++){
+      EKC_core_size_NAO[i] = 0;
+    }
+
+    F_Snd_Num_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+    S_Snd_Num_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+    F_Rcv_Num_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+    S_Rcv_Num_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+
+    F_TopMAN_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+    S_TopMAN_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+
+    F_G2M_NAO = (int*)malloc(sizeof(int)*(atomnum+1));
+    S_G2M_NAO = (int*)malloc(sizeof(int)*(atomnum+1));
+
+    Snd_HFS_Size_NAO = (int*)malloc(sizeof(int)*Num_Procs);
+    Rcv_HFS_Size_NAO = (int*)malloc(sizeof(int)*Num_Procs);
 
     break;
 

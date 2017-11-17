@@ -87,7 +87,7 @@ void Simple_Mixing_DM(int Change_switch,
         }
       }
 
-      if (SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 
+      if (SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch 
           || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1 )){ 
 
         for (spin=0; spin<2; spin++){
@@ -242,7 +242,7 @@ void Simple_Mixing_DM(int Change_switch,
           }
         }
 
-        if ( (SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 
+        if ( (SpinP_switch==3 && ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
               || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1 )) && spin<=1 ){ 
 
 	  for (m=0; m<ian; m++){

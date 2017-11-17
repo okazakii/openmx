@@ -166,7 +166,6 @@ static double Cluster_collinear(
   MPI_Comm *MPI_CommWD1;
   char *Name_Angular[Supported_MaxL+1][2*(Supported_MaxL+1)+1];
   char *Name_Multiple[20];
-  double OLP_eigen_cut=Threshold_OLP_Eigen;
   char file_EV[YOUSO10] = ".EV";
   char buf[fp_bsize];          /* setvbuf */
   FILE *fp_EV;
@@ -330,13 +329,28 @@ static double Cluster_collinear(
 
   MPI_Barrier(mpi_comm_level1);
 
-  if (SCF_iter==1){
+  if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1){
     Overlap_Cluster(CntOLP,S,MP);
   }
 
   for (spin=0; spin<=SpinP_switch; spin++){
     Hamiltonian_Cluster(nh[spin],H[spin],MP);
   } 
+
+  /*
+  if(myid0==0){
+    sum = 0.0;
+    printf("H\n");
+    for(i=1;i<=n;i++){
+      for(j=1;j<=n;j++){
+	printf("ABC i=%3d j=%3d %18.15f %18.15f\n",i,j,H[0][i][j],H[1][i][j]);
+        sum += H[0][i][j] + H[1][i][j]; 
+      }
+      printf("\n");
+    }
+    printf("QQQ1 %18.15f\n",sum);
+  }
+  */
 
   /*---------- added by TOYODA 14/JAN/2010 */
   if (g_exx_switch) { 
@@ -356,7 +370,7 @@ static double Cluster_collinear(
   }
   /*---------- until here */
 
-  if (SCF_iter==1){
+  if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1){
 
     if (measure_time) dtime(&stime);
 
@@ -367,11 +381,11 @@ static double Cluster_collinear(
     /*
     if(myid0==0){
       printf("S before\n");
-      for(i=0;i<Size_Total_Matrix+2;i++){
-	for(j=0;j<Size_Total_Matrix+2;j++){
-	  printf("%2.1f ",S[i][j]);
-	  if(j==Size_Total_Matrix+1) printf("\n");
+      for(i=1;i<=n;i++){
+	for(j=1;j<=n;j++){
+	  printf("%10.6f ",S[i][j]);
 	}
+        printf("\n");
       }
     }
     */
@@ -384,13 +398,15 @@ static double Cluster_collinear(
     /*
     if(myid0==0){
       printf("S after\n");
-      for(i=0;i<Size_Total_Matrix+2;i++){
-	for(j=0;j<Size_Total_Matrix+2;j++){
-	  printf("%2.1f ",S[i][j]);
-	  if(j==Size_Total_Matrix+1) printf("\n");
+      for(i=1;i<=n;i++){
+	for(j=1;j<=n;j++){
+	  printf("%10.6f ",S[i][j]);
 	}
+        printf("\n");
       }
     }
+    MPI_Finalize();
+    exit(0);
     */
 
     /* minus eigenvalues to 1.0e-14 */
@@ -418,7 +434,7 @@ static double Cluster_collinear(
 
     for (i1=1; i1<=(n-3); i1+=4){
 
-#pragma omp parallel shared(n,S,IEV_S) private(OMPID,Nthrds,Nprocs,j1)
+#pragma omp parallel shared(i1,n,S,IEV_S) private(OMPID,Nthrds,Nprocs,j1)
       { 
 
 	/* get info. on OpenMP */ 
@@ -458,6 +474,18 @@ static double Cluster_collinear(
          MP indicates the starting position of
               atom i in arraies H and S
   ****************************************************/
+
+  /*
+  if(myid0==0){
+    printf("H\n");
+    for(i=1;i<=n;i++){
+      for(j=1;j<=n;j++){
+	printf("%10.7f ",H[0][i][j]);
+      }
+      printf("\n");
+    }
+  }
+  */
 
   MPI_Barrier(mpi_comm_level1);
 
@@ -618,7 +646,7 @@ static double Cluster_collinear(
 
   /* find the maximum states in solved eigenvalues */
 
-  if (SCF_iter==1){
+  if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1){
     MaxN = n;
   }
   else {
@@ -638,7 +666,6 @@ static double Cluster_collinear(
   if ( numprocs1<=MaxN ){
 
     av_num = (double)MaxN/(double)numprocs1;
-
     for (ID=0; ID<numprocs1; ID++){
       is2[ID] = (int)(av_num*(double)ID) + 1; 
       ie2[ID] = (int)(av_num*(double)(ID+1)); 
@@ -1077,7 +1104,7 @@ static double Cluster_collinear(
 
 	if (FermiF>FermiEps || (cal_partial_charge && (FermiEps<FermiF || FermiEps<FermiF2) )) {
 
-#pragma omp parallel shared(ko,EDM,CDM,Partial_DM,k,spin,C,FermiF,diffF,natn,FNAN,MP,Spe_Total_CNO,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,MA_AN,GA_AN,wanA,tnoA,Anum,LB_AN,GB_AN,wanB,tnoB,Bnum,i,j,dum)
+#pragma omp parallel shared(cal_partial_charge,ko,EDM,CDM,Partial_DM,k,spin,C,FermiF,diffF,natn,FNAN,MP,Spe_Total_CNO,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,MA_AN,GA_AN,wanA,tnoA,Anum,LB_AN,GB_AN,wanB,tnoB,Bnum,i,j,dum)
 	  { 
 
 	    /* get info. on OpenMP */ 
@@ -1490,7 +1517,6 @@ static double Cluster_non_collinear(
   double TStime,TEtime;
   double FermiEps = 1.0e-13;
   int numprocs,myid,ID;
-  double OLP_eigen_cut=Threshold_OLP_Eigen;
   char *Name_Angular[Supported_MaxL+1][2*(Supported_MaxL+1)+1];
   char *Name_Multiple[20];
   char file_EV[YOUSO10] = ".EV";
@@ -1636,7 +1662,7 @@ static double Cluster_non_collinear(
        2. search negative eigenvalues
   ****************************************************/
 
-  if (SCF_iter<=1){
+  if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1){
 
     if (measure_time) dtime(&stime);
 
@@ -1646,7 +1672,7 @@ static double Cluster_non_collinear(
 
     bcast_flag = 1;
 
-    if (numprocs<n && 1<numprocs)
+    if (numprocs<n)
       Eigen_PReHH(mpi_comm_level1,S,ko,n,n,bcast_flag);
     else 
       Eigen_lapack(S,ko,n,n);
@@ -1879,7 +1905,7 @@ static double Cluster_non_collinear(
   
   n1 = 2*n;
 
-  if (SCF_iter==1){
+  if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1){
     MaxN = n1; 
   }   
   else {
@@ -1932,7 +1958,7 @@ static double Cluster_non_collinear(
 
   bcast_flag = 0;
 
-  if (numprocs<n1 && 1<numprocs)
+  if (numprocs<n1)
     Eigen_PHH(mpi_comm_level1, C, ko, n1, MaxN, bcast_flag);
   else 
     EigenBand_lapack(C, ko, n1, MaxN, 1);

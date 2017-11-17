@@ -20,10 +20,11 @@ double XC_Ceperly_Alder(double den, int P_switch)
 {
 
   /****************************************************
-          P_switch:
-              0  \epsilon_XC (XC energy density)  
-              1  \mu_XC      (XC potential)  
-              2  \epsilon_XC - \mu_XC 
+     P_switch:
+      0  \epsilon_XC (XC energy density)  
+      1  \mu_XC      (XC potential)  
+      2  \epsilon_XC - \mu_XC 
+      3  derivative of XC energy density w.r.t. den
   ****************************************************/
 
   double dum,rs,coe;
@@ -64,12 +65,15 @@ double XC_Ceperly_Alder(double den, int P_switch)
     printf("Ex=%15.12f %15.12f\n",Ex,Ex-0.33333333333333333333*rs*dEx);
     */
   
-    if (P_switch==0)
+    if      (P_switch==0)
       result = Ex + Ec;
     else if (P_switch==1)
       result = Ex + Ec - 0.33333333333333333333*rs*(dEx + dEc);
     else if (P_switch==2)
       result = 0.3333333333333333333*rs*(dEx + dEc);
+    else if (P_switch==3)
+      result = -0.3333333333333333333/(coe*coe*coe)*rs*rs*rs*rs*(dEx + dEc);
+
   }
 
   return result;

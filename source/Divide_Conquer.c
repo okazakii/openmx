@@ -643,7 +643,7 @@ static double DC_Col(char *mode,
               atom i in arraies H and S
   ****************************************************/
 
-#pragma omp parallel shared(List_YOUSO,Etime_atom,time_per_atom,time3,Residues,EVal,time2,time1,S12,level_stdout,SpinP_switch,Hks,OLP0,SCF_iter,RMI1,S_G2M,Spe_Total_CNO,natn,FNAN,SNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Gc_AN,wan,Anum,i,j,MP,Gi,wanA,NUM,NUM1,n2,spin,S_DC,H_DC,ko,M1,C,ig,ian,ih,kl,jg,jan,Bnum,m,n,stime,P_min,l,i1,j1,etime,tmp1,tmp2,sum1,sum2,sum3,sum4,j1s,sum,tno1,h_AN,Gh_AN,wanB,tno2)
+#pragma omp parallel shared(OLP_eigen_cut,List_YOUSO,Etime_atom,time_per_atom,time3,Residues,EVal,time2,time1,S12,level_stdout,SpinP_switch,Hks,OLP0,SCF_iter,RMI1,S_G2M,Spe_Total_CNO,natn,FNAN,SNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Gc_AN,wan,Anum,i,j,MP,Gi,wanA,NUM,NUM1,n2,spin,S_DC,H_DC,ko,M1,C,ig,ian,ih,kl,jg,jan,Bnum,m,n,stime,P_min,l,i1,j1,etime,tmp1,tmp2,sum1,sum2,sum3,sum4,j1s,sum,tno1,h_AN,Gh_AN,wanB,tno2)
   { 
 
     /* get info. on OpenMP */ 
@@ -926,6 +926,14 @@ static double DC_Col(char *mode,
 	NUM1 = NUM - (P_min - 1);
 	Eigen_lapack(C,ko,NUM1,NUM1);
 
+	/*
+        for (i=1; i<=NUM1; i++){
+          printf("DCQ1 i=%2d ko=%16.12f\n",i,ko[i]);
+        }
+        MPI_Finalize(); 
+        exit(0);
+	*/
+
 	/* C to H (transposition) */
 
 	for (i1=1; i1<=NUM; i1++){
@@ -1089,7 +1097,7 @@ static double DC_Col(char *mode,
 
     if (measure_time) dtime(&stime);
 
-#pragma omp parallel shared(time_per_atom,Residues,OLP0,natn,PDOS_DC,Msize,Spe_Total_CNO,WhatSpecies,M2G,Matomnum,SpinP_switch) private(OMPID,Nthrds,Nprocs,Mc_AN,spin,Stime_atom,Etime_atom,Gc_AN,wanA,tno1,i1,i,h_AN,Gh_AN,wanB,tno2,j,tmp1)
+#pragma omp parallel shared(FNAN,time_per_atom,Residues,OLP0,natn,PDOS_DC,Msize,Spe_Total_CNO,WhatSpecies,M2G,Matomnum,SpinP_switch) private(OMPID,Nthrds,Nprocs,Mc_AN,spin,Stime_atom,Etime_atom,Gc_AN,wanA,tno1,i1,i,h_AN,Gh_AN,wanB,tno2,j,tmp1)
     {
 
       /* get info. on OpenMP */ 
@@ -1267,7 +1275,7 @@ static double DC_Col(char *mode,
       }
     }
 
-#pragma omp parallel shared(time_per_atom,EDM,CDM,Residues,natn,max_x,Beta,ChemP,EVal,Msize,Spe_Total_CNO,WhatSpecies,M2G,SpinP_switch,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,spin,Stime_atom,Gc_AN,wanA,tno1,i1,x,FermiF,h_AN,Gh_AN,wanB,tno2,i,j,tmp1,Etime_atom)
+#pragma omp parallel shared(FNAN,time_per_atom,EDM,CDM,Residues,natn,max_x,Beta,ChemP,EVal,Msize,Spe_Total_CNO,WhatSpecies,M2G,SpinP_switch,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,spin,Stime_atom,Gc_AN,wanA,tno1,i1,x,FermiF,h_AN,Gh_AN,wanB,tno2,i,j,tmp1,Etime_atom)
     {
 
       /* get info. on OpenMP */ 
@@ -1835,7 +1843,7 @@ static double DC_NonCol(char *mode,
 
   /* spin-orbit coupling or LDA+U */  
 
-  if (SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 
+  if (SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
       || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
 
     for (ID=0; ID<numprocs; ID++){
@@ -2553,7 +2561,7 @@ static double DC_NonCol(char *mode,
 		                                      -C[1+i    ][i1].i*C[Bnum+j+NUM][i1].r; 
 
 	      /* spin-orbit coupling or LDA+U */
-	      if ( SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1
+	      if ( SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
 		   || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
 
 		/* Im11 */
@@ -2797,7 +2805,7 @@ static double DC_NonCol(char *mode,
 	  }
 
 	  /* spin-orbit coupling or LDA+U */
-	  if ( (SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1
+	  if ( (SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
 		|| Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) && spin==0 ){
 	    for (i=0; i<tno1; i++){
 	      for (j=0; j<tno2; j++){
@@ -2862,7 +2870,7 @@ static double DC_NonCol(char *mode,
 		EDM[3][Mc_AN][h_AN][i][j] += tmp1*EVal[Mc_AN][i1];
 
 		/* spin-orbit coupling or LDA+U */
-		if (SO_switch==1 || Hub_U_switch==1 || Constraint_NCS_switch==1 
+		if (SO_switch==1 || Hub_U_switch==1 || 1<=Constraint_NCS_switch
 		    || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
 		  iDM[0][0][Mc_AN][h_AN][i][j] += FermiF*Residues[0][Mc_AN][h_AN][i][j][i1].i;
 		  iDM[0][1][Mc_AN][h_AN][i][j] += FermiF*Residues[1][Mc_AN][h_AN][i][j][i1].i;

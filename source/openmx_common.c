@@ -18,9 +18,6 @@
 
 #include "openmx_common.h"
 
-static int imaxarg1,imaxarg2;
-#define IMAX(a,b) (imaxarg1=(a),imaxarg2=(b),(imaxarg1) > (imaxarg2) ? (imaxarg1) : (imaxarg2))
-#define SIGN(a,b) ((b) >= 0.0 ? fabs(a) : -fabs(a))
 
 
 void Generation_ATV(int N)
@@ -680,7 +677,7 @@ void Associated_Legendre(int l, int m, double x, double ALeg[2])
   ******************************************************/
   double cut0=1.0e-24,cut1=1.0e-12;
   double Pm,Pm1,f,p0,p1,dP,tmp0; 
-  int i,ll,po;
+  int i,ll;
   
   if (m<0 || m>l || fabs(x)>1.0){
     printf("Invalid arguments in routine Associated_Legendre\n");

@@ -102,9 +102,18 @@ int RestartFileDFT(char *mode, int MD_iter, double *Uele, double *****H, double 
 void Extp_Charge(int MD_iter, double *extpln_coes)
 {
   int i,j,k;
+  int flag_nan,flag_improper;
   int NumHis;
   double sum;
   double **A,**IA,*B;
+  char nanchar[300];
+  int numprocs,myid;
+
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /* initialization of extpln_coes */
 
   for (i=0; i<Extrapolated_Charge_History; i++){
     extpln_coes[i] = 0.0;
@@ -184,19 +193,59 @@ void Extp_Charge(int MD_iter, double *extpln_coes)
       extpln_coes[i] = sum;
     }
 
-    /* if a set of extpln_coes is improper, correct them */
+    if (myid==Host_ID && 0){
+      for (i=0; i<NumHis; i++){
+        printf("ABC1 i=%2d extpln_coes=%18.15f\n",i,extpln_coes[i]); 
+      }
+    }
+
+    /*************************************
+      check "nan", "NaN", "inf" or "Inf"
+    *************************************/
+
+    flag_nan = 0;
+    for (i=0; i<NumHis; i++){
+      sprintf(nanchar,"%8.4f",extpln_coes[i]);
+      if (strstr(nanchar,"nan")!=NULL || strstr(nanchar,"NaN")!=NULL 
+       || strstr(nanchar,"inf")!=NULL || strstr(nanchar,"Inf")!=NULL){
+
+        flag_nan = 1;
+      }
+    }
+
+    if (flag_nan==1){
+      for (i=0; i<Extrapolated_Charge_History; i++){
+        extpln_coes[i] = 0.0;
+      }
+      extpln_coes[0] = 1.0;
+    }
+
+    /*******************************************************
+       if a set of extpln_coes is improper, correct them
+    *******************************************************/
+
+    flag_improper = 0;
+
+    for (i=0; i<NumHis; i++){
+      if ( 10.0<fabs(extpln_coes[i]) ) flag_improper = 1;
+    }
 
     sum = 0.0;
     for (i=0; i<NumHis; i++){
       sum += extpln_coes[i];
     }
+    if (0.001<fabs(sum-1.0)) flag_improper = 1;
 
-    if (sum<0.5){
-      for (i=0; i<Extrapolated_Charge_History; i++) extpln_coes[i] = 0.0;
-      extpln_coes[NumHis-1] = 1.0;   
+    if (flag_improper==1){
+      for (i=0; i<Extrapolated_Charge_History; i++){
+        extpln_coes[i] = 0.0;
+      }
+      extpln_coes[0] = 1.0;
     }
 
-    /* free */
+    /********************************
+                   free 
+    ********************************/
 
     for (i=0; i<(Extrapolated_Charge_History+2); i++){
       free(A[i]);
@@ -261,7 +310,7 @@ void Inverse(int n, double **a, double **ia)
   Eigen_lapack(a0,ko,n+1,n+1);
 
   for (i=1; i<=(n+1); i++){
-    if (fabs(ko[i])<1.0e-12) 
+    if (fabs(ko[i])<1.0e-15) 
       iko[i] = 0.0;
     else    
       iko[i] = 1.0/ko[i];

@@ -29,8 +29,8 @@ Hubbard.U.values>
 Atoms.Number        2
 Atoms.SpeciesAndCoordinates.Unit   Ang  # Ang|AU
 <Atoms.SpeciesAndCoordinates           # Unit=AU
- 1   H   0.700     0.000     0.000      0.6  0.4  on
- 2   C   0.200     0.300     0.400      2.3  1.7  on
+ 1   H   0.700     0.000     0.000      0.4  0.6  on
+ 2   C   0.000     0.700     0.400      2.3  1.7  on
 Atoms.SpeciesAndCoordinates>
 Atoms.UnitVectors.Unit             Ang  #  Ang|AU
 #<Atoms.UnitVectors                     # unit=AU
@@ -47,129 +47,18 @@ scf.XcType                 LSDA-CA     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
 scf.Hubbard.U              On          # On|Off , default=off
 scf.Hubbard.Occupation     dual        # onsite|full|dual, default=dual
 scf.SpinPolarization       On          # On|Off|NC
-scf.partialCoreCorrection  On          # On|Off
-scf.ElectronicTemperature  300.0        # default=300 (K)
-scf.energycutoff           120.0       # default=150 (Ry)
-scf.maxIter                400         # default=40
+scf.ElectronicTemperature  100.0        # default=300 (K)
+scf.energycutoff           180.0       # default=150 (Ry)
+scf.maxIter                700         # default=40
 scf.EigenvalueSolver       cluster     # Recursion|Cluster|Band
 scf.Kgrid                  1 1 1       # means 4x4x4
 scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
-scf.Init.Mixing.Weight     0.010       # default=0.30 
-scf.Min.Mixing.Weight      0.010       # default=0.001 
-scf.Max.Mixing.Weight      0.120       # default=0.40 
-scf.Mixing.History          7          # default=5
-scf.Mixing.StartPulay      100         # default=6
+scf.Init.Mixing.Weight     0.001       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.150       # default=0.40 
+scf.Mixing.History         10          # default=5
+scf.Mixing.StartPulay     100          # default=6
 scf.criterion             1.0e-15      # default=1.0e-6 (Hartree) 
-
-#
-# 1D FFT
-#
-
-1DFFT.NumGridK             900         # default=900
-1DFFT.NumGridR             900         # default=900
-1DFFT.EnergyCutoff        3600.0       # default=3DFFT.EnergyCutoff*3.0 (Ry)
-
-#
-# Orbital Optimization
-#
-
-orbitalOpt.Method          Off         # Off|Unrestricted|Restricted
-orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
-orbitalOpt.initPrefactor   0.1         # default=0.1
-orbitalOpt.scf.maxIter      12         # default=12
-orbitalOpt.MD.maxIter        2         # default=5
-orbitalOpt.per.MDIter        2         # default=1000000
-orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
-
-
-#
-# output of contracted orbitals
-#
-
-CntOrb.fileout             off         # on|off , default=off
-Num.CntOrb.Atoms            2          # default=1
-<Atoms.Cont.Orbitals
-1
-2
-Atoms.Cont.Orbitals>
-
-
-
- 
-#
-# SCF Order-N
-#
-
-orderN.HoppingRanges         4.0       # default=5.0 (Ang) 
-orderN.NumHoppings           1         # default=2
-
-
-#
-# MD or Geometry Optimization
-#
-
-MD.Type                     Opt        # Nomd|Constant_Energy_MD|Opt
-MD.maxIter                   1         # default=1
-MD.TimeStep                 0.01       # default=0.5 (fs)
-MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
-
-
-
-#
-# restarting using a restart file, *.rst
-#
-
-scf.restart                 off        # on|off , default=off
-
-#
-# MO output
-#
-
-MO.fileout                  off        # on|off
-num.HOMOs                    3         # default=1
-num.LUMOs                    3         # default=1
-MO.Nkpoint                   1         # default=1
-<MO.kpoint
- 0.0  0.0  0.0
-MO.kpoint>
-
-
-#
-# Band dispersion 
-#
-# if <Band.KPath.UnitCell does not exist,
-#     the reciprical lattice vector is employed. 
-
-Band.dispersion             off        # on|off, default=off
-Band.Nkpath                  2
-<Band.kpath                
-  120  1.0 0.0 0.0   0.0 0.0 0.0    Y  G
-  120  0.0 0.0 0.0   0.0 0.0 1.0    G  Z
-Band.kpath>
-
-
-#
-# DOS and LDOS
-#
-
-Dos.fileout                 off         # on|off , default=off
-Dos.Erange              -20.0  20.0     # default = -20 20
-Dos.Kgrid                  9 9 9        # default = Kgrid1 Kgrid2 Kgrid3
-
-
-#
-# output Hamiltonian and overlap
-#
-
-HS.fileout                   off     # on|off, default=off
-
-
-
-
-
-
-
-
 
 
 

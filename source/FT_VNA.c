@@ -65,7 +65,7 @@ void FT_VNA()
    In case of Scf_RestartFromFile==1, read Spe_CrudeVNA_Bessel
   ***********************************************************/
 
-  if (Scf_RestartFromFile){
+  if (Scf_RestartFromFile==1){
 
     /****************************************************
          regenerate radial grids in the k-space

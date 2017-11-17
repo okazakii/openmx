@@ -23,7 +23,7 @@
 
 
 #define  measure_time   0
-#define  maxima_step  1000000.0
+#define  maxima_step  10000000.0
 
 #ifdef MIN
 #undef MIN
@@ -45,6 +45,7 @@ static void DIIS_Mixing_Rhok_Normal(int SCF_iter,
 			      double *ImVk,
 			      double *ReRhoAtomk,
 			      double *ImRhoAtomk);
+
 
 static void DIIS_Mixing_Rhok_NEGF(int SCF_iter,
 				  double Mix_wgt,
@@ -100,6 +101,7 @@ void DIIS_Mixing_Rhok(int SCF_iter,
   }
 
 }
+
 
 
 
@@ -237,8 +239,18 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
 
     G2 = Gx*Gx + Gy*Gy + Gz*Gz;
 
-    if (k1==0 && k2==0 && k3==0)  weight = 1.0;
+    if (k1==0 && k2==0 && k3==0)  weight = 0.5;
     else                          weight = (G2 + G02)/(G2 + G02p);
+
+    /*
+    if (SCF_iter==10){
+
+    printf("%18.13f %18.13f %18.13f\n",
+           G2,
+           ReRhok[0][0][k]-ReRhok[1][0][k],
+           ImRhok[0][0][k]-ImRhok[1][0][k]);
+    }
+    */
 
     Kerker_weight[k] = sqrt(weight);
 
@@ -381,67 +393,6 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
       time4 = Etime1 - Stime1;      
     }
 
-    /**********************************
-              original code
-    **********************************/
-   
-    /*
-    One2SCFi = (int*)malloc(sizeof(int)*(NumMix*(NumMix+1))/2); 
-    One2SCFj = (int*)malloc(sizeof(int)*(NumMix*(NumMix+1))/2); 
-
-    i = 0;
-    for (SCFi=1; SCFi<=NumMix; SCFi++){
-      for (SCFj=SCFi; SCFj<=NumMix; SCFj++){
-        One2SCFi[i] = SCFi;
-        One2SCFj[i] = SCFj;
-        i++; 
-      }
-    }
-
-#pragma omp parallel shared(My_A,Residual_ReRhok,Kerker_weight,My_NumGridB_CA,spinmax,NumMix,One2SCFi,One2SCFj) private(OMPID,Nthrds,Nprocs,i,SCFi,SCFj,spin,k,weight,re1,im1,re2,im2,tmp0)
-    {
-
-      OMPID = omp_get_thread_num();
-      Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-
-      for ( i=OMPID; i<(NumMix*(NumMix+1))/2; i+=Nthrds ){
-
-	SCFi = One2SCFi[i]; 
-	SCFj = One2SCFj[i]; 
-
-        tmp0 = 0.0; 
-
-	for (spin=0; spin<spinmax; spin++){
-          for ( k=0; k<My_NumGridB_CA; k++ ){
-
-            weight = Kerker_weight[k];
-	    re1 = Residual_ReRhok[SCFi][spin][k];
-	    im1 = Residual_ImRhok[SCFi][spin][k];
-	    re2 = Residual_ReRhok[SCFj][spin][k];
-	    im2 = Residual_ImRhok[SCFj][spin][k];
-	    tmp0 += (re1*re2 + im1*im2)*weight;
-
-	  }
-	}
-
-	My_A[SCFi][SCFj] = tmp0;
-
-      } 
-    } 
-
-    free(One2SCFj);
-    free(One2SCFi);
-
-    for (SCFi=1; SCFi<=NumMix; SCFi++){
-      for (SCFj=SCFi; SCFj<=NumMix; SCFj++){
-        MPI_Allreduce(&My_A[SCFi][SCFj], &A[SCFi-1][SCFj-1],
-                      1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        A[SCFj-1][SCFi-1] = A[SCFi-1][SCFj-1];
-      }
-    }
-    */
-
     /* store NormRD */
 
     for (i=4; 1<=i; i--){
@@ -451,13 +402,15 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
     NormRD[0] = A[0][0]/(double)Ngrid1/(double)Ngrid2/(double)Ngrid3/(double)spinmax;
     History_Uele[0] = Uele;
 
-    /* solve the linear equation */
+    /* set matrix elements on lammda */
 
     for (SCFi=1; SCFi<=NumMix; SCFi++){
        A[SCFi-1][NumMix] = -1.0;
        A[NumMix][SCFi-1] = -1.0;
     }
     A[NumMix][NumMix] = 0.0;
+
+    /* solve the linear equation */
 
     Inverse(NumMix,A,IA);
 
@@ -486,87 +439,6 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
       }
       alden[1] = 0.1;
       alden[2] = 0.9;
-    }
-
-    /****************************************************
-        refinement of alpha using an iterative method
-    ****************************************************/
-
-    if (0){
-
-    po3 = 0;
-    refiter = 0;
-
-    do {
-    
-      F = 0.0;
-      for (SCFi=0; SCFi<NumMix; SCFi++){
-	for (SCFj=0; SCFj<NumMix; SCFj++){
-	  F += alden[SCFi+1]*alden[SCFj+1]*A[SCFi][SCFj];
-	}
-      }
-
-      /*
-      printf("A refiter=%2d F=%15.12f\n",refiter,F);  
-      */
-
-      sum0 = 0.0; 
-      for (SCFi=0; SCFi<NumMix; SCFi++){
-	sum0 += 2.0*alden[SCFi+1]*A[SCFi][0];
-      }
-
-      for (SCFi=1; SCFi<NumMix; SCFi++){
-
-        sum1 = 0.0;
-	for (SCFj=0; SCFj<NumMix; SCFj++){
-          sum1 += 2.0*alden[SCFj+1]*A[SCFj][SCFi];
-	}
-
-	gradF[SCFi+1] = -sum0 + sum1;
-      }
-
-      scale = 0.01;
-      refiter2 = 1;
-      po4 = 0;
-
-      do {      
-
-	for (SCFi=1; SCFi<NumMix; SCFi++){
-	  alden0[SCFi+1] = alden[SCFi+1] - scale*gradF[SCFi+1];
-	}
-
-	sum = 0.0;
-	for (SCFi=1; SCFi<NumMix; SCFi++){
-	  sum += alden0[SCFi+1]; 
-	}
-	alden0[1] = 1.0 - sum;
-
-	F0 = 0.0;
-	for (SCFi=0; SCFi<NumMix; SCFi++){
-	  for (SCFj=0; SCFj<NumMix; SCFj++){
-	    F0 += alden0[SCFi+1]*alden0[SCFj+1]*A[SCFi][SCFj];
-	  }
-	}
-
-	/*
-        printf("B refiter=%2d F0=%15.12f scale=%15.12f\n",refiter,F,scale);  
-	*/
-
-	if (F0<=F) po4 = 1;
-	else       scale /= 2.0; 
-
-	refiter2++;
-
-      } while (po4==0 && refiter2<20);
-
-      for (SCFi=0; SCFi<NumMix; SCFi++){
-        alden[SCFi+1] = alden0[SCFi+1];
-      }
-
-      refiter++;
-
-    } while (refiter<10);
-
     }
 
     /****************************************************
@@ -628,11 +500,11 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
 
     } /* pSCF_iter */
 
-    if      (1.0e-4<=NormRD[0])                        coef_OptRho = 0.5;
-    else if (1.0e-6<=NormRD[0]  && NormRD[0]<1.0e-4)   coef_OptRho = 0.6;
-    else if (1.0e-8<=NormRD[0]  && NormRD[0]<1.0e-6)   coef_OptRho = 0.7;
-    else if (1.0e-10<=NormRD[0] && NormRD[0]<1.0e-8)   coef_OptRho = 0.8;
-    else if (1.0e-12<=NormRD[0] && NormRD[0]<1.0e-10)  coef_OptRho = 0.9;
+    if      (1.0e-2<=NormRD[0])                        coef_OptRho = 0.5;
+    else if (1.0e-4<=NormRD[0]  && NormRD[0]<1.0e-2)   coef_OptRho = 0.6;
+    else if (1.0e-6<=NormRD[0]  && NormRD[0]<1.0e-4)   coef_OptRho = 0.7;
+    else if (1.0e-8<=NormRD[0]  && NormRD[0]<1.0e-6)   coef_OptRho = 0.8;
+    else if (1.0e-10<=NormRD[0] && NormRD[0]<1.0e-8)   coef_OptRho = 0.9;
     else                                               coef_OptRho = 1.0;
 
     /****************************************************
@@ -707,10 +579,16 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
       /* Correction by optimized residual rho */
 
       for (spin=0; spin<spinmax; spin++){
+
         for (k=0; k<My_NumGridB_CB; k++){
 
-	  ReRhok[0][spin][k] += coef_OptRho*Re_OptRhok[spin][k]/Kerker_weight[k];
-	  ImRhok[0][spin][k] += coef_OptRho*Im_OptRhok[spin][k]/Kerker_weight[k];
+ 	  if (1.0<NormRD[0])
+  	    weight = 1.0/(Kerker_weight[k]*Kerker_weight[k]);
+          else 
+            weight = 1.0/Kerker_weight[k];
+
+	  ReRhok[0][spin][k] += coef_OptRho*Re_OptRhok[spin][k]*weight;
+	  ImRhok[0][spin][k] += coef_OptRho*Im_OptRhok[spin][k]*weight;
 
 	  /* correction to large changing components */
 
@@ -830,7 +708,7 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
       for (spin=0; spin<spinmax; spin++){
         for (k=0; k<My_NumGridB_CB; k++){
          
-	  weight = 1.0/Kerker_weight[k];
+	  weight = 1.0/(Kerker_weight[k]*Kerker_weight[k]);
 	  wgt0  = Mix_wgt*weight;
 	  wgt1 =  1.0 - wgt0;
         
@@ -866,7 +744,6 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
 
       for (spin=0; spin<spinmax; spin++){
         for (k=0; k<My_NumGridB_CB; k++){
-
           Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
           Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k]; 
 	}
@@ -1384,11 +1261,11 @@ void DIIS_Mixing_Rhok_NEGF(int SCF_iter,
       } /* spin */
     } /* pSCF_iter */
 
-    if      (1.0e-4<=NormRD[0])                        coef_OptRho = 0.5;
-    else if (1.0e-6<=NormRD[0]  && NormRD[0]<1.0e-4)   coef_OptRho = 0.6;
-    else if (1.0e-8<=NormRD[0]  && NormRD[0]<1.0e-6)   coef_OptRho = 0.7;
-    else if (1.0e-10<=NormRD[0] && NormRD[0]<1.0e-8)   coef_OptRho = 0.8;
-    else if (1.0e-12<=NormRD[0] && NormRD[0]<1.0e-10)  coef_OptRho = 0.9;
+    if      (1.0e-2<=NormRD[0])                        coef_OptRho = 0.5;
+    else if (1.0e-4<=NormRD[0]  && NormRD[0]<1.0e-2)   coef_OptRho = 0.6;
+    else if (1.0e-6<=NormRD[0]  && NormRD[0]<1.0e-4)   coef_OptRho = 0.7;
+    else if (1.0e-8<=NormRD[0]  && NormRD[0]<1.0e-6)   coef_OptRho = 0.8;
+    else if (1.0e-10<=NormRD[0] && NormRD[0]<1.0e-8)   coef_OptRho = 0.9;
     else                                               coef_OptRho = 1.0;
 
     /****************************************************
@@ -1435,9 +1312,11 @@ void DIIS_Mixing_Rhok_NEGF(int SCF_iter,
 
       for (spin=0; spin<spinmax; spin++){
         for (k=0; k<My_NumGridB_CB; k++){
+ 
+	  weight = 1.0/(Kerker_weight[k]*Kerker_weight[k]);
 
-	  ReRhok[0][spin][k] += coef_OptRho*Re_OptRhok[spin][k]/Kerker_weight[k];
-	  ImRhok[0][spin][k] += coef_OptRho*Im_OptRhok[spin][k]/Kerker_weight[k];
+	  ReRhok[0][spin][k] += coef_OptRho*Re_OptRhok[spin][k]*weight;
+	  ImRhok[0][spin][k] += coef_OptRho*Im_OptRhok[spin][k]*weight;
 
 	  /* correction to large changing components */
 
@@ -1559,7 +1438,7 @@ void DIIS_Mixing_Rhok_NEGF(int SCF_iter,
       for (spin=0; spin<spinmax; spin++){
         for (k=0; k<My_NumGridB_CB; k++){
 
-	  weight = 1.0/Kerker_weight[k];
+	  weight = 1.0/(Kerker_weight[k]*Kerker_weight[k]);
 	  wgt0  = Mix_wgt*weight;
 	  wgt1 =  1.0 - wgt0;
 
@@ -1686,6 +1565,10 @@ void DIIS_Mixing_Rhok_NEGF(int SCF_iter,
 
 void Inverse(int n, double **a, double **ia)
 {
+  int method_flag=1;
+
+  if (method_flag==0){
+
   /****************************************************
                   LU decomposition
                       0 to n
@@ -1803,8 +1686,253 @@ void Inverse(int n, double **a, double **ia)
     free(da[i]);
   }
   free(da);
+
+  }
+  
+  else if (method_flag==1){
+
+    int i,j,M,N,LDA,INFO;
+    int *IPIV,LWORK;
+    double *A,*WORK;
+
+    A = (double*)malloc(sizeof(double)*(n+2)*(n+2));
+    WORK = (double*)malloc(sizeof(double)*(n+2));
+    IPIV = (int*)malloc(sizeof(int)*(n+2));
+
+    for (i=0; i<=n; i++){
+      for (j=0; j<=n; j++){
+        A[i*(n+1)+j] = a[i][j];
+      }
+    }
+
+    M = n + 1;
+    N = M;
+    LDA = M;
+    LWORK = M;
+
+    F77_NAME(dgetrf,DGETRF)( &M, &N, A, &LDA, IPIV, &INFO);
+    F77_NAME(dgetri,DGETRI)( &N, A, &LDA, IPIV, WORK, &LWORK, &INFO);
+
+    for (i=0; i<=n; i++){
+      for (j=0; j<=n; j++){
+        ia[i][j] = A[i*(n+1)+j];
+      }
+    }
+
+    free(A);
+    free(WORK);
+    free(IPIV);
+  }
+
+  else if (method_flag==2){
+
+    int N,i,j,k;
+    double *A,*B,*ko;
+    double sum;
+
+    N = n + 1;
+
+    A = (double*)malloc(sizeof(double)*(N+2)*(N+2));
+    B = (double*)malloc(sizeof(double)*(N+2)*(N+2));
+    ko = (double*)malloc(sizeof(double)*(N+2));
+
+    /*
+    printf("N=%2d\n",N);
+
+    N = 3;
+
+    a[0][0] =-1.2; a[0][1] =-1.0; a[0][2] = -0.0;
+    a[1][0] =-1.0; a[1][1] =-1.2; a[1][2] = -1.0;
+    a[2][0] =-0.0; a[2][1] =-1.0; a[2][2] = -1.2;
+    */
+
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        A[j*N+i] = a[i][j];
+      }
+    }
+
+    Eigen_lapack3(A, ko, N, N); 
+
+    /*
+    printf("ko\n");
+    for (i=0; i<N; i++){
+      printf("ko i=%2d %15.12f\n",i,ko[i]);
+    } 
+
+    printf("A\n");
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        printf("%10.5f ",A[i*N+j]); 
+      }
+      printf("\n");
+    }
+    */
+
+    for (i=0; i<N; i++){
+      /*
+      printf("i=%2d ko=%18.15f iko=%18.15f\n",i,ko[i],1.0/ko[i]);
+      */
+
+      ko[i] = 1.0/ko[i];
+    } 
+
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        B[i*N+j] = A[i*N+j]*ko[i];
+      }
+    }
+
+    /*
+    printf("A*ko\n");
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        printf("%10.5f ",B[i*N+j]); 
+      }
+      printf("\n");
+    }
+    */
+
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        ia[i][j] = 0.0;
+      }
+    }
+
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        sum = 0.0;
+	for (k=0; k<N; k++){
+	  sum += A[k*N+i]*B[k*N+j];
+	}
+        ia[i][j] = sum;
+      }
+    }
+
+    /*	
+    printf("ia\n");
+    for (i=0; i<N; i++){
+      for (j=0; j<N; j++){
+        printf("%10.5f ",ia[i][j]);
+      }
+      printf("\n");
+    }
+
+    MPI_Finalize();
+    exit(0);
+    */
+
+    free(A);
+    free(B);
+    free(ko);
+  }
+
+
 }
 
+
+void Inverse2(int n, double **a, double **ia)
+{
+  int N,i,j,k;
+  double *A,*B,*ko;
+  double sum;
+
+  N = n + 1;
+
+  A = (double*)malloc(sizeof(double)*(N+2)*(N+2));
+  B = (double*)malloc(sizeof(double)*(N+2)*(N+2));
+  ko = (double*)malloc(sizeof(double)*(N+2));
+
+  /*
+    printf("N=%2d\n",N);
+
+    N = 3;
+
+    a[0][0] =-1.2; a[0][1] =-1.0; a[0][2] = -0.0;
+    a[1][0] =-1.0; a[1][1] =-1.2; a[1][2] = -1.0;
+    a[2][0] =-0.0; a[2][1] =-1.0; a[2][2] = -1.2;
+  */
+
+  for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+      A[j*N+i] = a[i][j];
+    }
+  }
+
+  Eigen_lapack3(A, ko, N, N); 
+
+  /*
+    printf("ko\n");
+    for (i=0; i<N; i++){
+    printf("ko i=%2d %15.12f\n",i,ko[i]);
+    } 
+
+    printf("A\n");
+    for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+    printf("%10.5f ",A[i*N+j]); 
+    }
+    printf("\n");
+    }
+  */
+
+  for (i=0; i<N; i++){
+
+    printf("i=%2d ko=%18.15f iko=%18.15f\n",i,ko[i],1.0/ko[i]);
+
+    ko[i] = 1.0/ko[i];
+  } 
+ 
+  for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+      B[i*N+j] = A[i*N+j]*ko[i];
+    }
+  }
+
+  /*
+    printf("A*ko\n");
+    for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+    printf("%10.5f ",B[i*N+j]); 
+    }
+    printf("\n");
+    }
+  */
+
+  for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+      ia[i][j] = 0.0;
+    }
+  }
+
+  for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+      sum = 0.0;
+      for (k=0; k<N; k++){
+	sum += A[k*N+i]*B[k*N+j];
+      }
+      ia[i][j] = sum;
+    }
+  }
+
+  /*	
+    printf("ia\n");
+    for (i=0; i<N; i++){
+    for (j=0; j<N; j++){
+    printf("%10.5f ",ia[i][j]);
+    }
+    printf("\n");
+    }
+
+    MPI_Finalize();
+    exit(0);
+  */
+
+  free(A);
+  free(B);
+  free(ko);
+
+}
 
 
 

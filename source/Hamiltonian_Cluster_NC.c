@@ -128,7 +128,7 @@ void Hamiltonian_Cluster_NC(double *****RH, double *****IH,
     }
   }
 
-  /*************************************************
+  /****************************************************************************
     in case of SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0 
                && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0
 
@@ -139,7 +139,7 @@ void Hamiltonian_Cluster_NC(double *****RH, double *****IH,
     H[i    ][j+NUM].r = RH[2];
     H[i    ][j+NUM].i = RH[3];
 
-    in case of SO_switch==1 or Hub_U_switch==1 or Constraint_NCS_switch==1 
+    in case of SO_switch==1 or Hub_U_switch==1 or 1<=Constraint_NCS_switch 
                or Zeeman_NCS_switch==1 or Zeeman_NCO_switch==1
 
     H[i    ][j    ].r = RH[0];  
@@ -148,7 +148,7 @@ void Hamiltonian_Cluster_NC(double *****RH, double *****IH,
     H[i+NUM][j+NUM].i = IH[1];
     H[i    ][j+NUM].r = RH[2];
     H[i    ][j+NUM].i = RH[3] + IH[2];
-  *************************************************/
+  ****************************************************************************/
 
   /* non-spin-orbit coupling and non-LDA+U */
 
@@ -364,7 +364,7 @@ void Hamiltonian_Cluster_NC(double *****RH, double *****IH,
       } /* switch(q) */     
     } /* if ( SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0 && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0) */
 
-    /* in case of SO_switch==1 or Hub_U_switch==1 or Constraint_NCS_switch==1 or Zeeman_NCS_switch==1 or Zeeman_NCO_switch==1 */
+    /* in case of SO_switch==1 or Hub_U_switch==1 or 1<=Constraint_NCS_switch or Zeeman_NCS_switch==1 or Zeeman_NCO_switch==1 */
 
     else{ 
 

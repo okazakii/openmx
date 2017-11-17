@@ -36,6 +36,13 @@ double Mixing_DM(int MD_iter,
   MPI_Barrier(mpi_comm_level1);
   dtime(&TStime);
 
+  /* In case of rmm-diish, then return. */
+  if (Cnt_switch!=1 && Mixing_switch==5) return 0.0; 
+
+  /* In case of (rmm-diis || rmm-adiis) && SCF_iter<(Pulay_SCF/2)), then return. */
+  if ( Cnt_switch!=1 && SucceedReadingDMfile!=1 
+   && (Mixing_switch==1 || Mixing_switch==6) && SCF_iter<=(Pulay_SCF/2)) return 0.0; 
+
   /*******************************************************
                      Simple Mixing
   *******************************************************/
@@ -209,13 +216,40 @@ double Mixing_DM(int MD_iter,
 
     else{
 
-      DIIS_Mixing_Rhok(SCF_iter-(Pulay_SCF-3),
-                       Mixing_weight,
-                       ReRhok,ImRhok,
-                       Residual_ReRhok,Residual_ImRhok,
-                       ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
-    }
+      if (6<SCF_iter){
+	DIIS_Mixing_Rhok(SCF_iter-(Pulay_SCF-3),
+			 Mixing_weight,
+			 ReRhok,ImRhok,
+			 Residual_ReRhok,Residual_ImRhok,
+			 ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
+      }
+      else{
+	DIIS_Mixing_Rhok(SCF_iter,
+			 Mixing_weight,
+			 ReRhok,ImRhok,
+			 Residual_ReRhok,Residual_ImRhok,
+			 ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
+      }  
 
+    }
+  }
+
+  /*******************************************************
+    ADIIS method:
+    Augmented Roothaan-Hall (ARH) energy function 
+    +
+    Direct Inversion in the Iterative Subspace (DIIS)
+  *******************************************************/
+
+  else if (Mixing_switch==6){
+
+    if (SCF_iter<=(Pulay_SCF-1)){
+      Simple_Mixing_DM(1,Mixing_weight,DM[0],DM[1],DM[2],
+          iDM[0],iDM[1],iDM[2],ResidualDM[2],iResidualDM[2],
+          NULL, NULL, NULL, NULL);
+    }
+    else 
+      ADIIS_Mixing_DM(SCF_iter-Pulay_SCF+2,ResidualDM,iResidualDM);
   }
 
   /*******************************************************

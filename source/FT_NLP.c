@@ -62,7 +62,7 @@ void FT_NLP()
      In case of Scf_RestartFromFile==1, read Spe_NLRF_Bessel
   ***********************************************************/
 
-  if (Scf_RestartFromFile){
+  if (Scf_RestartFromFile==1){
 
     /****************************************************
           generate radial grids in the k-space

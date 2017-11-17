@@ -17,7 +17,7 @@
 #include "openmx_common.h"
 #include "mpi.h"
 
-
+#pragma optimization_level 1
 void Initial_CntCoes2(double *****nh, double *****OLP)
 {
   static int firsttime=1;

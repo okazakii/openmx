@@ -11,6 +11,7 @@ level.of.fileout                  1    # default=1 (0-2)
 NEGF.filename.hks.l     lead-l-8zgnr.hks
 NEGF.filename.hks.r     lead-r-8zgnr.hks
 
+NEGF.SCF.Iter.Band          20
 NEGF.Num.Poles             100       # defalut=150
 NEGF.scf.Kgrid             1 1       # defalut=1 1
 
@@ -23,10 +24,29 @@ NEGF.Dos.energyrange      -20.0 20.0 1.0e-4  #default=-10.0 10.0 5.0e-3 (eV)
 NEGF.Dos.energy.div        4000       # default=200
 NEGF.Dos.Kgrid             1 1       # default=1 1
 
+#
+# Transmission & Eigen Channel Analysis
+#
+ 
+NEGF.tran.Analysis          on       # default on
 NEGF.tran.energydiv        800       # default=200
 NEGF.tran.energyrange   -4 4 0.001   # default=-10.0 10.0 5.0e-3 (eV)
 NEGF.tran.Kgrid            1 1       # default= 1 1
 
+NEGF.tran.CurrentDensity    on       # default on
+
+NEGF.tran.Channel           on       # default on
+NEGF.Channel.Nkpoint         1       # default 1
+<NEGF.Channel.kpoint
+0.0  0.0
+NEGF.Channel.kpoint>
+# default 0.0  0.0
+NEGF.Channel.Nenergy         1       # default 1 
+<NEGF.Channel.energy
+0.0
+NEGF.Channel.energy>
+# default 0.0
+NEGF.Channel.Num            5        # defualt=5(for collinear), 10(for Non-collinear)
 
 
 #

@@ -28,7 +28,7 @@ double Set_Aden_Grid()
 
   static int firsttime=1;
   int i,j,k,Gc_AN,Mc_AN,NN_S,NN_R;
-  int Cwan,Nc,GNc,GRc,mul,gp;
+  int Cwan,Nc,GNc,GRc,mul,gp,spe;
   int N3[4],AN,BN,CN,DN,LN;
   unsigned long long int GN,n2D,N2D;
   int size_AtomDen_Grid;
@@ -122,8 +122,8 @@ double Set_Aden_Grid()
 
   Work_Array_Snd_Grid_B2C = (double*)malloc(sizeof(double)*GP_B2C_S[NN_B2C_S]*mul); 
   Work_Array_Rcv_Grid_B2C = (double*)malloc(sizeof(double)*GP_B2C_R[NN_B2C_R]*mul); 
-  Work_Array_Snd_Grid_B2D = (double*)malloc(sizeof(double)*GP_B2D_S[NN_B2D_S]*(mul+1)); 
-  Work_Array_Rcv_Grid_B2D = (double*)malloc(sizeof(double)*GP_B2D_R[NN_B2D_R]*(mul+1)); 
+  Work_Array_Snd_Grid_B2D = (double*)malloc(sizeof(double)*GP_B2D_S[NN_B2D_S]*(mul+2)); 
+  Work_Array_Rcv_Grid_B2D = (double*)malloc(sizeof(double)*GP_B2D_R[NN_B2D_R]*(mul+2)); 
 
   /* PrintMemory */
 
@@ -141,8 +141,8 @@ double Set_Aden_Grid()
 
     PrintMemory("Set_Aden_Grid: Work_Array_Snd_Grid_B2C",   sizeof(double)*GP_B2C_S[NN_B2C_S]*mul, NULL);
     PrintMemory("Set_Aden_Grid: Work_Array_Rcv_Grid_B2C",   sizeof(double)*GP_B2C_R[NN_B2C_R]*mul, NULL);
-    PrintMemory("Set_Aden_Grid: Work_Array_Snd_Grid_B2D",   sizeof(double)*GP_B2D_S[NN_B2D_S]*(mul+1), NULL);
-    PrintMemory("Set_Aden_Grid: Work_Array_Rcv_Grid_B2D",   sizeof(double)*GP_B2D_R[NN_B2D_R]*(mul+1), NULL);
+    PrintMemory("Set_Aden_Grid: Work_Array_Snd_Grid_B2D",   sizeof(double)*GP_B2D_S[NN_B2D_S]*(mul+2), NULL);
+    PrintMemory("Set_Aden_Grid: Work_Array_Rcv_Grid_B2D",   sizeof(double)*GP_B2D_R[NN_B2D_R]*(mul+2), NULL);
     firsttime = 0;
   }
 
@@ -159,7 +159,7 @@ double Set_Aden_Grid()
     Gc_AN = M2G[Mc_AN];    
     Cwan = WhatSpecies[Gc_AN];
  
-#pragma omp parallel shared(Spe_Atomic_Den,Spe_PAO_XV,Spe_Num_Mesh_PAO,PCCDen_Grid,PCC_switch,AtomDen_Grid,Cwan,Gxyz,atv,Mc_AN,CellListAtom,GridListAtom,GridN_Atom,Gc_AN) private(OMPID,Nthrds,Nc,GNc,GRc,Cxyz,dx,dy,dz,r,x)
+#pragma omp parallel shared(Spe_Atomic_PCC,Spe_VPS_RV,Spe_VPS_XV,Spe_Num_Mesh_VPS,Spe_PAO_RV,Spe_Atomic_Den,Spe_PAO_XV,Spe_Num_Mesh_PAO,PCCDen_Grid,PCC_switch,AtomDen_Grid,Cwan,Gxyz,atv,Mc_AN,CellListAtom,GridListAtom,GridN_Atom,Gc_AN) private(OMPID,Nthrds,Nc,GNc,GRc,Cxyz,dx,dy,dz,r,x)
     {
 
       /* get info. on OpenMP */ 
@@ -336,7 +336,8 @@ double Set_Aden_Grid()
 
   if (PCC_switch==1){
     for (BN=0; BN<My_NumGridB_AB; BN++){
-      PCCDensity_Grid_B[BN] = 0.0;
+      PCCDensity_Grid_B[0][BN] = 0.0;
+      PCCDensity_Grid_B[1][BN] = 0.0;
     }
   }
 
@@ -349,6 +350,7 @@ double Set_Aden_Grid()
       BN    = Index_Rcv_Grid_A2B[ID][3*LN+0];      
       Gc_AN = Index_Rcv_Grid_A2B[ID][3*LN+1];        
       GRc   = Index_Rcv_Grid_A2B[ID][3*LN+2]; 
+      spe = WhatSpecies[Gc_AN];
       Nele  = InitN_USpin[Gc_AN] + InitN_DSpin[Gc_AN];
       Nu    = InitN_USpin[Gc_AN];
       Nd    = InitN_DSpin[Gc_AN];
@@ -397,10 +399,26 @@ double Set_Aden_Grid()
 	} 
 
 	/* partial core correction       */
-        /* later add this in Set_XC_Grid */
+	/* later add this in Set_XC_Grid */
 
 	if (PCC_switch==1){
-	  PCCDensity_Grid_B[BN] += 0.5*PCCDen_Rcv_Grid_A2B[ID][LN];
+  	  if ( SpinP_switch==0 ){
+ 	    PCCDensity_Grid_B[0][BN] += 0.5*PCCDen_Rcv_Grid_A2B[ID][LN];
+	    PCCDensity_Grid_B[1][BN] += 0.5*PCCDen_Rcv_Grid_A2B[ID][LN];
+	  }
+          else {
+
+            if (Spe_OpenCore_flag[spe]==0){
+ 	      PCCDensity_Grid_B[0][BN] += 0.5*PCCDen_Rcv_Grid_A2B[ID][LN];
+	      PCCDensity_Grid_B[1][BN] += 0.5*PCCDen_Rcv_Grid_A2B[ID][LN];
+	    }
+            else if (Spe_OpenCore_flag[spe]==1){
+ 	      PCCDensity_Grid_B[0][BN] += PCCDen_Rcv_Grid_A2B[ID][LN];
+	    }
+            else if (Spe_OpenCore_flag[spe]==-1){
+ 	      PCCDensity_Grid_B[1][BN] += PCCDen_Rcv_Grid_A2B[ID][LN];
+            }
+          }
 	}
 
       } /* if (Solve!=4.....) */           
@@ -573,8 +591,8 @@ double Set_Aden_Grid()
   NN_S = 0;
   NN_R = 0;
 
-  if      (SpinP_switch<=1) mul = 3;
-  else if (SpinP_switch==3) mul = 5;
+  if      (SpinP_switch<=1) mul = 4;
+  else if (SpinP_switch==3) mul = 6;
 
   /* MPI_Irecv */
 
@@ -604,16 +622,18 @@ double Set_Aden_Grid()
       BN = Index_Snd_Grid_B2D[IDS][LN];
 
       if (SpinP_switch<=1){
-        Work_Array_Snd_Grid_B2D[3*gp+3*LN+0] = Density_Grid_B[0][BN];
-        Work_Array_Snd_Grid_B2D[3*gp+3*LN+1] = Density_Grid_B[1][BN];
-        Work_Array_Snd_Grid_B2D[3*gp+3*LN+2] = PCCDensity_Grid_B[BN];
+        Work_Array_Snd_Grid_B2D[4*gp+4*LN+0] = Density_Grid_B[0][BN];
+        Work_Array_Snd_Grid_B2D[4*gp+4*LN+1] = Density_Grid_B[1][BN];
+        Work_Array_Snd_Grid_B2D[4*gp+4*LN+2] = PCCDensity_Grid_B[0][BN];
+        Work_Array_Snd_Grid_B2D[4*gp+4*LN+3] = PCCDensity_Grid_B[1][BN];
       }
       else if (SpinP_switch==3){
-        Work_Array_Snd_Grid_B2D[5*gp+5*LN+0] = Density_Grid_B[0][BN];
-        Work_Array_Snd_Grid_B2D[5*gp+5*LN+1] = Density_Grid_B[1][BN];
-        Work_Array_Snd_Grid_B2D[5*gp+5*LN+2] = Density_Grid_B[2][BN];
-        Work_Array_Snd_Grid_B2D[5*gp+5*LN+3] = Density_Grid_B[3][BN];
-        Work_Array_Snd_Grid_B2D[5*gp+5*LN+4] = PCCDensity_Grid_B[BN];
+        Work_Array_Snd_Grid_B2D[6*gp+6*LN+0] = Density_Grid_B[0][BN];
+        Work_Array_Snd_Grid_B2D[6*gp+6*LN+1] = Density_Grid_B[1][BN];
+        Work_Array_Snd_Grid_B2D[6*gp+6*LN+2] = Density_Grid_B[2][BN];
+        Work_Array_Snd_Grid_B2D[6*gp+6*LN+3] = Density_Grid_B[3][BN];
+        Work_Array_Snd_Grid_B2D[6*gp+6*LN+4] = PCCDensity_Grid_B[0][BN];
+        Work_Array_Snd_Grid_B2D[6*gp+6*LN+5] = PCCDensity_Grid_B[1][BN];
       }
     } /* LN */        
 
@@ -647,16 +667,18 @@ double Set_Aden_Grid()
 	DN = Index_Rcv_Grid_B2D[myid][LN];
 
 	if (SpinP_switch<=1){
-	  Density_Grid_D[0][DN] = Work_Array_Snd_Grid_B2D[3*gp+3*LN+0];
-	  Density_Grid_D[1][DN] = Work_Array_Snd_Grid_B2D[3*gp+3*LN+1];
-	  PCCDensity_Grid_D[DN] = Work_Array_Snd_Grid_B2D[3*gp+3*LN+2];
+	  Density_Grid_D[0][DN]    = Work_Array_Snd_Grid_B2D[4*gp+4*LN+0];
+	  Density_Grid_D[1][DN]    = Work_Array_Snd_Grid_B2D[4*gp+4*LN+1];
+	  PCCDensity_Grid_D[0][DN] = Work_Array_Snd_Grid_B2D[4*gp+4*LN+2];
+	  PCCDensity_Grid_D[1][DN] = Work_Array_Snd_Grid_B2D[4*gp+4*LN+3];
 	}     
 	else if (SpinP_switch==3){
-	  Density_Grid_D[0][DN] = Work_Array_Snd_Grid_B2D[5*gp+5*LN+0];
-	  Density_Grid_D[1][DN] = Work_Array_Snd_Grid_B2D[5*gp+5*LN+1];
-	  Density_Grid_D[2][DN] = Work_Array_Snd_Grid_B2D[5*gp+5*LN+2];
-	  Density_Grid_D[3][DN] = Work_Array_Snd_Grid_B2D[5*gp+5*LN+3];
-	  PCCDensity_Grid_D[DN] = Work_Array_Snd_Grid_B2D[5*gp+5*LN+4];
+	  Density_Grid_D[0][DN]    = Work_Array_Snd_Grid_B2D[6*gp+6*LN+0];
+	  Density_Grid_D[1][DN]    = Work_Array_Snd_Grid_B2D[6*gp+6*LN+1];
+	  Density_Grid_D[2][DN]    = Work_Array_Snd_Grid_B2D[6*gp+6*LN+2];
+	  Density_Grid_D[3][DN]    = Work_Array_Snd_Grid_B2D[6*gp+6*LN+3];
+	  PCCDensity_Grid_D[0][DN] = Work_Array_Snd_Grid_B2D[6*gp+6*LN+4];
+	  PCCDensity_Grid_D[1][DN] = Work_Array_Snd_Grid_B2D[6*gp+6*LN+5];
 	}
       }
     }
@@ -670,16 +692,18 @@ double Set_Aden_Grid()
 	DN = Index_Rcv_Grid_B2D[IDR][LN];
 
 	if (SpinP_switch<=1){
-	  Density_Grid_D[0][DN] = Work_Array_Rcv_Grid_B2D[3*gp+3*LN+0];
-	  Density_Grid_D[1][DN] = Work_Array_Rcv_Grid_B2D[3*gp+3*LN+1];
-	  PCCDensity_Grid_D[DN] = Work_Array_Rcv_Grid_B2D[3*gp+3*LN+2];
+	  Density_Grid_D[0][DN]    = Work_Array_Rcv_Grid_B2D[4*gp+4*LN+0];
+	  Density_Grid_D[1][DN]    = Work_Array_Rcv_Grid_B2D[4*gp+4*LN+1];
+	  PCCDensity_Grid_D[0][DN] = Work_Array_Rcv_Grid_B2D[4*gp+4*LN+2];
+	  PCCDensity_Grid_D[1][DN] = Work_Array_Rcv_Grid_B2D[4*gp+4*LN+3];
 	}     
 	else if (SpinP_switch==3){
-	  Density_Grid_D[0][DN] = Work_Array_Rcv_Grid_B2D[5*gp+5*LN+0];
-	  Density_Grid_D[1][DN] = Work_Array_Rcv_Grid_B2D[5*gp+5*LN+1];
-	  Density_Grid_D[2][DN] = Work_Array_Rcv_Grid_B2D[5*gp+5*LN+2];
-	  Density_Grid_D[3][DN] = Work_Array_Rcv_Grid_B2D[5*gp+5*LN+3];
-	  PCCDensity_Grid_D[DN] = Work_Array_Rcv_Grid_B2D[5*gp+5*LN+4];
+	  Density_Grid_D[0][DN]    = Work_Array_Rcv_Grid_B2D[6*gp+6*LN+0];
+	  Density_Grid_D[1][DN]    = Work_Array_Rcv_Grid_B2D[6*gp+6*LN+1];
+	  Density_Grid_D[2][DN]    = Work_Array_Rcv_Grid_B2D[6*gp+6*LN+2];
+	  Density_Grid_D[3][DN]    = Work_Array_Rcv_Grid_B2D[6*gp+6*LN+3];
+	  PCCDensity_Grid_D[0][DN] = Work_Array_Rcv_Grid_B2D[6*gp+6*LN+4];
+	  PCCDensity_Grid_D[1][DN] = Work_Array_Rcv_Grid_B2D[6*gp+6*LN+5];
 	}
       }
     }

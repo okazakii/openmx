@@ -29,9 +29,9 @@ void Voronoi_Charge()
   double magx,magy,magz;
   double tmagx,tmagy,tmagz;
   double tden,tmag,theta,phi,rho,mag;
-  double den0,den1;
+  double den0,den1,vol;
   double VC_S,T_VC0,T_VC1;
-  double **VC;
+  double **VC,*Voronoi_Vol;
   double TStime,TEtime;
   double S_coordinate[3];
   int numprocs,myid,tag=999,ID;
@@ -60,11 +60,13 @@ void Voronoi_Charge()
     VC[spin] = (double*)malloc(sizeof(double)*(atomnum+1));
   }
 
+  Voronoi_Vol = (double*)malloc(sizeof(double)*(atomnum+1));
+
   /*****************************************************
             calculation of Voronoi charge
   *****************************************************/
 
-#pragma omp parallel shared(S_coordinate,GridVol,VC,Density_Grid,SpinP_switch,MGridListAtom,atv,CellListAtom,GridListAtom,NumOLG,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Gc_AN,Cwan,sum0,sum1,tden,tmagx,tmagy,tmagz,Nog,GNc,GRc,Cxyz,x,y,z,FuzzyW,MN,den0,den1,theta,phi,rho,mag,magx,magy,magz,tmag)
+#pragma omp parallel shared(S_coordinate,GridVol,VC,Voronoi_Vol,Density_Grid,SpinP_switch,MGridListAtom,atv,CellListAtom,GridListAtom,NumOLG,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Gc_AN,Cwan,sum0,sum1,vol,tden,tmagx,tmagy,tmagz,Nog,GNc,GRc,Cxyz,x,y,z,FuzzyW,MN,den0,den1,theta,phi,rho,mag,magx,magy,magz,tmag)
   {
 
     /* get info. on OpenMP */ 
@@ -80,6 +82,7 @@ void Voronoi_Charge()
 
       sum0 = 0.0;
       sum1 = 0.0;
+      vol  = 0.0;
 
       tden  = 0.0;
       tmagx = 0.0;
@@ -111,6 +114,10 @@ void Voronoi_Charge()
 	  /* sum density */
 	  sum0 += den0*FuzzyW; 
 	  sum1 += den1*FuzzyW; 
+
+	  /* sum volume */
+          vol += FuzzyW;
+
 	}
 
 	else{
@@ -132,6 +139,9 @@ void Voronoi_Charge()
 	  tmagx += magx*FuzzyW; 
 	  tmagy += magy*FuzzyW; 
 	  tmagz += magz*FuzzyW; 
+
+	  /* sum volume */
+          vol += FuzzyW;
 	}
 
       }
@@ -154,6 +164,8 @@ void Voronoi_Charge()
 	VC[2][Gc_AN] = S_coordinate[1];
 	VC[3][Gc_AN] = S_coordinate[2];
       }
+
+      Voronoi_Vol[Gc_AN] = vol*GridVol*BohrR*BohrR*BohrR;
 
     } /* Mc_AN */
 
@@ -184,6 +196,11 @@ void Voronoi_Charge()
       ID = G2ID[Gc_AN];
       MPI_Bcast(&VC[3][Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
     }
+  }
+
+  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+    ID = G2ID[Gc_AN];
+    MPI_Bcast(&Voronoi_Vol[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
   }
 
   VC_S = 0.0;
@@ -225,23 +242,25 @@ void Voronoi_Charge()
 
       if (SpinP_switch<=1){
 
-	fprintf(fp_VC,"                     Up spin      Down spin     Sum           Diff\n");
+	fprintf(fp_VC,"                     Up spin      Down spin     Sum           Diff       Voronoi Volume (Ang.^3)\n");
 	for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-	  fprintf(fp_VC,"       Atom=%4d  %12.9f %12.9f  %12.9f  %12.9f\n",
+	  fprintf(fp_VC,"       Atom=%4d  %12.9f %12.9f  %12.9f  %12.9f  %12.9f\n",
 		  Gc_AN, VC[0][Gc_AN], VC[1][Gc_AN],
 		  VC[0][Gc_AN] + VC[1][Gc_AN],
-		  VC[0][Gc_AN] - VC[1][Gc_AN]);
+		  VC[0][Gc_AN] - VC[1][Gc_AN],
+                  Voronoi_Vol[Gc_AN]);
 	}
       }
 
       else{
-	fprintf(fp_VC,"                     Up spin      Down spin     Sum           Diff        Theta(Deg)   Phi(Deg)\n");
+	fprintf(fp_VC,"                     Up spin      Down spin     Sum           Diff        Theta(Deg)   Phi(Deg)   Voronoi Volume (Ang.^3)\n");
 	for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-	  fprintf(fp_VC,"       Atom=%4d  %12.9f %12.9f  %12.9f  %12.9f  %8.4f    %8.4f\n",
+	  fprintf(fp_VC,"       Atom=%4d  %12.9f %12.9f  %12.9f  %12.9f  %8.4f    %8.4f   %12.9f\n",
 		  Gc_AN, VC[0][Gc_AN], VC[1][Gc_AN],
 		  VC[0][Gc_AN] + VC[1][Gc_AN],
 		  VC[0][Gc_AN] - VC[1][Gc_AN],
-                  VC[2][Gc_AN]/PI*180.0,VC[3][Gc_AN]/PI*180.0);
+                  VC[2][Gc_AN]/PI*180.0,VC[3][Gc_AN]/PI*180.0,
+                  Voronoi_Vol[Gc_AN]);
 	}
       }
 
@@ -261,6 +280,8 @@ void Voronoi_Charge()
     free(VC[spin]);
   }
   free(VC);
+
+  free(Voronoi_Vol);
 
   /* for time */
   dtime(&TEtime);

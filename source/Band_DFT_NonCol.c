@@ -221,13 +221,11 @@ double Band_DFT_NonCol(int SCF_iter,
    dcomplex  S[n2][n2]
    double    M1[n2]
    dcomplex  C[n2][n2]
-   double    EIGEN[List_YOUSO[27]]
-                  [List_YOUSO[28]]
-                  [List_YOUSO[29]]
+   double    EIGEN[T_knum]
                   [n2] 
-   double    KGrids1[List_YOUSO[27]]
-   double    KGrids2[List_YOUSO[28]]
-   double    KGrids3[List_YOUSO[29]]
+   double    KGrids1[knum_i]
+   double    KGrids2[knum_j]
+   double    KGrids3[knum_k]
    int       k_op[knum_i][knum_j][knum_k]
   ****************************************************/
 
@@ -244,15 +242,15 @@ double Band_DFT_NonCol(int SCF_iter,
     C[j] = (dcomplex*)malloc(sizeof(dcomplex)*n2);
   }
 
-  KGrids1 = (double*)malloc(sizeof(double)*List_YOUSO[27]);
-  KGrids2 = (double*)malloc(sizeof(double)*List_YOUSO[28]);
-  KGrids3 = (double*)malloc(sizeof(double)*List_YOUSO[29]);
+  KGrids1 = (double*)malloc(sizeof(double)*knum_i);
+  KGrids2 = (double*)malloc(sizeof(double)*knum_j);
+  KGrids3 = (double*)malloc(sizeof(double)*knum_k);
 
-  k_op=(int***)malloc(sizeof(int**)*(knum_i));
+  k_op=(int***)malloc(sizeof(int**)*knum_i);
   for (i=0;i<knum_i; i++) {
-    k_op[i]=(int**)malloc(sizeof(int*)*(knum_j));
+    k_op[i]=(int**)malloc(sizeof(int*)*knum_j);
     for (j=0;j<knum_j; j++) {
-      k_op[i][j]=(int*)malloc(sizeof(int)*(knum_k));
+      k_op[i][j]=(int*)malloc(sizeof(int)*knum_k);
     }
   }
   /*  k_op[0:knum_i-1][0:knum_j-1][0:knum_k-1] */
@@ -303,7 +301,7 @@ double Band_DFT_NonCol(int SCF_iter,
     snum_j = (double)knum_j;
     snum_k = (double)knum_k;
 
-    for (i=0; i<=(knum_i-1); i++){
+    for (i=0; i<knum_i; i++){
       if (knum_i==1){
 	k1 = 0.0;
       }
@@ -312,16 +310,18 @@ double Band_DFT_NonCol(int SCF_iter,
       }
       KGrids1[i]=k1;
     }
-    for (i=0; i<=(knum_j-1); i++){
+
+    for (i=0; i<knum_j; i++){
       if (knum_j==1){
 	k1 = 0.0;
       }
       else {
 	k1 = -0.5 + (2.0*(double)i+1.0)/(2.0*snum_j) - Shift_K_Point;
       }
-      KGrids2[i]=k1;
+      KGrids2[i] = k1;
     }
-    for (i=0; i<=(knum_k-1); i++){
+
+    for (i=0; i<knum_k; i++){
       if (knum_k==1){
 	k1 = 0.0;
       }
@@ -342,8 +342,9 @@ double Band_DFT_NonCol(int SCF_iter,
       for (i=0;i<=knum_k-1;i++) printf("%9.5f ",KGrids3[i]);
       printf("\n");
     }
+
     /**************************************************************
-   k_op[i][j][k]: weight of DOS 
+     k_op[i][j][k]: weight of DOS 
                  =0   no calc.
                  =1   G-point
              note that there is no simple inversion symmetry for
@@ -351,17 +352,20 @@ double Band_DFT_NonCol(int SCF_iter,
                  =1  other  
     *************************************************************/
 
-    for (i=0;i<=knum_i-1;i++) {
-      for (j=0;j<=knum_j-1;j++) {
-	for (k=0;k<=knum_k-1;k++) {
+    for (i=0; i<knum_i; i++) {
+      for (j=0; j<knum_j; j++) {
+	for (k=0; k<knum_k; k++) {
 	  k_op[i][j][k]=-999;
 	}
       }
     }
+
     for (i=0;i<=knum_i-1;i++) {
       for (j=0;j<=knum_j-1;j++) {
 	for (k=0;k<=knum_k-1;k++) {
+
 	  if ( k_op[i][j][k]==-999 ) {
+
 	    k_inversion(i,j,k,knum_i,knum_j,knum_k,&ii,&ij,&ik);
 	    if ( i==ii && j==ij && k==ik ) {
 	      /*
@@ -380,6 +384,7 @@ double Band_DFT_NonCol(int SCF_iter,
 	      k_op[ii][ij][ik] = 1;
 	    }
 	  }
+
 	} /* k */
       } /* j */
     } /* i */
@@ -389,9 +394,9 @@ double Band_DFT_NonCol(int SCF_iter,
     ************************************/
 
     T_knum = 0;
-    for (i=0; i<=(knum_i-1); i++){
-      for (j=0; j<=(knum_j-1); j++){
-	for (k=0; k<=(knum_k-1); k++){
+    for (i=0; i<knum_i; i++){
+      for (j=0; j<knum_j; j++){
+	for (k=0; k<knum_k; k++){
 	  if (0<k_op[i][j][k]){
 	    T_knum++;
 	  }
@@ -744,7 +749,7 @@ double Band_DFT_NonCol(int SCF_iter,
 
     /* make S and H */
 
-    if (SCF_iter==1 || all_knum!=1){
+    if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
 
       for (i=1; i<=n; i++){
         for (j=1; j<=n; j++){
@@ -801,7 +806,7 @@ double Band_DFT_NonCol(int SCF_iter,
 
 	    }
 
-            if (SCF_iter==1 || all_knum!=1){
+            if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
               
               k -= tnoB; 
 
@@ -860,7 +865,7 @@ double Band_DFT_NonCol(int SCF_iter,
 
 	    }
 
-            if (SCF_iter==1 || all_knum!=1){
+            if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
 
 	      k -= tnoB; 
 
@@ -887,6 +892,7 @@ double Band_DFT_NonCol(int SCF_iter,
       } 
     } 
 
+
     /*
     if (myid0==0){
     for (i=1; i<=n; i++){
@@ -901,7 +907,6 @@ double Band_DFT_NonCol(int SCF_iter,
       } 
     } 
     }
-
     MPI_Finalize();
     exit(0);
     */
@@ -916,20 +921,20 @@ double Band_DFT_NonCol(int SCF_iter,
     if (parallel_mode==0){
       EigenBand_lapack(S,ko,n,n,1);
     }
-    else if (SCF_iter==1 || all_knum!=1){
+    else if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
       Eigen_PHH(MPI_CommWD1[myworld1],S,ko,n,n,1);
     }
 
     dtime(&Etime);
     time3 += Etime - Stime; 
 
-    if (SCF_iter==1 || all_knum!=1){
+    if (SCF_iter==1 || rediagonalize_flag_overlap_matrix==1 || all_knum!=1){
 
       if (3<=level_stdout){
-	printf(" myid0=%2d spin=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
-	       myid0,spin,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
+	printf(" myid0=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
+	       myid0,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
 	for (i=1; i<=n; i++){
-	  printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,ko[i]);
+	  printf("  Eigenvalues of OLP  %2d  %15.12f\n",i,ko[i]);
 	}
       }
 
@@ -1995,8 +2000,8 @@ double Band_DFT_NonCol(int SCF_iter,
       }
 
       if (3<=level_stdout){
-	printf(" myid0=%2d spin=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
-	       myid0,spin,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
+	printf(" myid0=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
+	       myid0,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
 	for (i=1; i<=n; i++){
 	  printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,ko[i]);
 	}

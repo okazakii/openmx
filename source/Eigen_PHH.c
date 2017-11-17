@@ -38,7 +38,7 @@ void Eigen_PHH(MPI_Comm MPI_Current_Comm_WD,
 
   MPI_Comm_size(MPI_Current_Comm_WD,&numprocs);
 
-  if (n<10 || n<numprocs)
+  if (n<20 || n<numprocs)
     EigenBand_lapack(ac, ko, n, n, 1);
 
   else if (scf_eigen_lib_flag==0 || n<100)
@@ -63,7 +63,10 @@ void Eigen_ELPA1_Co(MPI_Comm MPI_Current_Comm_WD,
 
   int na = n;
   int nev = EVmax;
+  int nblk = 4;
+  /*
   int nblk = 16;
+  */
 
   int np_rows, np_cols, na_rows, na_cols;
   int myid, numprocs, my_prow, my_pcol;
@@ -245,28 +248,28 @@ int numrocC(int N, int NB, int IPROC, int ISRCPROC, int NPROCS)
 {
   int EXTRABLKS, MYDIST, NBLOCKS, NUMROC;
 
-  // Figure PROC's distance from source process
+  /* Figure PROC's distance from source process */
 
   MYDIST = (NPROCS+IPROC-ISRCPROC) % NPROCS;
 
-  // Figure the total number of whole NB blocks N is split up into
+  /* Figure the total number of whole NB blocks N is split up into */
 
   NBLOCKS = N / NB;
 
-  // Figure the minimum number of rows/cols a process can have
+  /* Figure the minimum number of rows/cols a process can have */
 
   NUMROC = (NBLOCKS/NPROCS) * NB;
 
-  // See if there are any extra blocks
+  /* See if there are any extra blocks */
 
   EXTRABLKS = NBLOCKS % NPROCS;
 
-  // If I have an extra block
+  /* If I have an extra block */
 
   if(MYDIST < EXTRABLKS)
     NUMROC = NUMROC + NB;
 
-  // If I have last block, it may be a partial block
+  /* If I have last block, it may be a partial block */
 
   else if(MYDIST==EXTRABLKS)
     NUMROC = NUMROC +  (N % NB);

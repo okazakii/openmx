@@ -23,16 +23,306 @@
 #define YOUSO10  100
 
 typedef struct DCOMPLEX{double r,i;} dcomplex;  
+
+double ***EigenE;
+double ****PDOS;
+int **Msize1;
  
 void *malloc_multidimarray(char *type, int N, int *size);
 void OrderE0(double *e, int n);
 void OrderE(double *e,double *a, int n);
 void ATM_Dos(double *et, double *e, double *dos);
 void ATM_Spectrum(double *et,double *at, double *e, double *spectrum);
+char *Delete_path_extension(char *s0, char *r0);
+void Dos_Gaussian( char *basename, int Dos_N, double Dos_Gaussian, 
+		   int knum_i,int knum_j, int knum_k,
+		   int SpinP_switch, double *****EIGEN, double *******ev,
+                   int neg,
+		   double Dos_emin, double Dos_emax, 
+		   int iemin, int iemax,
+                   int *WhatSpecies, int *Spe_Total_CNO, int atomnum );
+void DosDC_Gaussian( char *basename, int atomnum, 
+                     int Dos_N, double Dos_Gaussian, 
+		     int SpinP_switch,
+  		     double Dos_emin, double Dos_emax, 
+		     int iemin, int iemax,
+                     int *WhatSpecies, int *Spe_Total_CNO );
+void Dos_NEGF( char *basename,
+               char *extension,
+               int Dos_N,
+	       int SpinP_switch, double *****EIGEN, double *******ev,
+               int neg,
+	       double Dos_emin, double Dos_emax, 
+	       int iemin, int iemax,
+	       int *WhatSpecies, int *Spe_Total_CNO, int atomnum );
+void Dos_Tetrahedron( char *basename, int Dos_N, 
+		      int knum_i,int knum_j, int knum_k,
+		      int SpinP_switch, double *****EIGEN, double *******ev,
+                      int neg, 
+		      double Dos_emin, double Dos_emax, 
+		      int iemin, int iemax,
+                      int *WhatSpecies, int *Spe_Total_CNO, int atomnum );
+void Spectra_Gaussian( int pdos_n, int *pdos_atoms, char *basename, int Dos_N, 
+		       double Dos_Gaussian, 
+		       int knum_i, int knum_j, int knum_k,
+		       int SpinP_switch, double *****EIGEN, double *******ev, int neg,
+		       double Dos_emin, double Dos_emax,
+		       int iemin, int iemax,
+		       int atomnum, int *WhatSpecies, int *Spe_Total_CNO,
+		       int MaxL, int **Spe_Num_CBasis, int **Spe_Num_Relation);
+void SpectraDC_Gaussian( int pdos_n, int *pdos_atoms, char *basename, int Dos_N, 
+  		         double Dos_Gaussian, 
+		         int knum_i,int knum_j, int knum_k,
+		         int SpinP_switch, double *****EIGEN, double *******ev, int neg,
+		         double Dos_emin, double Dos_emax,
+		         int iemin, int iemax,
+		         int atomnum, int *WhatSpecies, int *Spe_Total_CNO,
+		         int MaxL,int **Spe_Num_CBasis, int **Spe_Num_Relation);
+void Spectra_Tetrahedron( int pdos_n, int *pdos_atoms, char *basename, int Dos_N, 
+			  int knum_i,int knum_j, int knum_k,
+			  int SpinP_switch, double *****EIGEN, double *******ev, int neg, 
+			  double Dos_emin, double Dos_emax, 
+			  int iemin, int iemax,
+			  int atomnum, int *WhatSpecies, int *Spe_Total_CNO,
+                          int MaxL,int **Spe_Num_CBasis, int **Spe_Num_Relation);
+void Spectra_NEGF( int pdos_n, int *pdos_atoms, char *basename, char *extension, int Dos_N, 
+		   int SpinP_switch, double *****EIGEN, double *******ev, int neg,
+		   double Dos_emin, double Dos_emax,
+		   int iemin, int iemax,
+		   int atomnum, int *WhatSpecies, int *Spe_Total_CNO,
+		   int MaxL, int **Spe_Num_CBasis, int **Spe_Num_Relation);
+void  Spe_Num_CBasis2Relation(
+			      int SpeciesNum,int MaxL,int *Spe_Total_CNO,int **Spe_Num_CBasis,
+			      int **Spe_Num_Relation);
+void input_file_eg(char *file_eg,
+		   int *mode, int *NonCol,
+                   int *n, double *emin, double *emax, int *iemin,int *iemax, 
+		   int *SpinP_switch, int Kgrid[3], int *atomnum, int **WhatSpecies,
+		   int *SpeciesNum, int **Spe_Total_CNO, int * Max_tnoA, int *MaxL,
+		   int ***Spe_Num_CBasis, int ***Spe_Num_Relation, double *ChemP, 
+                   double **Angle0_Spin, double **Angle1_Spin,
+		   double ******ko);
+void input_file_ev( char *file_ev, int mode, int NonCol, int Max_tnoA, 
+		    int Kgrid[3], int SpinP_switch, int iemin, int iemax, 
+                    int atomnum,  int *WhatSpecies, int *Spe_Total_CNO, 
+		    double ********ev, double ChemP);
+void input_main( int mode, int Kgrid[3], int atomnum, 
+		 int *method, int *todo, 
+		 double *gaussian, 
+		 int *pdos_n, int **pdos_atoms);
 
-double ***EigenE;
-double ****PDOS;
-int **Msize1;
+
+
+int main(int argc, char **argv)
+{
+
+  char *file_eg, *file_ev;
+ 
+  int mode,NonCol;
+  int n;
+  double emax,emin;
+  int iemax,iemin;
+  int SpinP_switch;
+  int Kgrid[3];
+  int atomnum,SpeciesNum;
+  double ChemP;
+  int *WhatSpecies, *Spe_Total_CNO,MaxL;
+
+  double *Angle0_Spin,*Angle1_Spin;
+  double *****ko;
+  double *******ev; 
+  int   **Spe_Num_CBasis; 
+  int **Spe_Num_Relation; 
+
+  double gaussian; 
+  int Dos_N;
+  int Max_tnoA;
+
+  char basename[YOUSO10];
+
+  /**************************************************
+                read data from file_eg
+  ***************************************************/
+
+  file_eg=argv[1];
+  file_ev=argv[2];
+
+  input_file_eg(file_eg,
+		&mode, &NonCol, &n, &emin, &emax, &iemin,&iemax,
+		&SpinP_switch,  Kgrid, &atomnum, &WhatSpecies,
+		&SpeciesNum, &Spe_Total_CNO, &Max_tnoA, &MaxL,
+		&Spe_Num_CBasis, &Spe_Num_Relation, &ChemP,
+                &Angle0_Spin, &Angle1_Spin,
+		&ko); 
+
+
+  input_file_ev( file_ev, mode, NonCol, Max_tnoA,
+		 Kgrid,  SpinP_switch,  iemin,  iemax,
+		 atomnum,  WhatSpecies,  Spe_Total_CNO,
+		 &ev, ChemP);
+
+
+  Delete_path_extension(file_eg,basename);
+
+  {
+    int todo,method;
+    int pdos_n, *pdos_atoms;
+ 
+    input_main(  mode, Kgrid,  atomnum,
+		 &method, &todo,
+		 &gaussian,
+		 &pdos_n, &pdos_atoms); 
+
+    /* set a suitable Dos_N */
+
+    if (method==1){
+      Dos_N = 500;
+    }
+    else if (method==4){
+      Dos_N = iemax - iemin + 1;
+    }
+    else{
+      Dos_N = (emax-emin)/gaussian*5;
+    }
+
+
+    /* Total DOS */
+    if (todo==1) {
+
+      switch (method) {
+      case 1:
+	Dos_Tetrahedron(  basename,Dos_N,
+			  Kgrid[0],Kgrid[1],Kgrid[2], 
+			  SpinP_switch, ko, ev, iemax-iemin+1, 
+			  emin, emax, 
+			  iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
+	break;
+      case 2: 
+
+        /* DC */
+        if (mode==5){
+
+	DosDC_Gaussian(  basename, atomnum, Dos_N, gaussian,
+		         SpinP_switch, emin, emax,
+		         iemin, iemax, WhatSpecies, Spe_Total_CNO );
+	}
+	else{
+
+	Dos_Gaussian(  basename, Dos_N,  gaussian,  
+		       Kgrid[0],Kgrid[1],Kgrid[2],
+		       SpinP_switch, ko, ev, iemax-iemin+1,
+		       emin, emax,
+		       iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
+
+	}
+
+	break;
+#if 0
+      case 3:
+	Dos_Histgram(  basename,Dos_N,
+		       Kgrid[0],Kgrid[1],Kgrid[2],
+		       SpinP_switch, ko, iemax-iemin+1,
+		       emin, emax,
+		       iemin,  iemax );
+	break;
+#endif
+
+      case 4: 
+
+        if (mode==6){
+
+	Dos_NEGF( basename, "NEGF", Dos_N,
+		  SpinP_switch, ko, ev, iemax-iemin+1,
+		  emin, emax,
+		  iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
+	}
+
+        else if (mode==7){
+
+	Dos_NEGF( basename, "Gaussian", Dos_N,
+		  SpinP_switch, ko, ev, iemax-iemin+1,
+		  emin, emax,
+		  iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
+	}
+
+	break;
+      }
+    }
+
+    /* Projected DOS */
+
+    else if (todo==2) {
+
+      switch(method) {
+      case 1:
+	Spectra_Tetrahedron( pdos_n, pdos_atoms, basename,Dos_N,
+			     Kgrid[0],Kgrid[1],Kgrid[2],
+			     SpinP_switch, ko,ev, iemax-iemin+1,
+			     emin, emax,
+			     iemin,  iemax,
+			     atomnum, WhatSpecies, Spe_Total_CNO, 
+			     MaxL,Spe_Num_CBasis, Spe_Num_Relation );
+	break;
+      case 2:
+
+        /* DC */
+        if (mode==5){
+
+	SpectraDC_Gaussian( pdos_n, pdos_atoms, basename,Dos_N, gaussian, 
+			    Kgrid[0],Kgrid[1],Kgrid[2],
+			    SpinP_switch, ko,ev, iemax-iemin+1,
+			    emin, emax,
+			    iemin,  iemax,
+			    atomnum, WhatSpecies, Spe_Total_CNO,
+			    MaxL,Spe_Num_CBasis, Spe_Num_Relation );
+	}
+        else {
+
+	Spectra_Gaussian( pdos_n, pdos_atoms, basename,Dos_N, gaussian, 
+			  Kgrid[0],Kgrid[1],Kgrid[2],
+			  SpinP_switch, ko,ev, iemax-iemin+1,
+			  emin, emax,
+			  iemin,  iemax,
+			  atomnum, WhatSpecies, Spe_Total_CNO,
+			  MaxL,Spe_Num_CBasis, Spe_Num_Relation );
+        }
+
+	break;
+
+      case 4: 
+
+        if (mode==6){
+
+	Spectra_NEGF( pdos_n, pdos_atoms, basename, "NEGF", Dos_N,
+		      SpinP_switch, ko,ev, iemax-iemin+1,
+		      emin, emax,
+		      iemin,  iemax,
+		      atomnum, WhatSpecies, Spe_Total_CNO,
+		      MaxL,Spe_Num_CBasis, Spe_Num_Relation );
+	}
+
+        else if (mode==7){
+
+	Spectra_NEGF( pdos_n, pdos_atoms, basename, "Gaussian", Dos_N,
+		      SpinP_switch, ko,ev, iemax-iemin+1,
+		      emin, emax,
+		      iemin,  iemax,
+		      atomnum, WhatSpecies, Spe_Total_CNO,
+		      MaxL,Spe_Num_CBasis, Spe_Num_Relation );
+	}
+
+	break;
+
+      }
+    }
+  }
+
+  exit(0);
+}
+
+
+
+
 
 /* 
    input s0
@@ -1634,6 +1924,7 @@ void Spectra_Tetrahedron( int pdos_n, int *pdos_atoms, char *basename, int Dos_N
   /********************************************************************
                           Method = tetrahedron 
   *******************************************************************/
+
   for (spin=0;spin<=SpinP_switch;spin++) {
     for (ieg=0;ieg<neg; ieg++) {
       for (i=0; i<=(knum_i-1); i++){
@@ -1947,7 +2238,7 @@ void Spectra_Tetrahedron( int pdos_n, int *pdos_atoms, char *basename, int Dos_N
 	}
 	if (SpinP_switch==1) {
 	  fprintf(fp_Dos,"%lf %lf %lf %lf %lf\n", (DosE[ie])*eV2Hartree,
-		  dossum[0],dossum[1],ssum[0][ie],ssum[1][ie]);
+		  dossum[0],-dossum[1],ssum[0][ie],ssum[1][ie]);
 	}
 	else {
 	  fprintf(fp_Dos,"%lf %lf %lf\n", (DosE[ie])*eV2Hartree,
@@ -3004,209 +3295,3 @@ void input_main( int mode, int Kgrid[3], int atomnum,
 
 }
 
-int main(int argc, char **argv)
-{
-
-  char *file_eg, *file_ev;
- 
-  int mode,NonCol;
-  int n;
-  double emax,emin;
-  int iemax,iemin;
-  int SpinP_switch;
-  int Kgrid[3];
-  int atomnum,SpeciesNum;
-  double ChemP;
-  int *WhatSpecies, *Spe_Total_CNO,MaxL;
-
-  double *Angle0_Spin,*Angle1_Spin;
-  double *****ko;
-  double *******ev; 
-  int   **Spe_Num_CBasis; 
-  int **Spe_Num_Relation; 
-
-  double gaussian; 
-  int Dos_N;
-  int Max_tnoA;
-
-  char basename[YOUSO10];
-
-  /**************************************************
-                read data from file_eg
-  ***************************************************/
-
-  file_eg=argv[1];
-  file_ev=argv[2];
-
-  input_file_eg(file_eg,
-		&mode, &NonCol, &n, &emin, &emax, &iemin,&iemax,
-		&SpinP_switch,  Kgrid, &atomnum, &WhatSpecies,
-		&SpeciesNum, &Spe_Total_CNO, &Max_tnoA, &MaxL,
-		&Spe_Num_CBasis, &Spe_Num_Relation, &ChemP,
-                &Angle0_Spin, &Angle1_Spin,
-		&ko); 
-
-
-  input_file_ev( file_ev, mode, NonCol, Max_tnoA,
-		 Kgrid,  SpinP_switch,  iemin,  iemax,
-		 atomnum,  WhatSpecies,  Spe_Total_CNO,
-		 &ev, ChemP);
-
-
-  Delete_path_extension(file_eg,basename);
-
-  {
-    int todo,method;
-    int pdos_n, *pdos_atoms;
- 
-    input_main(  mode, Kgrid,  atomnum,
-		 &method, &todo,
-		 &gaussian,
-		 &pdos_n, &pdos_atoms); 
-
-    /* set a suitable Dos_N */
-
-    if (method==1){
-      Dos_N = 500;
-    }
-    else if (method==4){
-      Dos_N = iemax - iemin + 1;
-    }
-    else{
-      Dos_N = (emax-emin)/gaussian*5;
-    }
-
-
-    /* Total DOS */
-    if (todo==1) {
-
-      switch (method) {
-      case 1:
-	Dos_Tetrahedron(  basename,Dos_N,
-			  Kgrid[0],Kgrid[1],Kgrid[2], 
-			  SpinP_switch, ko, ev, iemax-iemin+1, 
-			  emin, emax, 
-			  iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
-	break;
-      case 2: 
-
-        /* DC */
-        if (mode==5){
-
-	DosDC_Gaussian(  basename, atomnum, Dos_N, gaussian,
-		         SpinP_switch, emin, emax,
-		         iemin, iemax, WhatSpecies, Spe_Total_CNO );
-	}
-	else{
-
-	Dos_Gaussian(  basename, Dos_N,  gaussian,  
-		       Kgrid[0],Kgrid[1],Kgrid[2],
-		       SpinP_switch, ko, ev, iemax-iemin+1,
-		       emin, emax,
-		       iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
-
-	}
-
-	break;
-#if 0
-      case 3:
-	Dos_Histgram(  basename,Dos_N,
-		       Kgrid[0],Kgrid[1],Kgrid[2],
-		       SpinP_switch, ko, iemax-iemin+1,
-		       emin, emax,
-		       iemin,  iemax );
-	break;
-#endif
-
-      case 4: 
-
-        if (mode==6){
-
-	Dos_NEGF( basename, "NEGF", Dos_N,
-		  SpinP_switch, ko, ev, iemax-iemin+1,
-		  emin, emax,
-		  iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
-	}
-
-        else if (mode==7){
-
-	Dos_NEGF( basename, "Gaussian", Dos_N,
-		  SpinP_switch, ko, ev, iemax-iemin+1,
-		  emin, emax,
-		  iemin,  iemax, WhatSpecies, Spe_Total_CNO, atomnum );
-	}
-
-	break;
-      }
-    }
-
-    /* Projected DOS */
-
-    else if (todo==2) {
-
-      switch(method) {
-      case 1:
-	Spectra_Tetrahedron( pdos_n, pdos_atoms, basename,Dos_N,
-			     Kgrid[0],Kgrid[1],Kgrid[2],
-			     SpinP_switch, ko,ev, iemax-iemin+1,
-			     emin, emax,
-			     iemin,  iemax,
-			     atomnum, WhatSpecies, Spe_Total_CNO, 
-			     MaxL,Spe_Num_CBasis, Spe_Num_Relation );
-	break;
-      case 2:
-
-        /* DC */
-        if (mode==5){
-
-	SpectraDC_Gaussian( pdos_n, pdos_atoms, basename,Dos_N, gaussian, 
-			    Kgrid[0],Kgrid[1],Kgrid[2],
-			    SpinP_switch, ko,ev, iemax-iemin+1,
-			    emin, emax,
-			    iemin,  iemax,
-			    atomnum, WhatSpecies, Spe_Total_CNO,
-			    MaxL,Spe_Num_CBasis, Spe_Num_Relation );
-	}
-        else {
-
-	Spectra_Gaussian( pdos_n, pdos_atoms, basename,Dos_N, gaussian, 
-			  Kgrid[0],Kgrid[1],Kgrid[2],
-			  SpinP_switch, ko,ev, iemax-iemin+1,
-			  emin, emax,
-			  iemin,  iemax,
-			  atomnum, WhatSpecies, Spe_Total_CNO,
-			  MaxL,Spe_Num_CBasis, Spe_Num_Relation );
-        }
-
-	break;
-
-      case 4: 
-
-        if (mode==6){
-
-	Spectra_NEGF( pdos_n, pdos_atoms, basename, "NEGF", Dos_N,
-		      SpinP_switch, ko,ev, iemax-iemin+1,
-		      emin, emax,
-		      iemin,  iemax,
-		      atomnum, WhatSpecies, Spe_Total_CNO,
-		      MaxL,Spe_Num_CBasis, Spe_Num_Relation );
-	}
-
-        else if (mode==7){
-
-	Spectra_NEGF( pdos_n, pdos_atoms, basename, "Gaussian", Dos_N,
-		      SpinP_switch, ko,ev, iemax-iemin+1,
-		      emin, emax,
-		      iemin,  iemax,
-		      atomnum, WhatSpecies, Spe_Total_CNO,
-		      MaxL,Spe_Num_CBasis, Spe_Num_Relation );
-	}
-
-	break;
-
-      }
-    }
-  }
-
-  exit(0);
-}

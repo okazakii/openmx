@@ -22,16 +22,16 @@ Definition.of.Atomic.Species>
 #
 
 Atoms.Number         2
-Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+Atoms.SpeciesAndCoordinates.Unit   frac # Ang|AU
 <Atoms.SpeciesAndCoordinates           
- 1  Ga -0.3000  0.2000 -0.3000   6.5 6.5
- 2  As  1.4125  1.4125  1.4125   7.5 7.5
+ 1  Ga  0.0000  0.0000  0.0000   6.5 6.5
+ 2  As  0.5000  0.5000  0.5000   7.5 7.5
 Atoms.SpeciesAndCoordinates>
 Atoms.UnitVectors.Unit             Ang # Ang|AU
 <Atoms.UnitVectors                     
-   2.8250  2.8250  0.0000
-   2.8250  0.0000  2.8250
-   0.0000  2.8250  2.8250
+   2.8250   2.8250  0.0000
+   2.8250   0.0000  2.8250
+   0.0000   2.8250  2.8250
 Atoms.UnitVectors>
 
 #
@@ -62,91 +62,12 @@ scf.criterion             1.0e-12      # default=1.0e-6 (Hartree)
 1DFFT.NumGridR             900         # default=900
 1DFFT.EnergyCutoff        3600.0       # default=3DFFT.EnergyCutoff*3.0 (Ry)
 
-#
-# Orbital Optimization
-#
-
-orbitalOpt.Method           Off        # Off|Unrestricted|Restricted|species
-orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
-orbitalOpt.initPrefactor   0.1         # default=0.1
-orbitalOpt.scf.maxIter      12         # default=12
-orbitalOpt.MD.maxIter        2         # default=5
-orbitalOpt.per.MDIter        2         # default=1000000
-orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
-
-#
-# output of contracted orbitals
-#
-
-CntOrb.fileout               off       # on|off, default=off
-Num.CntOrb.Atoms              1        # default=1
-<Atoms.Cont.Orbitals
- 1
-Atoms.Cont.Orbitals>
- 
-#
-# SCF Order-N
-#
-
-orderN.HoppingRanges        4.0        # default=5.0 (Ang) 
-orderN.NumHoppings           1         # default=2
-
-
-#
-# restart using *.rst
-#
-
-scf.restart                  off       # on|off, default=off
-
 
 #
 # MD or Geometry Optimization
 #
 
-MD.Type                      opt       # Nomd|Constant_Energy_MD|Opt
+MD.Type                      nomd      # Nomd|Constant_Energy_MD|Opt
 MD.maxIter                    1        # default=1
 MD.TimeStep                   1        # default=0.5 (fs)
 MD.Opt.criterion         1.0e-5        # default=1.0e-4 (Hartree/bohr)
-
-#
-# Band dispersion 
-#
-
-Band.dispersion              off       # on|off, default=off
-<Band.KPath.UnitCell
-5.65  0.00  0.00
-0.00  5.65  0.00
-0.00  0.00  5.65
-Band.KPath.UnitCell>
-# if <Band.KPath.UnitCell does not exist,
-#     the reciprical lattice vector is employed. 
-Band.Nkpath                5
-<Band.kpath                
-   25  0.0 0.0 0.0   1.0 0.0 0.0   g X
-   25  1.0 0.0 0.0   1.0 0.5 0.0   X W
-   25  1.0 0.5 0.0   0.5 0.5 0.5   W L
-   25  0.5 0.5 0.5   0.0 0.0 0.0   L g
-   25  0.0 0.0 0.0   1.0 1.0 0.0   g X 
-Band.kpath>
-
-#
-# MO output
-#
-
-MO.fileout                       off   # on|off
-num.HOMOs                         1    # default=2
-num.LUMOs                         1    # default=2
-
-MO.Nkpoint                        2    # default=1 
-<MO.kpoint
-  0.0  0.0  0.0
-  0.0  0.0  0.2
-MO.kpoint>
-
-#
-# DOS and PDOS
-#
-
-Dos.fileout                  off       # on|off, default=off
-Dos.Erange              -20.0  20.0    # default = -20 20 
-Dos.Kgrid                 7  7  7      # default = Kgrid1 Kgrid2 Kgrid3

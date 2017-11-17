@@ -15,19 +15,20 @@
 #include <stdio.h>
 #include "openmx_common.h"
 
-void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10])
+void iterout(int iter,double drctime,char filepath[YOUSO10],char filename[YOUSO10])
 {
   int i,j,k,kk,myid;
   double dt,itermax,aa,dx,dy,dz,xido,yido,zido;
+  double angle0,angle1;
   char fileXYZ[YOUSO10];
+  char fileSDRC[YOUSO10] = ".md";
   FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
 
+  fnjoint(filepath,filename,fileSDRC);
+
   if(MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==15){
     Calc_Temp_Atoms(iter);
-  }
-
-  if(MD_switch==14){
   }
 
   MPI_Comm_rank(mpi_comm_level1,&myid);
@@ -47,25 +48,69 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
 
       fprintf(fp,"%i \n",atomnum);
 
-      if(MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==15) {
-        fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) Temperature= %8.3f (Given Temp.= %8.3f)\n",drctime,Utot,Temp,GivenTemp);
-      }
+      /* header: molecular dynamics */
 
-      else if (MD_switch==14) {
-        fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) ",drctime,Utot);
-        for (kk=1; kk<=num_AtGr; kk++){ 
-          fprintf(fp,"Temperature[%d]= %8.3f ",kk,Temp_AtGr[kk]);
+      if (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==15) {
+
+        fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) Temperature= %8.3f (Given Temp.= %8.3f) ",drctime,Utot,Temp,GivenTemp);
+
+        fprintf(fp,"Cell_Vectors= ");
+        for (i=1; i<=3; i++){
+          for (j=1; j<=3; j++){
+            fprintf(fp,"%8.5f ",tv[i][j]*BohrR);
+          }
         }
         fprintf(fp,"\n");
       }
 
+      /* header: NVT_VS4 */
+
+      else if (MD_switch==14) {
+
+	fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) ",drctime,Utot);
+        for (kk=1; kk<=num_AtGr; kk++){
+          fprintf(fp,"Temperature[%d]= %8.3f ",kk,Temp_AtGr[kk]);
+        }
+
+        fprintf(fp,"Cell_Vectors= ");
+        for (i=1; i<=3; i++){
+          for (j=1; j<=3; j++){
+            fprintf(fp,"%8.5f ",tv[i][j]*BohrR);
+          }
+        }
+        fprintf(fp,"\n");
+      }
+
+      /* header: Geometry optimization and others */
+
       else {
-        fprintf(fp,"   time= %8.3f (fs)  Energy= %8.5f (Hartree)\n",drctime,Utot);
+        fprintf(fp,"   time= %8.3f (fs)  Energy= %8.5f (Hartree) ",drctime,Utot);
+
+        fprintf(fp,"Cell_Vectors= ");
+        for (i=1; i<=3; i++){
+          for (j=1; j<=3; j++){
+            fprintf(fp,"%8.5f ",tv[i][j]*BohrR);
+          }
+        }
+        fprintf(fp,"\n");
       } 
+
+      /* coordinates and other information */
 
       for (k=1; k<=atomnum; k++){
         i = WhatSpecies[k];
         j = Spe_WhatAtom[i];
+
+        if (SpinP_switch==3){
+          angle0 = Angle0_Spin[k]/PI*180.0;
+          angle1 = Angle1_Spin[k]/PI*180.0;
+        }
+        else {
+          angle0 = 0.0;
+          angle1 = 0.0;
+        }
+
+        /* molecular dynamics */
 
         if ( MD_switch==1 || 
              MD_switch==2 ||  
@@ -83,26 +128,32 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
              1 m/s = 0.4571028 * 10^{-6} a.u.
           ***********************************************/
 
-          fprintf(fp,"%4s   %8.5f  %8.5f  %8.5f  %14.6f %14.6f %14.6f  %8.5f  %8.5f  %8.5f  %8.5f\n",
+          fprintf(fp,"%4s   %8.5f %8.5f %8.5f  %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f  %8.5f %8.5f %8.5f %8.5f\n",
                   Atom_Symbol[j],                
 	   	  Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
-		  Gxyz[k][24]/(0.4571028*0.000001),
-                  Gxyz[k][25]/(0.4571028*0.000001),
-                  Gxyz[k][26]/(0.4571028*0.000001),
-                  InitN_USpin[k],
-                  InitN_DSpin[k],
-                  InitN_USpin[k]+InitN_DSpin[k],
-                  InitN_USpin[k]-InitN_DSpin[k]);
-
+	         -Gxyz[k][17],-Gxyz[k][18],-Gxyz[k][19], /* force */
+		  Gxyz[k][24]/(0.4571028*0.000001), /* x-component of velocity */
+                  Gxyz[k][25]/(0.4571028*0.000001), /* y-component of velocity */
+                  Gxyz[k][26]/(0.4571028*0.000001), /* z-component of velocity */
+                  Spe_Core_Charge[i]-(InitN_USpin[k]+InitN_DSpin[k]),    /* Net charge, electron charge is defined to be negative. */
+                  InitN_USpin[k]-InitN_DSpin[k],    /* magnetic moment (muB) */
+                  angle0,angle1);                   /* angles of spin */                       
         }
+
+        /* geometry optimization and others */
+
         else {
 
-          fprintf(fp,"%4s   %8.5f  %8.5f  %8.5f  %8.5f  %8.5f  %8.5f\n",
+          fprintf(fp,"%4s   %8.5f %8.5f %8.5f  %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f  %8.5f %8.5f %8.5f %8.5f\n",
                   Atom_Symbol[j],                
                   Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
-		  Gxyz[k][17],Gxyz[k][18],Gxyz[k][19]);
-
+	         -Gxyz[k][17],-Gxyz[k][18],-Gxyz[k][19], /* force */
+                  0.0, 0.0, 0.0,                         /* velocity */
+                  Spe_Core_Charge[i]-(InitN_USpin[k]+InitN_DSpin[k]),    /* Net charge, electron charge is defined to be negative. */
+                  InitN_USpin[k]-InitN_DSpin[k],    /* magnetic moment (muB) */
+                  angle0,angle1);                   /* angles of spin */                       
         }
+
       }
       fclose(fp);
     }
@@ -113,7 +164,7 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
   }
 
   /****************************************************
-      cartesian coordinates of the final structure
+      cartesian coordinates of the last structure
   ****************************************************/
 
   sprintf(fileXYZ,"%s2",fileSDRC);
