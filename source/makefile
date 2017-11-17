@@ -109,9 +109,28 @@
 #
 
 
-CC      = gcc -O3 -Dnompi -Dnoomp -I/usr/local/include -I/home/ozaki/include
-LIB     = -L/usr/local/lib -lfftw3 -llapack -lblas -lg2c -static
 
+
+## tappi, serial
+#CC      = gcc   -O3 -Dnompi -Dnoomp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+#LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+#          /usr/lib64/liblapack.so.3 \
+#          /usr/lib64/libblas.so.3 \
+#          /usr/lib64/libg2c.so.0
+
+## tappi, pararell(MPI)
+#CC      = mpicc -O3         -Dnoomp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+#LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+#          /usr/lib64/liblapack.so.3 \
+#          /usr/lib64/libblas.so.3 \
+#          /usr/lib64/libg2c.so.0
+
+# tappi, pararell(MPI/OpenMP)
+CC      = mpicc -O3          -fopenmp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+          /usr/lib64/liblapack.so.3 \
+          /usr/lib64/libblas.so.3 \
+          /usr/lib64/libg2c.so.0
 
 
 
