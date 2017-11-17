@@ -22,12 +22,7 @@
 #include "read_scfout.h"
 #include "lapack_prototypes.h"
 #include "f77func.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 #define Host_ID       0         /* ID of the host CPU in MPI */
 
@@ -153,7 +148,7 @@ int main(int argc, char *argv[])
     printf("******************************************************************\n"); 
     printf(" polB:\n"); 
     printf(" code for calculating the electric polarization of bulk systems\n"); 
-    printf(" Copyright (C), 2006-2011, Fumiyuki Ishii and Taisuke Ozaki \n"); 
+    printf(" Copyright (C), 2006-2013, Fumiyuki Ishii and Taisuke Ozaki \n"); 
     printf(" This is free software, and you are welcome to         \n"); 
     printf(" redistribute it under the constitution of the GNU-GPL.\n");
     printf("******************************************************************\n"); 

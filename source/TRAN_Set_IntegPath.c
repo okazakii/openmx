@@ -9,17 +9,13 @@
      24/July/2008  Released by T.Ozaki
 
 ***********************************************************************/
+    /* revised by Y. Xiao for Noncollinear NEGF calculations */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "openmx_common.h"
 #include "tran_prototypes.h"
 #include "tran_variables.h"
@@ -186,8 +182,8 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
     }            
 
     /* set tran_omega_n_scf */
-
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1)
+    /* revised by Y. Xiao for Noncollinear NEGF calculations */
+    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2) 
       tran_omega_n_scf = tran_num_poles + 1 + Tran_bias_neq_num_energy_step;
     else 
       tran_omega_n_scf = 2*(tran_num_poles + 1) + Tran_bias_neq_num_energy_step;
@@ -200,8 +196,8 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
   else{ 
 
     /* set tran_omega_n_scf */
-
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1)
+    /* revised by Y. Xiao for Noncollinear NEGF calculations */
+    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2) 
       tran_omega_n_scf = tran_num_poles + 1;
     else 
       tran_omega_n_scf = 2*(tran_num_poles + 1);
@@ -244,8 +240,8 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
            tran_omega_weight_scf[tran_num_poles+1+i] = (f1 - f0)*Tran_bias_neq_energy_step;
     
     *************************************/
-
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1){
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2){
 
       /* contribution of poles for the "equilibrium" region */
 
@@ -440,8 +436,8 @@ void CF( MPI_Comm comm1, double TRAN_eV2Hartree,
 
               iR for ChemP_e[side0]
     *************************************/
-
-    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1){
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+    if (TRAN_Kspace_grid2==1 && TRAN_Kspace_grid3==1 && SpinP_switch <2){
 
       /* contribution of poles */
 

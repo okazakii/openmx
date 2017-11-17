@@ -68,8 +68,8 @@ void XC_PW92C(double dens[2], double Ec[1], double Vc[2])
   tmp0 = 1.0/dtot;  
   zeta = tmp0*(dens[0] - dens[1]);
 
-  if (1.0<zeta)  zeta =  1.0 - den_min;
-  if (zeta<-1.0) zeta = -1.0 + den_min;
+  if (0.99<zeta) zeta =  0.99;
+  if (zeta<-1.0) zeta = -0.99;
 
   drsdd = -0.3333333333333333333333*rs*tmp0;
   dzdd[0] = tmp0*( 1.0 - zeta);

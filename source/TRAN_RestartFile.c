@@ -6,24 +6,19 @@
 
   Log of RestartFile.c:
 
-     11/Dec/2005   Released by H.Kino
+     11/Dec/2005   Released by H. Kino
 
 ***********************************************************************/
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
-#define YOUSO10 100
 #include "tran_prototypes.h" 
 #include "tran_variables.h"
 
+#define YOUSO10 100
 #define print_stdout 0
 
 /****************************************************************
@@ -59,8 +54,7 @@ double ******DM_r;
 
 
 *****************************************************************/
-
-/*
+ /*
   e.g. Overlap_Band, which gives hints of data to be saved
   for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
   GA_AN = M2G[MA_AN];  
@@ -98,6 +92,9 @@ double ******DM_r;
 
 static double ScaleSize_t;
 static int  SpinP_switch_t, atomnum_t, SpeciesNum_t, Max_FSNAN_t, TCpyCell_t, Matomnum_t, MatomnumF_t, MatomnumS_t;
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+static double *****iHNL_t;
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
 static int *WhatSpecies_t;
 static int *Spe_Total_CNO_t;
 static int *Spe_Total_NO_t;
@@ -123,47 +120,6 @@ static double ScaleSize_t;
 static int TCpyCell_t;
 
 static double ChemP_t; 
-
-
-
-#define ORDER_C
-
-#ifdef ORDER_C
-#undef ORDER_C
-#endif
-
-
-#ifdef ORDER_C
-
-static void  TRAN_Change_axis_Grid(
-				   int n1, int n2, int n3,
-				   double  *grid)
-     /* order n2, n3, n1 */
-#define v_ref(i,j,k)  v[  (i)*n3*n1+(j)*n1+k ]
-#define grid_ref(i,j,k)  grid[ (i)*n2*n3+(j)*n3+k ]
-{
-
-  int i,j,k;
-  double *v;
-
-  v = (double*)malloc(sizeof(double)*n1*n2*n3);
-
-  for (i=0;i<n1*n2*n3;i++) v[i]=grid[i];
-
-  for (i=0;i<n1;i++) {
-    for (j=0;j<n2;j++) {
-      for (k=0;k<n3;k++) {
-	grid_ref(i,j,k) = v_ref(j,k,i);
-      }
-    }
-  }
- 
-  free(v); 
-
-}
-
-#endif
-
 
 
 
@@ -201,7 +157,7 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
   /*i_vec[i++]=1;  major version */
   /*i_vec[i++]=0;  minor version*/
 
-  fread(i_vec,sizeof(int),12,fp);
+  fread(i_vec,sizeof(int),12,fp); 
 
   i=0;
   SpinP_switch_t = i_vec[i++];
@@ -216,17 +172,6 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
   Ngrid2_t       = i_vec[i++];
   Ngrid3_t       = i_vec[i++];
   Num_Cells0_t   = i_vec[i++];
-#ifdef ORDER_C
-  { int it1,it2,it3;
-  it1=Ngrid1_t;
-  it2=Ngrid2_t;
-  it3=Ngrid3_t;
-  Ngrid1_t = it3;
-  Ngrid2_t = it1;
-  Ngrid3_t = it2;
-  Num_Cells0_t =  Ngrid1_t; 
-  }
-#endif
 
 #if 0
 
@@ -284,39 +229,6 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
     printf("Gxyz=%lf %lf %lf\n",Gxyz_t[1][1],Gxyz_t[1][2],Gxyz_t[1][3]);
     printf("ChemP=%le\n",ChemP_t);
   }
-
-#ifdef ORDER_C 
-  {
-    double v[4][4];
-    double v1[4];
-    for (i=1;i<=3;i++) {
-      for (j=1;j<=3;j++) {
-	v[i][j]= tv_t[i][j];
-      }
-    }
-    for (j=1;j<=3;j++) {
-      tv_t[1][j] = v[3][j];
-      tv_t[2][j]= v[1][j];
-      tv_t[3][j]= v[2][j];
-    }
-
-    for (i=1;i<=3;i++) {
-      for (j=1;j<=3;j++) {
-	v[i][j]= gtv_t[i][j];
-      }
-    }
-    for (j=1;j<=3;j++) {
-      gtv_t[1][j] = v[3][j];
-      gtv_t[2][j]= v[1][j];
-      gtv_t[3][j]= v[2][j];
-    }
-
-    for (j=1;j<=3;j++) {
-      v1[j] = Grid_Origin_t[j];
-    }
-
-  }
-#endif
 
 #if 0
   if (print_stdout){
@@ -380,17 +292,6 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
       /*      printf("%d ",atv_ijk_t[i][j]); */
     }
 
-#ifdef ORDER_C
-    {
-      int t1,t2,t3;
-      t1 = atv_ijk_t[i][1];
-      t2 = atv_ijk_t[i][2];
-      t3 = atv_ijk_t[i][3];
-      atv_ijk_t[i][1] = t3;
-      atv_ijk_t[i][2] = t1;
-      atv_ijk_t[i][3] = t2;
-    }
-#endif
     /*    printf("\n"); */
   }
   free(ia_vec);
@@ -462,7 +363,6 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
 #endif
 
 
-
   /* H */
   H_t = (double*****)malloc(sizeof(double****)*(SpinP_switch_t+1)); 
   for (k=0; k<=SpinP_switch_t; k++){
@@ -500,6 +400,47 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
     }
   }
 
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+  /* iHNL */
+ if(SpinP_switch_t==3) {
+  
+  iHNL_t = (double*****)malloc(sizeof(double****)*(2+1));
+  for (k=0; k<=2; k++){
+    iHNL_t[k] = (double****)malloc(sizeof(double***)*(atomnum_t+1));
+    for (Mc_AN=1; Mc_AN<=atomnum_t; Mc_AN++){
+
+      if (Mc_AN==0){
+        Gc_AN = 0;
+        tno0 = 1;
+      }
+      else{
+        Gc_AN = Mc_AN;
+        Cwan = WhatSpecies_t[Gc_AN];
+        tno0 = Spe_Total_NO_t[Cwan];
+      }
+
+      iHNL_t[k][Mc_AN] = (double***)malloc(sizeof(double**)*(FNAN_t[Gc_AN]+1));
+      for (h_AN=0; h_AN<=FNAN_t[Gc_AN]; h_AN++){
+
+        if (Mc_AN==0){
+          tno1 = 1;
+        }
+        else{
+          Gh_AN = natn_t[Gc_AN][h_AN];
+          Hwan = WhatSpecies_t[Gh_AN];
+          tno1 = Spe_Total_NO_t[Hwan];
+        }
+
+        iHNL_t[k][Mc_AN][h_AN] = (double**)malloc(sizeof(double*)*tno0);
+        for (i=0; i<tno0; i++){
+          iHNL_t[k][Mc_AN][h_AN][i] = (double*)malloc(sizeof(double)*tno1);
+          fread(iHNL_t[k][Mc_AN][h_AN][i],sizeof(double),tno1,fp);
+        }
+      }
+    }
+  }
+} /* if (SpinP_switch==3) */
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
 
   /* DM */
   DM_t = (double******)malloc(sizeof(double*****)*1);
@@ -542,7 +483,7 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
     }
   }
 
-  N= Ngrid1_t*Ngrid2_t*Ngrid3_t;
+  N = Ngrid1_t*Ngrid2_t*Ngrid3_t;
   dDen_Grid_t=(double*)malloc(sizeof(double)*N);
   fread(dDen_Grid_t, sizeof(double), N,fp);
 
@@ -550,10 +491,6 @@ int TRAN_Input_HKS( MPI_Comm comm1, char *fileHKS)
 
   dVHart_Grid_t=(double*)malloc(sizeof(double)*N);
   fread(dVHart_Grid_t,sizeof(double), N,fp);
-
-#ifdef ORDER_C
-  TRAN_Change_axis_Grid(Ngrid1_t, Ngrid2_t, Ngrid3_t, dVHart_Grid_t);
-#endif
 
   /* debug */
   if (print_stdout){
@@ -664,7 +601,9 @@ int TRAN_RestartFile(MPI_Comm comm1, char *mode, char *position,char *filepath, 
     DM_e[side]=DM_t;
     dDen_Grid_e[side]=dDen_Grid_t;
     dVHart_Grid_e[side] = dVHart_Grid_t;
-
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+    iHNL_e[side]=iHNL_t;
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
     Ngrid1_e[side]=Ngrid1_t;
     Ngrid2_e[side]=Ngrid2_t;
     Ngrid3_e[side]=Ngrid3_t;

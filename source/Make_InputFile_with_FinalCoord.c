@@ -23,12 +23,7 @@
 /*  end stat section */
 #include "openmx_common.h"
 #include "tran_variables.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 
 void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter);
@@ -53,9 +48,11 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
 {
   int i,Gc_AN,c,n1,k;
   int restart_flag,fixed_flag;
+  int geoopt_restart_flag;
   int velocity_flag;
   int rstfile_num;
   double c1,c2,c3;
+  double vx,vy,vz;
   double tmpxyz[4];
   char st[800];
   char st1[800];
@@ -76,6 +73,7 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
     /* initialize */
 
     restart_flag = 0;
+    geoopt_restart_flag = 0;
     fixed_flag = 0;
     velocity_flag = 0; 
 
@@ -190,17 +188,27 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
           restart_flag = 1;
 	}
 
+        /* geoopt.restart */
+
+        else if (strncmp(st1,"geoopt.restart",11)==0){
+          fprintf(fp1,"geoopt.restart    on\n");
+          geoopt_restart_flag = 1;
+          fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
+	}
+
         /* scf.fixed.grid */
 
         else if (strncmp(st1,"scf.fixed.grid",14)==0){
-          fprintf(fp1,"scf.fixed.grid   %18.14f  %18.14f  %18.14f\n",Grid_Origin[1],Grid_Origin[2],Grid_Origin[3]);
+          fprintf(fp1,"scf.fixed.grid   %18.14f  %18.14f  %18.14f\n",
+                  Grid_Origin[1],Grid_Origin[2],Grid_Origin[3]);
           fixed_flag = 1;
         }  
 
         /* MD.Init.Velocity && VerletXYZ (NEV) */
 
-        else if (strncmp(st1,"<md.init.velocity",16)==0 
-                && (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11)){
+        else if (strncmp(st1,"<md.init.velocity",16)==0
+		 && (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11
+		     || MD_switch==14 || MD_switch==15)){
 
           for (i=1; i<=(atomnum+1); i++){
             fgets(st,800,fp2);
@@ -209,16 +217,21 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
           fprintf(fp1,"<MD.Init.Velocity\n");
 
           for (i=1; i<=atomnum; i++){
-            fprintf(fp1," %4d    %20.14f  %20.14f  %20.14f\n",
-                    i,
-                    Gxyz[i][24]/(0.4571028*0.000001),
-                    Gxyz[i][25]/(0.4571028*0.000001),
-                    Gxyz[i][26]/(0.4571028*0.000001));
+
+            vx = Gxyz[i][24]/(0.4571028*0.000001);
+            vy = Gxyz[i][25]/(0.4571028*0.000001);
+            vz = Gxyz[i][26]/(0.4571028*0.000001);
+            fprintf(fp1," %4d    %20.14f  %20.14f  %20.14f\n", i, vx, vy, vz);
 	  }
 
           fprintf(fp1,"MD.Init.Velocity>\n");
 
           velocity_flag = 1;
+
+          /* MD.Current.Iter */
+
+          fprintf(fp1,"\n\n");
+          fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
         }  
 
         else{
@@ -235,6 +248,14 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
       fprintf(fp1,"\n\nscf.restart    on\n");
     }
 
+    /* add the restart flag for geometry optimization if it was not found. */
+
+    if (geoopt_restart_flag==0 &&
+       (MD_switch==3 || MD_switch==4 || MD_switch==5 || MD_switch==6 || MD_switch==7) ){
+      fprintf(fp1,"\n\ngeoopt.restart    on\n");
+      fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
+    }
+
     /* add scf.fixed.grid if it was not found. */
 
     if (fixed_flag==0){
@@ -244,7 +265,8 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
 
     /* add velocity frag if it was not found. */
 
-    if (velocity_flag==0 && (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11)){
+    if (velocity_flag==0 && (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11
+			     || MD_switch==14 || MD_switch==15)){
 
       fprintf(fp1,"\n\n<MD.Init.Velocity\n");
 
@@ -257,6 +279,11 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
       }
 
       fprintf(fp1,"MD.Init.Velocity>\n");
+
+      /* MD.Current.Iter */
+
+      fprintf(fp1,"\n\n");
+      fprintf(fp1,"MD.Current.Iter  %2d\n",MD_iter+MD_Current_Iter);
     }
 
     /* fclose */
@@ -514,8 +541,9 @@ void Make_InputFile_with_FinalCoord_NEGF(char *file, int MD_iter)
 
         /* MD.Init.Velocity && VerletXYZ (NEV) */
 
-        else if (strncmp(st1,"<md.init.velocity",16)==0 
-                && (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11)){
+        else if (strncmp(st1,"<md.init.velocity",16)==0
+		 && (MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11
+		     || MD_switch==14 || MD_switch==15)){
 
           for (i=1; i<=(atomnum+1); i++){
             fgets(st,800,fp2);

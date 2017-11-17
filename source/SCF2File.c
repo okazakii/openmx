@@ -16,12 +16,7 @@
 #include <string.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 #define MAX_LINE_SIZE 256
 
@@ -956,9 +951,9 @@ void Calc_OLPpo()
         y = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2]; 
         z = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
 
-	ChiVx[i][Nc] = x*Orbs_Grid[Mc_AN][i][Nc];
-	ChiVy[i][Nc] = y*Orbs_Grid[Mc_AN][i][Nc];
-	ChiVz[i][Nc] = z*Orbs_Grid[Mc_AN][i][Nc];
+	ChiVx[i][Nc] = x*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
+	ChiVy[i][Nc] = y*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
+	ChiVz[i][Nc] = z*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
       }
     }
     
@@ -998,9 +993,16 @@ void Calc_OLPpo()
 
         /* store Orbs_Grid in tmp_Orbs_Grid */
 
-        for (j=0; j<NO1; j++){
-          tmp_Orbs_Grid[j] = Orbs_Grid[Mh_AN][j][Nh];
+        if (G2ID[Gh_AN]==myid){
+	  for (j=0; j<NO1; j++){
+	    tmp_Orbs_Grid[j] = Orbs_Grid[Mh_AN][Nh][j];/* AITUNE */
+	  }
 	}
+        else{
+	  for (j=0; j<NO1; j++){
+	    tmp_Orbs_Grid[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];/* AITUNE */ 
+	  }
+        }
 
         /* integration */
 

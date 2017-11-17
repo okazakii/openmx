@@ -379,9 +379,11 @@ main(int argc, char **argv)
   }
   printf("%s is made\n",fname);
 
-
   fprintf(fp,"set data s l\n");
   fprintf(fp,"set nokey\n");
+  fprintf(fp,"set zeroaxis\n");
+  fprintf(fp,"set ytics 1\n");
+  fprintf(fp,"set mytics 5\n");
 
   fprintf(fp,"set xra [%lf:%lf]\n",
           kline[1][1],kline[nkpath][n_perpath[nkpath]]);

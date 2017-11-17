@@ -15,12 +15,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+ 
 
 static void H_U_onsite();
 static void H_U_full(int SCF_iter, double ****OLP0);

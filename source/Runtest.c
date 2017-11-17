@@ -24,13 +24,7 @@
 /*  end stat section */
 #include "openmx_common.h"
 #include "Inputtools.h"
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 
@@ -93,6 +87,10 @@ void Runtest(char *mode, int argc, char *argv[])
     input_dir = "large_example";
     output_file = "runtestL.result";
   }
+  else if (strcasecmp(mode,"L2")==0){  
+    input_dir = "large2_example";
+    output_file = "runtestL2.result";
+  }
   else if (strcasecmp(mode,"G")==0){  
     input_dir = "geoopt_example";
     output_file = "runtestG.result";
@@ -121,7 +119,7 @@ void Runtest(char *mode, int argc, char *argv[])
     printf("\n*******************************************************\n");  fflush(stdout);
     printf("*******************************************************\n");    fflush(stdout);
     printf(" Welcome to OpenMX   Ver. %s                           \n",Version_OpenMX); fflush(stdout);
-    printf(" Copyright (C), 2002-2009, T.Ozaki                     \n");    fflush(stdout);
+    printf(" Copyright (C), 2002-2013, T.Ozaki                     \n");    fflush(stdout);
     printf(" OpenMX comes with ABSOLUTELY NO WARRANTY.             \n");    fflush(stdout);
     printf(" This is free software, and you are welcome to         \n");    fflush(stdout);
     printf(" redistribute it under the constitution of the GNU-GPL.\n");    fflush(stdout);
@@ -335,7 +333,7 @@ void Runtest(char *mode, int argc, char *argv[])
 	      || (NGrid1_2!=NGrid2_2)
 	      || (NGrid1_3!=NGrid2_3) )
 	  {
-	    fprintf(fp2,"  Invalid comparison due to the diffrent number of grids.\n");
+	    fprintf(fp2,"  Invalid comparison due to the different number of grids.\n");
 	    fprintf(fp2,"  You may use a different radix for FFT.\n");
 	  }
 
@@ -408,8 +406,8 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
   /* allocation of CompTime */
   CompTime = (double**)malloc(sizeof(double*)*numprocs0); 
   for (i=0; i<numprocs0; i++){
-    CompTime[i] = (double*)malloc(sizeof(double)*20); 
-    for (j=0; j<20; j++) CompTime[i][j] = 0.0;
+    CompTime[i] = (double*)malloc(sizeof(double)*30); 
+    for (j=0; j<30; j++) CompTime[i][j] = 0.0;
   }
 
   if (myid0==Host_ID){  
@@ -432,9 +430,6 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
                    Read the input file
   ****************************************************/
 
-  /* setup CPU group */
-
-  setup_CPU_group(argv[1]); 
   init_alloc_first();
   CompTime[myid0][1] = readfile(argv);
   MPI_Barrier(MPI_COMM_WORLD1);
@@ -460,7 +455,7 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
 
   do {
 
-    CompTime[myid0][2] += truncation(MD_iter,Solver==6,1);
+    CompTime[myid0][2] += truncation(MD_iter,1);
 
     if (ML_flag==1 && myid0==Host_ID) Get_VSZ(MD_iter);  
 
@@ -479,8 +474,6 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
     MD_iter++;
 
   } while(MD_Opt_OK==0 && MD_iter<=MD_IterNumber);
-
-  if (atomnum<=MYID_MPI_COMM_WORLD) goto LAST_Proc;
 
   if ( TRAN_output_hks ) {
     /* left is dummy */
@@ -514,7 +507,7 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
                   Making of output files
   ****************************************************/
 
-  OutData(argv[1]);
+  CompTime[myid0][20] = OutData(argv[1]);
 
   /****************************************************
     write connectivity, Hamiltonian, overlap, density
@@ -545,8 +538,6 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
 
   PrintMemory("total",0,"sum");
 
-LAST_Proc: 
-
   /****************************************************
          reconstruct the original MPI group
   ****************************************************/
@@ -571,7 +562,9 @@ LAST_Proc:
   }
 
   MPI_Barrier(MPI_COMM_WORLD1);
-  printf("\nThe calculation was normally finished. (proc=%3d)\n",myid0);fflush(stdout);
+  if (myid0==Host_ID){
+    printf("\nThe calculation was normally finished.\n");
+  }
 
   return 0;
 }

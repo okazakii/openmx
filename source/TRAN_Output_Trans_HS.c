@@ -9,17 +9,11 @@
      11/Dec/2005   Released by H.Kino
 
 ***********************************************************************/
-
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 
@@ -31,6 +25,7 @@ void  TRAN_Output_Trans_HS_Normal(
         int SpinP_switch, 
         double ChemP ,
         double *****H,
+        double *****iHNL, 
         double *****OLP,
         int atomnum,
         int SpeciesNum,
@@ -55,6 +50,7 @@ void  TRAN_Output_Trans_HS_Direct(
         int SpinP_switch, 
         double ChemP ,
         double *****H,
+        double *****iHNL,
         double *****OLP,
         int atomnum,
         int SpeciesNum,
@@ -82,9 +78,10 @@ void  TRAN_Output_Trans_HS_Direct(
 void  TRAN_Output_Trans_HS(
         MPI_Comm comm1,
         int Solver,
-        int SpinP_switch, 
+        int SpinP_switch,
         double ChemP ,
         double *****H,
+        double *****iHNL, 
         double *****OLP,
         int atomnum,
         int SpeciesNum,
@@ -109,9 +106,10 @@ void  TRAN_Output_Trans_HS(
 
      TRAN_Output_Trans_HS_Normal(
         comm1,
-        SpinP_switch, 
+        SpinP_switch,
         ChemP ,
         H,
+        iHNL, 
         OLP,
         atomnum,
         SpeciesNum,
@@ -140,6 +138,7 @@ void  TRAN_Output_Trans_HS(
         SpinP_switch, 
         ChemP ,
         H,
+        iHNL,
         OLP,
         atomnum,
         SpeciesNum,
@@ -172,9 +171,10 @@ void  TRAN_Output_Trans_HS(
 
 void  TRAN_Output_Trans_HS_Normal(
         MPI_Comm comm1,
-        int SpinP_switch, 
+        int SpinP_switch,
         double ChemP ,
         double *****H,
+        double *****iHNL, 
         double *****OLP,
         int atomnum,
         int SpeciesNum,
@@ -465,6 +465,80 @@ void  TRAN_Output_Trans_HS_Normal(
     } /* Gc_AN */
   } /* k */
 
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+ if(SpinP_switch == 3) {
+  for (k=0; k<=2; k++){
+    int ID;
+
+    /*global  Gc_AN  1:atomnum */
+    /*variable ID = G2ID[Gc_AN] */
+    /*variable Mc_AN = G2M[Gc_AN] */
+
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      ID    = G2ID[Gc_AN];
+      Mc_AN = F_G2M[Gc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      tno0 = Spe_Total_CNO[Cwan];
+
+      /* H into v */
+
+      if (myid==ID) {
+
+        vsize = 0;
+
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+          if (Mc_AN==0){
+            tno1 = 1;
+          }
+          else{
+            Gh_AN = natn[Gc_AN][h_AN];
+            Hwan = WhatSpecies[Gh_AN];
+            tno1 = Spe_Total_CNO[Hwan];
+          }
+
+          for (i=0; i<tno0; i++){
+            for (j=0;j<tno1; j++) {
+              v1[vsize] = iHNL[k][Mc_AN][h_AN][i][j];
+              vsize++;
+            }
+          }
+        }
+
+        /* Isend */
+
+        if (myid!=Host_ID){
+          tag = 999;
+          MPI_Isend(&vsize, 1, MPI_INT, Host_ID, tag, comm1, &request);
+          MPI_Wait(&request,&status);
+          tag = 999;
+          MPI_Isend(&v1[0], vsize, MPI_DOUBLE, Host_ID, tag, comm1, &request);
+          MPI_Wait(&request,&status);
+        }
+        else{
+          fwrite(v1, sizeof(double), vsize, fp);
+        }
+      }
+
+      /* Recv */
+
+      else if (ID!=myid && myid==Host_ID){
+        tag = 999;
+        MPI_Recv(&vsize, 1, MPI_INT, ID, tag, comm1, &status);
+        tag = 999;
+        MPI_Recv(&v1[0], vsize, MPI_DOUBLE, ID, tag, comm1, &status);
+        fwrite(v1, sizeof(double), vsize, fp);
+      }
+
+      MPI_Barrier(comm1);
+
+    } /* Gc_AN */
+  } /* k */
+
+ } /* if (SpinP_switch == 3) */
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
+
   free(v1);
 
   /**********************************************
@@ -538,6 +612,29 @@ void  TRAN_Output_Trans_HS_Normal(
 	  }
 	}
       }
+
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+     if(SpinP_switch == 3) {
+      for (k=0; k<=2; k++){
+        for (GA_AN=1; GA_AN<=atomnum_e[iside]; GA_AN++){
+          wanA = WhatSpecies_e[iside][GA_AN];
+          tnoA = Spe_Total_CNO_e[iside][wanA];
+
+          for (LB_AN=0; LB_AN<=FNAN_e[iside][GA_AN]; LB_AN++){
+
+            GB_AN = natn_e[iside][GA_AN][LB_AN];
+            wanB = WhatSpecies_e[iside][GB_AN];
+            tnoB = Spe_Total_CNO_e[iside][wanB];
+
+            for (i=0; i<tnoA; i++){
+              fwrite(iHNL_e[iside][k][GA_AN][LB_AN][i], sizeof(double), tnoB, fp);
+            }
+          }
+        }
+      }
+    }
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
+
     }
   }
 
@@ -565,6 +662,7 @@ void  TRAN_Output_Trans_HS_Direct(
         int SpinP_switch, 
         double ChemP ,
         double *****H,
+        double *****iHNL,
         double *****OLP,
         int atomnum,
         int SpeciesNum,
@@ -626,6 +724,8 @@ void  TRAN_Output_Trans_HS_Direct(
       wanA = WhatSpecies[k];
       NUM_c += Spe_Total_CNO[wanA];
     }
+
+  if ( SpinP_switch == 3 ) { NUM_c = NUM_c*2; }
 
     /* SpinP_switch, NUM_c, and NUM_e */
    
@@ -878,6 +978,80 @@ void  TRAN_Output_Trans_HS_Direct(
     } /* Gc_AN */
   } /* k */
 
+
+  /* iHNL */
+if(SpinP_switch == 3) {
+
+  for (k=0; k<=2; k++){
+    int ID;
+
+    /*global  Gc_AN  1:atomnum */
+    /*variable ID = G2ID[Gc_AN] */
+    /*variable Mc_AN = G2M[Gc_AN] */
+
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      ID    = G2ID[Gc_AN];
+      Mc_AN = F_G2M[Gc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      tno0 = Spe_Total_CNO[Cwan];
+
+      /* H into v */
+
+      if (myid==ID) {
+
+        vsize = 0;
+
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+          if (Mc_AN==0){
+            tno1 = 1;
+          }
+          else{
+            Gh_AN = natn[Gc_AN][h_AN];
+            Hwan = WhatSpecies[Gh_AN];
+            tno1 = Spe_Total_CNO[Hwan];
+          }
+
+          for (i=0; i<tno0; i++){
+            for (j=0;j<tno1; j++) {
+              v1[vsize] = iHNL[k][Mc_AN][h_AN][i][j];
+              vsize++;
+            }
+          }
+        }
+
+        /* Isend */
+
+        if (myid!=Host_ID){
+          tag = 999;
+          MPI_Isend(&vsize, 1, MPI_INT, Host_ID, tag, comm1, &request);
+          MPI_Wait(&request,&status);
+          tag = 999;
+          MPI_Isend(&v1[0], vsize, MPI_DOUBLE, Host_ID, tag, comm1, &request);
+          MPI_Wait(&request,&status);
+        }
+        else{
+          fwrite(v1, sizeof(double), vsize, fp);
+        }
+      }
+
+      /* Recv */
+
+      else if (ID!=myid && myid==Host_ID){
+        tag = 999;
+        MPI_Recv(&vsize, 1, MPI_INT, ID, tag, comm1, &status);
+        tag = 999;
+        MPI_Recv(&v1[0], vsize, MPI_DOUBLE, ID, tag, comm1, &status);
+        fwrite(v1, sizeof(double), vsize, fp);
+      }
+
+      MPI_Barrier(comm1);
+
+    } /* Gc_AN */
+  } /* k */
+} /* if (SpinP_switch == 3 ) */
+
   free(v1);
 
   /**********************************************
@@ -1059,6 +1233,82 @@ void  TRAN_Output_Trans_HS_Direct(
 
       } /* Gc_AN */
     } /* k */
+
+
+    /* imaginary Hamiltonian matrix */
+  if(SpinP_switch == 3) {
+
+    for (k=0; k<=2; k++){
+
+      int ID;
+
+      /*global  Gc_AN  1:atomnum */
+      /*variable ID = G2ID[Gc_AN] */
+      /*variable Mc_AN = G2M[Gc_AN] */
+
+      for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+        ID    = G2ID[Gc_AN];
+        Mc_AN = F_G2M[Gc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        tno0 = Spe_Total_CNO[Cwan];
+
+        /* H into v */
+
+        if (myid==ID) {
+
+          vsize = 0;
+
+          for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+            if (Mc_AN==0){
+              tno1 = 1;
+            }
+            else{
+              Gh_AN = natn[Gc_AN][h_AN];
+              Hwan = WhatSpecies[Gh_AN];
+              tno1 = Spe_Total_CNO[Hwan];
+            }
+
+            for (i=0; i<tno0; i++){
+              for (j=0;j<tno1; j++) {
+                v1[vsize] = iHNL[k][Mc_AN][h_AN][i][j];
+                vsize++;
+              }
+            }
+          }
+
+          /* Isend */
+
+          if (myid!=Host_ID){
+            tag = 999;
+            MPI_Isend(&vsize, 1, MPI_INT, Host_ID, tag, comm1, &request);
+            MPI_Wait(&request,&status);
+            tag = 999;
+            MPI_Isend(&v1[0], vsize, MPI_DOUBLE, Host_ID, tag, comm1, &request);
+            MPI_Wait(&request,&status);
+          }
+          else{
+            fwrite(v1, sizeof(double), vsize, fp);
+          }
+        }
+
+        /* Recv */
+
+        else if (ID!=myid && myid==Host_ID){
+          tag = 999;
+          MPI_Recv(&vsize, 1, MPI_INT, ID, tag, comm1, &status);
+          tag = 999;
+          MPI_Recv(&v1[0], vsize, MPI_DOUBLE, ID, tag, comm1, &status);
+          fwrite(v1, sizeof(double), vsize, fp);
+        }
+
+        MPI_Barrier(comm1);
+
+      } /* Gc_AN */
+    } /* k */
+  } /* if ( SpinP_switch == 3) */
+
 
     free(v1);
 

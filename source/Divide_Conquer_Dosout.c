@@ -15,12 +15,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 static double DC_Dosout_Col(double *****Hks, double ****OLP0);
 static double DC_Dosout_NonCol(double *****Hks,
@@ -1750,7 +1746,7 @@ static double DC_Dosout_NonCol(double *****Hks,
 
     NUM1 = 2*NUM - (P_min - 1);
     Msize1[Mc_AN] = NUM1;
-    EigenBand_lapack(C, ko, NUM1, 1);
+    EigenBand_lapack(C, ko, NUM1, NUM1, 1);
 
     for (i1=1; i1<=NUM1; i1++){
       for (j1=1; j1<=NUM1; j1++){

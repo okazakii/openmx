@@ -15,32 +15,261 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
+#include "mpi.h"
 
 #define  measure_time   0
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
 
 static void Eigen_Original_PHH(MPI_Comm MPI_Current_Comm_WD,
 			       dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag);
 static void Eigen_Improved_PHH(MPI_Comm MPI_Current_Comm_WD,
 			       dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag);
+static void Eigen_ELPA1_Co(MPI_Comm MPI_Current_Comm_WD, 
+			   dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag);
+
+static int numrocC(int N, int NB, int IPROC, int ISRCPROC, int NPROCS);
 
 
 void Eigen_PHH(MPI_Comm MPI_Current_Comm_WD, 
                dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
 
-  Eigen_Improved_PHH(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag);
+  if (n<10)
+    EigenBand_lapack(ac, ko, n, n, 1);
 
-  /*
-  Eigen_Original_PHH(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag);
-  */
+  else if (scf_eigen_lib_flag==0 || n<100)
+    Eigen_Improved_PHH(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag);
+
+  else if (scf_eigen_lib_flag==1)
+    Eigen_ELPA1_Co(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag);
+
 }
 
+
+void Eigen_ELPA1_Co(MPI_Comm MPI_Current_Comm_WD, 
+                    dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag)
+{
+
+ /*
+   !-------------------------------------------------------------------------------
+   ! na:   System size (of the global matrix)
+   ! nev:  Number of eigenvectors to be calculated
+   ! nblk: Blocking factor in block cyclic distribution
+   !-------------------------------------------------------------------------------
+ */
+
+  int na = n;
+  int nev = EVmax;
+  int nblk = 16;
+
+  int np_rows, np_cols, na_rows, na_cols;
+  int myid, numprocs, my_prow, my_pcol;
+  MPI_Comm mpi_comm_rows, mpi_comm_cols;
+  int mpi_comm_rows_int,mpi_comm_cols_int;
+  int i, j, my_blacs_ctxt, info, nprow, npcol, ig, jg;
+  int zero=0, one=1, LOCr, LOCc, node, irow, icol, mpiworld;
+
+  dcomplex *a, *z, *lz;
+  MPI_Status *stat_send;
+
+  MPI_Comm_size(MPI_Current_Comm_WD,&numprocs);
+  MPI_Comm_rank(MPI_Current_Comm_WD,&myid);
+
+  stat_send = (MPI_Status*)malloc(sizeof(MPI_Status)*numprocs);
+  mpiworld = MPI_Comm_c2f(MPI_Current_Comm_WD);
+
+  /*
+   !-------------------------------------------------------------------------------
+   ! Selection of number of processor rows/columns
+   ! We try to set up the grid square-like, i.e. start the search for possible
+   ! divisors of nprocs with a number next to the square root of nprocs
+   ! and decrement it until a divisor is found.
+  */
+
+  np_cols=(int)(sqrt((float)numprocs));
+  do{
+    if((numprocs%np_cols)==0) break;
+    np_cols--;
+  } while(np_cols>=2);
+
+  np_rows = numprocs/np_cols;
+
+  my_prow = myid/np_cols;
+  my_pcol = myid%np_cols;
+
+  /*
+  if(myid==0){
+    printf("Number of processor rows=%d, cols=%d, total=%d\n",np_rows,np_cols,numprocs);
+   }
+  printf("myid=%d, my_prow=%d, my_pcol=%d mpi_comm_rows=%d mpi_comm_cols=%d\n",myid,my_prow,my_pcol,mpi_comm_rows,mpi_comm_cols);
+  */
+
+	 /*
+   !-------------------------------------------------------------------------------
+   ! Set up BLACS context and MPI communicators
+   ! For ELPA, the MPI communicators along rows/cols are sufficient,
+   ! and the grid setup may be done in an arbitrary way as long as it is
+   ! consistent (i.e. 0<=my_prow<np_rows, 0<=my_pcol<np_cols and every
+   ! process has a unique (my_prow,my_pcol) pair).
+   ! All ELPA routines need MPI communicators for communicating within
+   ! rows or columns of processes, these are set in get_elpa_row_col_comms.
+	 */
+
+  MPI_Comm_split(MPI_Current_Comm_WD,my_pcol,my_prow,&mpi_comm_rows);
+  MPI_Comm_split(MPI_Current_Comm_WD,my_prow,my_pcol,&mpi_comm_cols);
+
+       /*
+   ! Determine the necessary size of the distributed matrices,
+   ! we use the Scalapack tools routine NUMROC for that.
+       */
+
+  na_rows = numrocC(na, nblk, my_prow, 0, np_rows);
+  na_cols = numrocC(na, nblk, my_pcol, 0, np_cols);
+
+  /*
+   ! Set up a scalapack descriptor for the checks below.
+   ! For ELPA the following restrictions hold:
+   ! - block sizes in both directions must be identical (args 4+5)
+   ! - first row and column of the distributed matrix must be on row/col 0/0 (args 6+7)
+   ! Allocate the local matrices and distribute the matrix elements from the global matrix to the local matrices
+   ! using block-cyclic Scalapack distribution 
+  */
+
+  a = (dcomplex*)malloc(sizeof(dcomplex)*na_rows*na_cols);
+  z = (dcomplex*)malloc(sizeof(dcomplex)*na_rows*na_cols);
+
+  for(i=0;i<na_rows;i++){
+    for(j=0;j<na_cols;j++){
+      ig = np_rows*nblk*((i)/nblk) + (i)%nblk + ((np_rows+my_prow)%np_rows)*nblk + 1;
+      jg = np_cols*nblk*((j)/nblk) + (j)%nblk + ((np_cols+my_pcol)%np_cols)*nblk + 1;
+      a[j*na_rows+i].r=ac[ig][jg].r;
+      a[j*na_rows+i].i=ac[ig][jg].i;
+    }
+  }
+
+  /*
+   ! Calculate eigenvalues/eigenvectors with ELPA
+  */
+
+  mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
+  mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
+
+  solve_evp_complex_(&na, &nev, a, &na_rows, &ko[1], z, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
+
+  MPI_Comm_free(&mpi_comm_rows);
+  MPI_Comm_free(&mpi_comm_cols);
+
+  /*
+   ! The eigenvectors are distributed to the processes using block-cyclic Scalapack distribution 
+   ! Collect the eigenvectors to the host process
+  */
+
+  if(myid==0){
+
+   for(node=0;node<numprocs;node++){
+
+     if(node==0){
+
+       for(i=0;i<na_rows;i++){
+	 for(j=0;j<na_cols;j++){
+	   ig = np_rows*nblk*((i)/nblk) + (i)%nblk + ((np_rows+my_prow)%np_rows)*nblk + 1;
+	   jg = np_cols*nblk*((j)/nblk) + (j)%nblk + ((np_cols+my_pcol)%np_cols)*nblk + 1;
+	   ac[ig][jg].r = z[j*na_rows+i].r;
+	   ac[ig][jg].i = z[j*na_rows+i].i;
+	 }
+       }
+     }
+
+     else{
+         
+       MPI_Recv(&irow, 1, MPI_INT, node, 10, MPI_Current_Comm_WD, stat_send);
+       MPI_Recv(&icol, 1, MPI_INT, node, 20, MPI_Current_Comm_WD, stat_send);
+       MPI_Recv(&LOCr, 1, MPI_INT, node, 40, MPI_Current_Comm_WD, stat_send);
+       MPI_Recv(&LOCc, 1, MPI_INT, node, 50, MPI_Current_Comm_WD, stat_send);
+         
+       lz = (dcomplex*)malloc(sizeof(dcomplex)*LOCr*LOCc);
+
+       MPI_Recv(lz, LOCr*LOCc*2, MPI_DOUBLE, node, 30, MPI_Current_Comm_WD, stat_send);
+
+       for(i=0;i<LOCr;i++){
+	 for(j=0;j<LOCc;j++){
+	   ig = np_rows*nblk*((i)/nblk) + (i)%nblk + ((np_rows+irow)%np_rows)*nblk + 1;
+	   jg = np_cols*nblk*((j)/nblk) + (j)%nblk + ((np_cols+icol)%np_cols)*nblk + 1;
+	   ac[ig][jg].r = lz[j*LOCr+i].r;
+	   ac[ig][jg].i = lz[j*LOCr+i].i;
+	 }
+       }
+       free(lz);
+     }
+   }
+  }
+  else{
+    MPI_Send(&my_prow, 1, MPI_INT, 0, 10, MPI_Current_Comm_WD);
+    MPI_Send(&my_pcol, 1, MPI_INT, 0, 20, MPI_Current_Comm_WD);
+    MPI_Send(&na_rows, 1, MPI_INT, 0, 40, MPI_Current_Comm_WD);
+    MPI_Send(&na_cols, 1, MPI_INT, 0, 50, MPI_Current_Comm_WD);
+    MPI_Send(z, na_rows*na_cols*2, MPI_DOUBLE, 0, 30, MPI_Current_Comm_WD);
+  } 
+
+  /*
+   ! Broadcast the eigenvectors to all proceses 
+  */
+
+  for(i=1;i<=n;i++){
+    MPI_Bcast(ac[i],(n+1)*2,MPI_DOUBLE,0,MPI_Current_Comm_WD);
+  }
+
+
+  /*
+  if (bcast_flag==0){
+  for (j=0; j<n+1; j++){
+    free(ac[j]);
+  }
+  free(ac);
+
+  printf("ZZZ7 myid=%3d\n",myid);
+  MPI_Finalize();
+  exit(0);
+  }
+  */
+
+  free(a);
+  free(z);
+  free(stat_send);
+}
+
+int numrocC(int N, int NB, int IPROC, int ISRCPROC, int NPROCS)
+{
+  int EXTRABLKS, MYDIST, NBLOCKS, NUMROC;
+
+  // Figure PROC's distance from source process
+
+  MYDIST = (NPROCS+IPROC-ISRCPROC) % NPROCS;
+
+  // Figure the total number of whole NB blocks N is split up into
+
+  NBLOCKS = N / NB;
+
+  // Figure the minimum number of rows/cols a process can have
+
+  NUMROC = (NBLOCKS/NPROCS) * NB;
+
+  // See if there are any extra blocks
+
+  EXTRABLKS = NBLOCKS % NPROCS;
+
+  // If I have an extra block
+
+  if(MYDIST < EXTRABLKS)
+    NUMROC = NUMROC + NB;
+
+  // If I have last block, it may be a partial block
+
+  else if(MYDIST==EXTRABLKS)
+    NUMROC = NUMROC +  (N % NB);
+
+  return NUMROC;
+}
 
 
 #pragma optimization_level 1
@@ -272,7 +501,7 @@ void Eigen_Improved_PHH(MPI_Comm MPI_Current_Comm_WD,
       s3 = sqrt(s3);
     }
 
-    if ( ABSTOL<fabs(s2) || i==(n-1) ){
+    if ( ABSTOL<fabs(s2) || 1.0e-10<fabs(u[i+1].i) || i==(n-1) ){
 
       if (measure_time==1) dtime(&Stime1);
 
@@ -534,7 +763,28 @@ void Eigen_Improved_PHH(MPI_Comm MPI_Current_Comm_WD,
 
   if      (dste_flag==0) lapack_dstegr2(n,EVmax,&a1d[0],&a1d[n],ko,ac);
   else if (dste_flag==1) lapack_dstedc2(n,&a1d[0],&a1d[n],ko,ac);
-  else if (dste_flag==2) lapack_dstevx2(n,EVmax,&a1d[0],&a1d[n],ko,ac,1);
+  else if (dste_flag==2){
+
+    /*
+    lapack_dstevx2(n,EVmax,&a1d[0],&a1d[n],ko,ac,1);
+    */
+
+    if (is1[myid]<=ie1[myid]){
+      lapack_dstevx5(n,is1[myid],ie1[myid],&a1d[0],&a1d[n],ko,ac,1);
+
+      /* MPI_Bcast */
+      for (ID=0; ID<numprocs; ID++){
+
+	num1 = ie1[ID] - is1[ID] + 1;
+	i = is1[ID];
+
+	if (0<num1){
+	  MPI_Bcast(&ko[i], num1, MPI_DOUBLE, ID, MPI_Current_Comm_WD);
+	}
+      }
+
+    }
+  }
 
   if (measure_time==1){
     dtime(&Etime);

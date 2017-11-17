@@ -22,12 +22,8 @@
 /*  end stat section */
 #include "openmx_common.h"
 #include "Inputtools.h"
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+ 
 
 
 void Maketest(char *mode, int argc, char *argv[]) 
@@ -60,6 +56,10 @@ void Maketest(char *mode, int argc, char *argv[])
   else if (strcasecmp(mode,"L")==0){  
     dir = "large_example";
     sprintf(namemode,"runtestL");
+  }
+  else if (strcasecmp(mode,"L2")==0){  
+    dir = "large2_example";
+    sprintf(namemode,"runtestL2");
   }
   else if (strcasecmp(mode,"G")==0){  
     dir = "geoopt_example";

@@ -13,8 +13,8 @@ level.of.fileout                  1    # default=1 (0-2)
 
 Species.Number       2
 <Definition.of.Atomic.Species
- C   C6.0-s2p2d1   C_CA11
- C1  C6.0-s1p1     C_CA11
+ C   C6.0-s2p2d1   C_CA13
+ C1  C6.0-s1p1     C_CA13
 Definition.of.Atomic.Species>
 
 #
@@ -41,7 +41,6 @@ Atoms.UnitVectors>
 scf.XcType                 LDA         # LDA|LSDA-CA|LSDA-PW|GGA-PBE
 scf.SpinPolarization       off         # On|Off|NC
 scf.SpinOrbit.Coupling     off
-scf.partialCoreCorrection  Off         # On|Off
 scf.ElectronicTemperature  300.0       # default=300 (K)
 scf.energycutoff           200.0       # default=150 (Ry)
 scf.maxIter                200         # default=40
@@ -178,9 +177,9 @@ Wannier.Dis.SCF.Max.Steps    1000
 
 Wannier.Minimizing.Max.Steps    500
 Wannier.Minimizing.Scheme     2   #0---SD   1 --- CG  2--- SD first then CG
-Wannier.Minimizing.StepLength  2.0
+Wannier.Minimizing.StepLength  1.0
 Wannier.Minimizing.Secant.Steps         2
-Wannier.Minimizing.Secant.StepLength    5.0
-Wannier.Minimizing.Conv.Criterion        1e-10
+Wannier.Minimizing.Secant.StepLength    3.0
+Wannier.Minimizing.Conv.Criterion        1e-12
 
 Wannier.Readin.Overlap.Matrix            off

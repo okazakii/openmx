@@ -19,18 +19,8 @@
 #include <string.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
 
 #define CUBE_EXTENSION ".cube"
 
@@ -49,7 +39,7 @@ static void out_Bulk_MO();
 static void out_OrbOpt(char *inputfile);
 static void out_Partial_Charge_Density();
 static void Set_Partial_Density_Grid(double *****CDM);
-static void Print_CubeTitle(FILE *fp);
+static void Print_CubeTitle(FILE *fp, int EigenValue_flag, double EigenValue);
 static void Print_CubeData(FILE *fp, char fext[], double *data, double *data1,char *op);
 static void Print_CubeCData_MO(FILE *fp,dcomplex *data,char *op);
 static void Print_CubeData_MO(FILE *fp, double *data, double *data1,char *op);
@@ -57,7 +47,7 @@ static void Print_VectorData(FILE *fp, char fext[],
                              double *data0, double *data1,
                              double *data2, double *data3);
 
-void OutData(char *inputfile)
+double OutData(char *inputfile)
 {
   char operate[YOUSO10];
   int i,c;
@@ -68,10 +58,12 @@ void OutData(char *inputfile)
   char buf[fp_bsize];          /* setvbuf */
   char buf1[fp_bsize];         /* setvbuf */
   char buf2[fp_bsize];         /* setvbuf */
+  double Stime,Etime;
 
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  dtime(&Stime);
 
   if (myid==Host_ID && 0<level_stdout) printf("\noutputting data on grids to files...\n\n");
 
@@ -177,6 +169,9 @@ void OutData(char *inputfile)
     }
   }
 
+  /* elapsed time */
+  dtime(&Etime);
+  return Etime - Stime;
 }
 
 
@@ -199,7 +194,6 @@ void out_density()
   FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
   int numprocs,myid,ID;
-  double scaxsf;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -223,15 +217,15 @@ void out_density()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
 
-    for (MN=0; MN<My_NumGrid1; MN++){
-      ADensity_Grid[MN] = Density_Grid[0][MN] 
-                         +Density_Grid[1][MN] 
- 	                 -2.0*ADensity_Grid[MN];
+    for (MN=0; MN<My_NumGridB_AB; MN++){
+      ADensity_Grid_B[MN] = Density_Grid_B[0][MN] 
+                           +Density_Grid_B[1][MN] 
+ 	                 -2.0*ADensity_Grid_B[MN];
     }
-
-    Print_CubeData(fp,file11,ADensity_Grid,(void*)NULL,(void*)NULL);
+    
+    Print_CubeData(fp,file11,ADensity_Grid_B,(void*)NULL,(void*)NULL);
   }
   else{
     printf("Failure of saving the electron density\n");
@@ -249,16 +243,16 @@ void out_density()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
 
     if (SpinP_switch==0) {
-      for (MN=0; MN<My_NumGrid1; MN++){
-        Density_Grid[0][MN] = 2.0*Density_Grid[0][MN];
+      for (MN=0; MN<My_NumGridB_AB; MN++){
+        Density_Grid_B[0][MN] = 2.0*Density_Grid_B[0][MN];
       }
-      Print_CubeData(fp,file1,Density_Grid[0],(void*)NULL,(void*)NULL);
+      Print_CubeData(fp,file1,Density_Grid_B[0],(void*)NULL,(void*)NULL);
     }
     else {
-      Print_CubeData(fp,file1,Density_Grid[0],Density_Grid[1],"add");
+      Print_CubeData(fp,file1,Density_Grid_B[0],Density_Grid_B[1],"add");
     }
 
   }
@@ -282,8 +276,8 @@ void out_density()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file2,Density_Grid[0],NULL,NULL);
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file2,Density_Grid_B[0],NULL,NULL);
     }
     else{
       printf("Failure of saving the electron density\n");
@@ -301,8 +295,8 @@ void out_density()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file3,Density_Grid[1],NULL,NULL);
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file3,Density_Grid_B[1],NULL,NULL);
     }
     else{
       printf("Failure of saving the electron density\n");
@@ -320,8 +314,8 @@ void out_density()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file4,Density_Grid[0],Density_Grid[1],"diff");
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file4,Density_Grid_B[0],Density_Grid_B[1],"diff");
     }
     else{
       printf("Failure of saving the electron density\n");
@@ -343,8 +337,9 @@ void out_density()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  
 #endif
  
-      Print_VectorData(fp,file10,Density_Grid[0],Density_Grid[1],
-		       Density_Grid[2],Density_Grid[3]);
+      Print_VectorData(fp,file10,Density_Grid_B[0],Density_Grid_B[1],
+		       Density_Grid_B[2],Density_Grid_B[3]);
+
     }
     else{
       printf("Failure of saving the electron spin density with a vector\n");
@@ -475,8 +470,8 @@ static void out_Vhart()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
-    Print_CubeData(fp,file1,dVHart_Grid,NULL,NULL);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+    Print_CubeData(fp,file1,dVHart_Grid_B,NULL,NULL);
   }
   else{
     printf("Failure of saving the electron density\n");
@@ -514,8 +509,8 @@ static void out_Vna()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
-    Print_CubeData(fp,file1,VNA_Grid,NULL,NULL);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+    Print_CubeData(fp,file1,VNA_Grid_B,NULL,NULL);
   }
   else{
     printf("Failure of saving the electron density\n");
@@ -529,12 +524,18 @@ static void out_Vna()
 static void out_Vxc()
 {
   int ct_AN,spe,i1,i2,i3,GN,i,j,k;
+  int LN,BN,CN,Ng1,Ng2,Ng3,max_spin;
+  double *Work_Array_Snd_Grid_C2B;
+  double *Work_Array_Rcv_Grid_C2B; 
+  double **Work_Array_B;
   char fname[YOUSO10];
   char file1[YOUSO10] = ".vxc0";
   char file2[YOUSO10] = ".vxc1";
   char buf[fp_bsize];          /* setvbuf */
   FILE *fp;
-  int numprocs,myid,ID;
+  int numprocs,myid,ID,IDS,IDR,tag=999;
+  MPI_Status stat;
+  MPI_Request request;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -542,6 +543,106 @@ static void out_Vxc()
 
   strcat(file1,CUBE_EXTENSION);
   strcat(file2,CUBE_EXTENSION);
+
+  /* allocation of arrays */
+
+  if      (SpinP_switch==0) max_spin = 0;
+  else if (SpinP_switch==1) max_spin = 1;
+  else if (SpinP_switch==3) max_spin = 1;
+
+  Work_Array_Snd_Grid_C2B = (double*)malloc(sizeof(double)*Max_Num_Rcv_Grid_B2C*(max_spin+1)); 
+  Work_Array_Rcv_Grid_C2B = (double*)malloc(sizeof(double)*Max_Num_Snd_Grid_B2C*(max_spin+1)); 
+  Work_Array_B = (double**)malloc(sizeof(double*)*(max_spin+1));
+  for (i=0; i<(max_spin+1); i++){
+    Work_Array_B[i] = (double*)malloc(sizeof(double)*My_NumGridB_AB);
+    for (j=0; j<My_NumGridB_AB; j++){
+      Work_Array_B[i][j] = 0.0;
+    }
+  }
+
+  /****************************************************
+            MPI communication for Vxc_Grid
+               from the partitions C to B
+  ****************************************************/
+
+  Ng1 = Max_Grid_Index[1] - Min_Grid_Index[1] + 1;
+  Ng2 = Max_Grid_Index[2] - Min_Grid_Index[2] + 1;
+  Ng3 = Max_Grid_Index[3] - Min_Grid_Index[3] + 1;
+
+  tag = 999;
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    /* copy Vxc_Grid to Work_Array_Snd_Grid_C2B */
+
+    for (LN=0; LN<Num_Rcv_Grid_B2C[IDS]; LN++){
+
+      CN = Index_Rcv_Grid_B2C[IDS][LN];
+
+      i = CN/(Ng2*Ng3);
+      j = (CN-i*Ng2*Ng3)/Ng3;
+      k = CN - i*Ng2*Ng3 - j*Ng3; 
+
+      if ( i<=1 || (Ng1-2)<=i || j<=1 || (Ng2-2)<=j || k<=1 || (Ng3-2)<=k ){
+
+	if (max_spin==0){
+	  Work_Array_Snd_Grid_C2B[LN]     = (1.0e+10)+0.1;
+	} 
+	else {
+	  Work_Array_Snd_Grid_C2B[2*LN+0] = (1.0e+10)+0.1;
+	  Work_Array_Snd_Grid_C2B[2*LN+1] = (1.0e+10)+0.1;
+	}
+      }
+      else{
+
+	if (max_spin==0){
+	  Work_Array_Snd_Grid_C2B[LN]     = Vxc_Grid[0][CN];
+	} 
+	else {
+	  Work_Array_Snd_Grid_C2B[2*LN+0] = Vxc_Grid[0][CN];
+	  Work_Array_Snd_Grid_C2B[2*LN+1] = Vxc_Grid[1][CN];
+	}
+      }
+    } /* LN */        
+
+    /* MPI_Isend and MPI_Recv */
+
+    if (Num_Rcv_Grid_B2C[IDS]!=0){
+      MPI_Isend( &Work_Array_Snd_Grid_C2B[0], Num_Rcv_Grid_B2C[IDS]*(max_spin+1), 
+                 MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Snd_Grid_B2C[IDR]!=0){
+      MPI_Recv( &Work_Array_Rcv_Grid_C2B[0], Num_Snd_Grid_B2C[IDR]*(max_spin+1), 
+                MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+    }    
+
+    /* MPI_Wait */
+
+    if (Num_Rcv_Grid_B2C[IDS]!=0)  MPI_Wait(&request,&stat);
+    
+    /* copy Work_Array_Rcv_Grid_C2B to Work_Array_B */
+
+    for (LN=0; LN<Num_Snd_Grid_B2C[IDR]; LN++){
+
+      BN = Index_Snd_Grid_B2C[IDR][LN];
+
+      if (max_spin==0){
+	if (Work_Array_Rcv_Grid_C2B[LN]<1.0e+10){
+          Work_Array_B[0][BN] = Work_Array_Rcv_Grid_C2B[LN];
+	}
+      } 
+      else {
+	if (Work_Array_Rcv_Grid_C2B[2*LN]<1.0e+10){
+          Work_Array_B[0][BN] = Work_Array_Rcv_Grid_C2B[2*LN  ];
+          Work_Array_B[1][BN] = Work_Array_Rcv_Grid_C2B[2*LN+1];
+	}
+      }
+
+    } /* LN */   
+  } /* ID */
 
   /****************************************************
        exchange-correlation potential for up-spin
@@ -554,8 +655,8 @@ static void out_Vxc()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
-    Print_CubeData(fp,file1,Vxc_Grid[0],NULL,NULL);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+    Print_CubeData(fp,file1,Work_Array_B[0],NULL,NULL);
   }
   else{
     printf("Failure of saving the electron density\n");
@@ -575,14 +676,21 @@ static void out_Vxc()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file2,Vxc_Grid[1],NULL,NULL);
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file2,Work_Array_B[1],NULL,NULL);
     }
     else{
       printf("Failure of saving the electron density\n");
     }
   }
 
+  /* freeing of arrays */
+  free(Work_Array_Snd_Grid_C2B);
+  free(Work_Array_Rcv_Grid_C2B);
+  for (i=0; i<(max_spin+1); i++){
+    free(Work_Array_B[i]);
+  }
+  free(Work_Array_B);
 }
 
 
@@ -592,12 +700,18 @@ static void out_Vxc()
 static void out_Veff()
 {
   int ct_AN,spe,i1,i2,i3,GN,i,j,k;
+  int LN,BN,CN,Ng1,Ng2,Ng3,max_spin;
+  double *Work_Array_Snd_Grid_C2B;
+  double *Work_Array_Rcv_Grid_C2B; 
+  double **Work_Array_B;
   char fname[YOUSO10];
   char file1[YOUSO10] = ".v0";
   char file2[YOUSO10] = ".v1";
   FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
-  int numprocs,myid,ID;
+  int numprocs,myid,ID,IDS,IDR,tag=999;
+  MPI_Status stat;
+  MPI_Request request;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -606,6 +720,106 @@ static void out_Veff()
   strcat(file1,CUBE_EXTENSION);
   strcat(file2,CUBE_EXTENSION);
 
+  /* allocation of arrays */
+
+  if      (SpinP_switch==0) max_spin = 0;
+  else if (SpinP_switch==1) max_spin = 1;
+  else if (SpinP_switch==3) max_spin = 1;
+
+  Work_Array_Snd_Grid_C2B = (double*)malloc(sizeof(double)*Max_Num_Rcv_Grid_B2C*(max_spin+1)); 
+  Work_Array_Rcv_Grid_C2B = (double*)malloc(sizeof(double)*Max_Num_Snd_Grid_B2C*(max_spin+1)); 
+  Work_Array_B = (double**)malloc(sizeof(double*)*(max_spin+1));
+  for (i=0; i<(max_spin+1); i++){
+    Work_Array_B[i] = (double*)malloc(sizeof(double)*My_NumGridB_AB);
+    for (j=0; j<My_NumGridB_AB; j++){
+      Work_Array_B[i][j] = 0.0;
+    }
+  }
+
+  /****************************************************
+            MPI communication for Vpot_Grid
+               from the partitions C to B
+  ****************************************************/
+
+  Ng1 = Max_Grid_Index[1] - Min_Grid_Index[1] + 1;
+  Ng2 = Max_Grid_Index[2] - Min_Grid_Index[2] + 1;
+  Ng3 = Max_Grid_Index[3] - Min_Grid_Index[3] + 1;
+
+  tag = 999;
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    /* copy Vpot_Grid to Work_Array_Snd_Grid_C2B */
+
+    for (LN=0; LN<Num_Rcv_Grid_B2C[IDS]; LN++){
+
+      CN = Index_Rcv_Grid_B2C[IDS][LN];
+
+      i = CN/(Ng2*Ng3);
+      j = (CN-i*Ng2*Ng3)/Ng3;
+      k = CN - i*Ng2*Ng3 - j*Ng3; 
+
+      if ( i<=1 || (Ng1-2)<=i || j<=1 || (Ng2-2)<=j || k<=1 || (Ng3-2)<=k ){
+
+	if (max_spin==0){
+	  Work_Array_Snd_Grid_C2B[LN]     = (1.0e+10)+0.1;
+	} 
+	else {
+	  Work_Array_Snd_Grid_C2B[2*LN+0] = (1.0e+10)+0.1;
+	  Work_Array_Snd_Grid_C2B[2*LN+1] = (1.0e+10)+0.1;
+	}
+      }
+      else{
+
+	if (max_spin==0){
+	  Work_Array_Snd_Grid_C2B[LN]     = Vpot_Grid[0][CN];
+	} 
+	else {
+	  Work_Array_Snd_Grid_C2B[2*LN+0] = Vpot_Grid[0][CN];
+	  Work_Array_Snd_Grid_C2B[2*LN+1] = Vpot_Grid[1][CN];
+	}
+      }
+    } /* LN */        
+
+    /* MPI_Isend and MPI_Recv */
+
+    if (Num_Rcv_Grid_B2C[IDS]!=0){
+      MPI_Isend( &Work_Array_Snd_Grid_C2B[0], Num_Rcv_Grid_B2C[IDS]*(max_spin+1), 
+                 MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Snd_Grid_B2C[IDR]!=0){
+      MPI_Recv( &Work_Array_Rcv_Grid_C2B[0], Num_Snd_Grid_B2C[IDR]*(max_spin+1), 
+                MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+    }    
+
+    /* MPI_Wait */
+
+    if (Num_Rcv_Grid_B2C[IDS]!=0)  MPI_Wait(&request,&stat);
+    
+    /* copy Work_Array_Rcv_Grid_C2B to Work_Array_B */
+
+    for (LN=0; LN<Num_Snd_Grid_B2C[IDR]; LN++){
+
+      BN = Index_Snd_Grid_B2C[IDR][LN];
+
+      if (max_spin==0){
+	if (Work_Array_Rcv_Grid_C2B[LN]<1.0e+10){
+          Work_Array_B[0][BN] = Work_Array_Rcv_Grid_C2B[LN];
+	}
+      } 
+      else {
+	if (Work_Array_Rcv_Grid_C2B[2*LN]<1.0e+10){
+          Work_Array_B[0][BN] = Work_Array_Rcv_Grid_C2B[2*LN  ];
+          Work_Array_B[1][BN] = Work_Array_Rcv_Grid_C2B[2*LN+1];
+	}
+      }
+
+    } /* LN */   
+  } /* ID */
+    
   /****************************************************
            Kohn-Sham potential for up-spin
   ****************************************************/
@@ -617,8 +831,8 @@ static void out_Veff()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
-    Print_CubeData(fp,file1,Vpot_Grid[0],NULL,NULL);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+    Print_CubeData(fp,file1,Work_Array_B[0],NULL,NULL);
   }
   else{
     printf("Failure of saving the electron density\n");
@@ -637,14 +851,21 @@ static void out_Veff()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file2,Vpot_Grid[1],NULL,NULL);
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file2,Work_Array_B[1],NULL,NULL);
     }
     else{
       printf("Failure of saving the electron density\n");
     }
   }
 
+  /* freeing of arrays */
+  free(Work_Array_Snd_Grid_C2B);
+  free(Work_Array_Rcv_Grid_C2B);
+  for (i=0; i<(max_spin+1); i++){
+    free(Work_Array_B[i]);
+  }
+  free(Work_Array_B);
 }
 
 
@@ -904,7 +1125,7 @@ void out_Cluster_MO()
 	      GN = GridListAtom[Mc_AN][Nc];
 	      for (i=0; i<NO0; i++){
 	        MO_Grid_tmp[GN] += HOMOs_Coef[0][spin][orbit][Gc_AN][i].r*
-		  Orbs_Grid[Mc_AN][i][Nc];
+		  Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	      }
 	    }  
 	  }
@@ -914,7 +1135,7 @@ void out_Cluster_MO()
 	      GN = GridListAtom[Mc_AN][Nc];
 	      for (i=0; i<NO0; i++){
 	        MO_Grid_tmp[GN] += HOMOs_Coef[0][spin][orbit][Gc_AN][i].i*
-		  Orbs_Grid[Mc_AN][i][Nc];
+		  Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	      }
 	    }  
 	  }
@@ -939,7 +1160,7 @@ void out_Cluster_MO()
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-	    Print_CubeTitle(fp);
+	    Print_CubeTitle(fp,1,HOMOs_Coef[0][spin][orbit][0][0].r);
 	    Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
 	    fclose(fp);
 	  }
@@ -948,45 +1169,6 @@ void out_Cluster_MO()
 	  }
 
 	}
-
-
-	/*
-	  {
-
-	  double sumr,sumi,kx,ky,kz,x,y,z,tmp,co,si;
-          double Cxyz[4];
-
-	  sumr = 0.0;
-	  sumi = 0.0;
-
-	  for (GN=0; GN<TNumGrid; GN++){
-
-	  Get_Grid_XYZ(GN,Cxyz);
-
-	  kx = rtv[1][1];
-	  ky = rtv[1][2];
-	  kz = rtv[1][3];
-
-	  x = Cxyz[1];
-	  y = Cxyz[2];
-	  z = Cxyz[3];
-
-	  tmp = -(kx*x + ky*y + kz*z);
-	  co = cos(tmp);  
-	  si = sin(tmp);           
-
-	  sumr += MO_Grid[GN]*MO_Grid[GN]*co;
-	  sumi += MO_Grid[GN]*MO_Grid[GN]*si;
-	  }
-
-          sumr *= (Cell_Volume/Ngrid1/Ngrid2/Ngrid3);
-          sumi *= (Cell_Volume/Ngrid1/Ngrid2/Ngrid3);
-
-          printf("sumr=%15.12f sumi=%15.12f\n",sumr,sumi);
-
-	  }
-	*/        
-
 
       }  /* orbit */ 
     }  /* spin */ 
@@ -1014,7 +1196,7 @@ void out_Cluster_MO()
 	      GN = GridListAtom[Mc_AN][Nc];
 	      for (i=0; i<NO0; i++){
 		MO_Grid_tmp[GN] += LUMOs_Coef[0][spin][orbit][Gc_AN][i].r*
-		  Orbs_Grid[Mc_AN][i][Nc];
+		  Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	      }
 	    } 
 	  }
@@ -1024,7 +1206,7 @@ void out_Cluster_MO()
 	      GN = GridListAtom[Mc_AN][Nc];
 	      for (i=0; i<NO0; i++){
 		MO_Grid_tmp[GN] += LUMOs_Coef[0][spin][orbit][Gc_AN][i].i*
-		  Orbs_Grid[Mc_AN][i][Nc];
+		  Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	      }
 	    } 
 	  }
@@ -1050,7 +1232,7 @@ void out_Cluster_MO()
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-	    Print_CubeTitle(fp);
+	    Print_CubeTitle(fp,1,LUMOs_Coef[0][spin][orbit][0][0].r);
 	    Print_CubeData_MO(fp,MO_Grid,NULL,NULL);
 	    fclose(fp);
 	  }
@@ -1129,9 +1311,9 @@ void out_Cluster_NC_MO()
 	  GN = GridListAtom[Mc_AN][Nc];
 	  for (i=0; i<NO0; i++){
  	    RMO_Grid_tmp[GN] += HOMOs_Coef[0][spin][orbit][Gc_AN][i].r*
-	      Orbs_Grid[Mc_AN][i][Nc];
+	      Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	    IMO_Grid_tmp[GN] += HOMOs_Coef[0][spin][orbit][Gc_AN][i].i*
-	      Orbs_Grid[Mc_AN][i][Nc];
+	      Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	  }
 	}  
       }
@@ -1160,7 +1342,7 @@ void out_Cluster_NC_MO()
           setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-	  Print_CubeTitle(fp);
+	  Print_CubeTitle(fp,1,HOMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"r");
 	  fclose(fp);
 	}
@@ -1179,7 +1361,7 @@ void out_Cluster_NC_MO()
           setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-	  Print_CubeTitle(fp);
+	  Print_CubeTitle(fp,1,HOMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"i");
 
 	  fclose(fp);
@@ -1214,9 +1396,9 @@ void out_Cluster_NC_MO()
 	  GN = GridListAtom[Mc_AN][Nc];
 	  for (i=0; i<NO0; i++){
 	    RMO_Grid_tmp[GN] += LUMOs_Coef[0][spin][orbit][Gc_AN][i].r*
-	      Orbs_Grid[Mc_AN][i][Nc];
+	      Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	    IMO_Grid_tmp[GN] += LUMOs_Coef[0][spin][orbit][Gc_AN][i].i*
-	      Orbs_Grid[Mc_AN][i][Nc];
+	      Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	  }
 	}  
       }
@@ -1245,7 +1427,7 @@ void out_Cluster_NC_MO()
           setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-	  Print_CubeTitle(fp);
+	  Print_CubeTitle(fp,1,LUMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"r");
 	  fclose(fp);
 	}
@@ -1264,7 +1446,7 @@ void out_Cluster_NC_MO()
           setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-	  Print_CubeTitle(fp);
+	  Print_CubeTitle(fp,1,LUMOs_Coef[0][spin][orbit][0][0].r);
 	  Print_CubeCData_MO(fp,MO_Grid,"i");
 
 	  fclose(fp);
@@ -1377,11 +1559,11 @@ void out_Bulk_MO()
 
 	    for (i=0; i<NO0; i++){
               ReCoef = co*HOMOs_Coef[kloop][spin][orbit][Gc_AN][i].r 
-		-si*HOMOs_Coef[kloop][spin][orbit][Gc_AN][i].i; 
+	 	      -si*HOMOs_Coef[kloop][spin][orbit][Gc_AN][i].i; 
               ImCoef = co*HOMOs_Coef[kloop][spin][orbit][Gc_AN][i].i
-		+si*HOMOs_Coef[kloop][spin][orbit][Gc_AN][i].r;
-              RMO_Grid_tmp[GN] += ReCoef*Orbs_Grid[Mc_AN][i][Nc];
-              IMO_Grid_tmp[GN] += ImCoef*Orbs_Grid[Mc_AN][i][Nc];
+		      +si*HOMOs_Coef[kloop][spin][orbit][Gc_AN][i].r;
+              RMO_Grid_tmp[GN] += ReCoef*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
+              IMO_Grid_tmp[GN] += ImCoef*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	    }
           }
 	}
@@ -1409,7 +1591,7 @@ void out_Bulk_MO()
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-            Print_CubeTitle(fp);
+            Print_CubeTitle(fp,1,HOMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"r");
 	    fclose(fp);
 	  }
@@ -1428,7 +1610,7 @@ void out_Bulk_MO()
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-            Print_CubeTitle(fp);
+            Print_CubeTitle(fp,1,HOMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"i");
 
 	    fclose(fp);
@@ -1484,11 +1666,11 @@ void out_Bulk_MO()
 
 	    for (i=0; i<NO0; i++){
               ReCoef = co*LUMOs_Coef[kloop][spin][orbit][Gc_AN][i].r 
-		-si*LUMOs_Coef[kloop][spin][orbit][Gc_AN][i].i; 
+		      -si*LUMOs_Coef[kloop][spin][orbit][Gc_AN][i].i; 
               ImCoef = co*LUMOs_Coef[kloop][spin][orbit][Gc_AN][i].i
-		+si*LUMOs_Coef[kloop][spin][orbit][Gc_AN][i].r;
-              RMO_Grid_tmp[GN] += ReCoef*Orbs_Grid[Mc_AN][i][Nc];
-              IMO_Grid_tmp[GN] += ImCoef*Orbs_Grid[Mc_AN][i][Nc];
+		      +si*LUMOs_Coef[kloop][spin][orbit][Gc_AN][i].r;
+              RMO_Grid_tmp[GN] += ReCoef*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
+              IMO_Grid_tmp[GN] += ImCoef*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	    }
           }
 	}
@@ -1516,7 +1698,7 @@ void out_Bulk_MO()
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-            Print_CubeTitle(fp);
+            Print_CubeTitle(fp,1,LUMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"r");
 	    fclose(fp);
 	  }
@@ -1536,7 +1718,7 @@ void out_Bulk_MO()
             setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-            Print_CubeTitle(fp);
+            Print_CubeTitle(fp,1,LUMOs_Coef[kloop][spin][orbit][0][0].r);
             Print_CubeCData_MO(fp,MO_Grid,"i");
 	    fclose(fp);
 	  }
@@ -1573,13 +1755,20 @@ void out_Bulk_MO()
 
 
 
-static void Print_CubeTitle(FILE *fp)
+static void Print_CubeTitle(FILE *fp, int EigenValue_flag, double EigenValue)
 {
-
   int ct_AN;
   int spe; 
 
-  fprintf(fp," SYS1\n SYS1\n");
+  if (EigenValue_flag==0){
+    fprintf(fp," SYS1\n SYS1\n");
+  }
+  else {
+    fprintf(fp," Absolute eigenvalue=%10.7f (Hartree)  Relative eigenvalue=%10.7f (Hartree)\n",
+            EigenValue,EigenValue-ChemP);
+    fprintf(fp," Chemical Potential=%10.7f (Hartree)\n",ChemP);
+  }
+
   fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf\n",
 	  atomnum,Grid_Origin[1],Grid_Origin[2],Grid_Origin[3]);
   fprintf(fp,"%5d%12.6lf%12.6lf%12.6lf\n",
@@ -1602,214 +1791,46 @@ static void Print_CubeTitle(FILE *fp)
 
 
 
-static void Print_CubeData(FILE *fp, char fext[], double *data, double *data1,char *op)
+static void Print_CubeData(FILE *fp, char fext[], double *data0, double *data1, char *op)
 {
-  int i,j,k,i1,i2,i3,c;
-  int GN,mul,n1,n2,n3,nn1,nn0;
-  int cmd,MN,MN0,MN1,MN2,MN3;
-  double ****V;
-  double *tmp_array0;
-  double *tmp_array1;
-  int numprocs,myid,ID,IDS,IDR,tag=999;
+  int myid,numprocs,ID,BN_AB,n3,cmd;
   char operate[300];
-  char fname1[300];
-  char fname2[300];
-  FILE *fp1,*fp2;
-  char buf[fp_bsize];          /* setvbuf */
 
-  MPI_Status stat;
-  MPI_Request request;
-
-  /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  if (op==NULL)                    { cmd=0; mul=1; }
-  else if (strcmp(op,"add")==0)    { cmd=1; mul=2; }
-  else if (strcmp(op,"diff")==0)   { cmd=2; mul=2; }
+  if (op==NULL)                   cmd = 0;
+  else if (strcmp(op,"add")==0)   cmd = 1;
+  else if (strcmp(op,"diff")==0)  cmd = 2;
   else {
     printf("Print_CubeData: op=%s not supported\n",op);
     return;
   }
 
   /****************************************************
-   allocation of arrays:
-
-   double V[mul][My_NGrid1_Poisson][Ngrid2][Ngrid3];
-  ****************************************************/
-
-  V = (double****)malloc(sizeof(double***)*mul); 
-  for (k=0; k<mul; k++){
-    V[k] = (double***)malloc(sizeof(double**)*My_NGrid1_Poisson); 
-    for (i=0; i<My_NGrid1_Poisson; i++){
-      V[k][i] = (double**)malloc(sizeof(double*)*Ngrid2); 
-      for (j=0; j<Ngrid2; j++){
-        V[k][i][j] = (double*)malloc(sizeof(double)*Ngrid3); 
-      }
-    }
-  }
-
-  /****************************************************
-                    set V0 and V1
-  ****************************************************/
-
-  /* initialize */
-  for (k=0; k<mul; k++){
-    for (n1=0; n1<My_NGrid1_Poisson; n1++){
-      for (n2=0; n2<Ngrid2; n2++){
-        for (n3=0; n3<Ngrid3; n3++){
-          V[k][n1][n2][n3] = 0.0;
-        }
-      }
-    }
-  }
-
-  /* use their densities using MPI */
-
-  for (k=0; k<mul; k++){
-
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      /* Isend */
-      if (Num_Snd_Grid1[IDS]!=0){
-
-        tmp_array0 = (double*)malloc(sizeof(double)*Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3); 
-  
-        for (i=0; i<Num_Snd_Grid1[IDS]; i++){ 
-	  n1 = Snd_Grid1[IDS][i];
-          nn1 = My_Cell0[n1];
-          MN1 = nn1*Ngrid2*Ngrid3;
-          MN0 = i*Ngrid2*Ngrid3;
-          for (n2=0; n2<Ngrid2; n2++){
-            MN2 = n2*Ngrid3;
-
-            if (k==0){
-              for (n3=0; n3<Ngrid3; n3++){
-                MN = MN1 + MN2 + n3;
-                tmp_array0[MN0+MN2+n3] = data[MN];
-	      }
-	    }
-            else if (k==1){
-              for (n3=0; n3<Ngrid3; n3++){
-                MN = MN1 + MN2 + n3;
-                tmp_array0[MN0+MN2+n3] = data1[MN];
-	      }
-	    }
-
-	  }
-        }
-
-        MPI_Isend(&tmp_array0[0], Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3,
-                  MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-      }
-
-      /* Recv */
-      if (Num_Rcv_Grid1[IDR]!=0){
-
-        tmp_array1 = (double*)malloc(sizeof(double)*Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3); 
-
-        MPI_Recv(&tmp_array1[0], Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3,
-		 MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-        for (i=0; i<Num_Rcv_Grid1[IDR]; i++){ 
-	  n1 = Rcv_Grid1[IDR][i];
-          nn1 = My_Cell0[n1];
-          nn0 = n1 - Start_Grid1[myid];
-          MN0 = i*Ngrid2*Ngrid3;
-          for (n2=0; n2<Ngrid2; n2++){
-            MN2 = n2*Ngrid3;
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN0 + MN2 + n3;
-              V[k][nn0][n2][n3] = tmp_array1[MN];
-	    }
-	  }
-        }
-
-        free(tmp_array1);
-      }
-
-      if (Num_Snd_Grid1[IDS]!=0){
-        MPI_Wait(&request,&stat);
-        free(tmp_array0);
-      }
-
-    }
-
-    /* use own densities */
-    for (n1=Start_Grid1[myid]; n1<=End_Grid1[myid]; n1++){
-      nn1 = My_Cell0[n1];
-      nn0 = n1 - Start_Grid1[myid]; 
-      if (nn1!=-1){
-        MN1 = nn1*Ngrid2*Ngrid3;
-        for (n2=0; n2<Ngrid2; n2++){
-          MN2 = n2*Ngrid3;
-
-          if (k==0){
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              V[k][nn0][n2][n3] = data[MN];
-            }    
-	  }
-          else if (k==1){
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              V[k][nn0][n2][n3] = data1[MN];
-            }    
-	  }
-
-        }    
-      }
-    }
-
-  } /* mul */
-
-
-  /****************************************************
                     output data 
   ****************************************************/
 
-  for (n1=0; n1<My_NGrid1_Poisson; n1++){
-    for (n2=0; n2<Ngrid2; n2++){
-      for (n3=0; n3<Ngrid3; n3++){
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB+=Ngrid3){
+    for (n3=0; n3<Ngrid3; n3++){
 
-        switch (cmd) {
-        case 0:
-          fprintf(fp,"%13.3E",V[0][n1][n2][n3]);
-          break;
-        case 1:
-          fprintf(fp,"%13.3E",V[0][n1][n2][n3]+V[1][n1][n2][n3]);
-          break;
-        case 2:
-          fprintf(fp,"%13.3E",V[0][n1][n2][n3]-V[1][n1][n2][n3]);
-          break;
-        }
-
-        if ((n3+1)%6==0) { fprintf(fp,"\n"); }
+      switch (cmd) {
+      case 0:
+	fprintf(fp,"%13.3E",data0[BN_AB+n3]);
+	break;
+      case 1:
+	fprintf(fp,"%13.3E",data0[BN_AB+n3]+data1[BN_AB+n3]);
+	break;
+      case 2:
+	fprintf(fp,"%13.3E",data0[BN_AB+n3]-data1[BN_AB+n3]);
+	break;
       }
-      /* avoid double \n\n when Ngrid3%6 == 0  */
-      if (Ngrid3%6!=0) fprintf(fp,"\n");
+
+      if ((n3+1)%6==0) { fprintf(fp,"\n"); }
     }
+    /* avoid double \n\n when Ngrid3%6 == 0  */
+    if (Ngrid3%6!=0) fprintf(fp,"\n");
   }
-
-  /****************************************************
-   freeing of arrays:
-
-   double V[mul][My_NGrid1_Poisson][Ngrid2][Ngrid3];
-  ****************************************************/
-
-  for (k=0; k<mul; k++){
-    for (i=0; i<My_NGrid1_Poisson; i++){
-      for (j=0; j<Ngrid2; j++){
-        free(V[k][i][j]);
-      }
-      free(V[k][i]);
-    }
-    free(V[k]);
-  }
-  free(V);
 
   /****************************************************
   fclose(fp);
@@ -1824,51 +1845,6 @@ static void Print_CubeData(FILE *fp, char fext[], double *data, double *data1,ch
   MPI_Barrier(mpi_comm_level1);
 
   if (myid==Host_ID){
-
-#ifdef xt3
-
-    sprintf(fname1,"%s%s%s",filepath,filename,fext); 
-    fp1 = fopen(fname1,"a");
-
-    /*
-      setvbuf(fp1,buf,_IOFBF,fp_bsize);  
-    */
-
-    if (fp1!=NULL){
-      remove(fname1); 
-      fclose(fp1); 
-    }
- 
-    for (ID=0; ID<numprocs; ID++){
-      sprintf(fname1,"%s%s%s",filepath,filename,fext);
-      fp1 = fopen(fname1,"a");
-
-      /*
-	setvbuf(fp1,buf,_IOFBF,fp_bsize);  
-      */
-
-      fseek(fp1,0,SEEK_END);
-
-      sprintf(fname2,"%s%s%s%i",filepath,filename,fext,ID);
-      fp2 = fopen(fname2,"r");
-
-      /*
-	setvbuf(fp2,buf,_IOFBF,fp_bsize);  
-      */
-
-      if (fp2!=NULL){
-        for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
-	fclose(fp2); 
-      }
-      fclose(fp1); 
-    }  
-
-    for (ID=0; ID<numprocs; ID++){
-      sprintf(operate,"%s%s%s%i",filepath,filename,fext,ID);
-      remove(operate);
-    }
-
-#else
 
     sprintf(operate,"cat %s%s%s0 > %s%s%s",
             filepath,filename,fext,filepath,filename,fext);
@@ -1885,9 +1861,6 @@ static void Print_CubeData(FILE *fp, char fext[], double *data, double *data1,ch
       sprintf(operate,"rm %s%s%s%i",filepath,filename,fext,ID);
       system(operate);
     }
-
-#endif
-
   }
 
 }
@@ -1898,23 +1871,12 @@ static void Print_VectorData(FILE *fp, char fext[],
                              double *data2, double *data3)
 {
   int i,j,k,i1,i2,i3,c,GridNum;
-  int GN,mul,n1,n2,n3,nn1,nn0;
-  int cmd,MN,MN0,MN1,MN2,MN3;
-  int interval;
-  double ****V;
-  double *tmp_array0;
-  double *tmp_array1;
+  int GN_AB,n1,n2,n3,interval;
+  int BN_AB,N2D,GNs,GN;
   double x,y,z,vx,vy,vz;
-  double xmin,ymin,zmin;
-  double xmax,ymax,zmax;
   double sden,Cxyz[4],theta,phi;
-  int numprocs,myid,ID,IDS,IDR,tag=999;
+  int numprocs,myid,ID;
   char operate[300];
-  char fname1[300];
-  char fname2[300];
-  FILE *fp1,*fp2;
-  char *buf;          /* setvbuf */
-  double scaxsf2;
 
   MPI_Status stat;
   MPI_Request request;
@@ -1922,169 +1884,6 @@ static void Print_VectorData(FILE *fp, char fext[],
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
-
-  mul = 4;
-
-  /****************************************************
-   allocation of arrays:
-
-   double V[mul][My_NGrid1_Poisson][Ngrid2][Ngrid3];
-  ****************************************************/
-
-  /* allocate buf */
-  buf = malloc(fp_bsize); /* setvbuf */
-
-  V = (double****)malloc(sizeof(double***)*mul); 
-  for (k=0; k<mul; k++){
-    V[k] = (double***)malloc(sizeof(double**)*My_NGrid1_Poisson); 
-    for (i=0; i<My_NGrid1_Poisson; i++){
-      V[k][i] = (double**)malloc(sizeof(double*)*Ngrid2); 
-      for (j=0; j<Ngrid2; j++){
-        V[k][i][j] = (double*)malloc(sizeof(double)*Ngrid3); 
-      }
-    }
-  }
-
-  /****************************************************
-                    set V0 and V1
-  ****************************************************/
-
-  /* initialize */
-  for (k=0; k<mul; k++){
-    for (n1=0; n1<My_NGrid1_Poisson; n1++){
-      for (n2=0; n2<Ngrid2; n2++){
-        for (n3=0; n3<Ngrid3; n3++){
-          V[k][n1][n2][n3] = 0.0;
-        }
-      }
-    }
-  }
-
-  /* use their densities using MPI */ 
-
-  for (k=0; k<mul; k++){
-
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      /* Isend */
-      if (Num_Snd_Grid1[IDS]!=0){
-
-        tmp_array0 = (double*)malloc(sizeof(double)*Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3); 
-  
-        for (i=0; i<Num_Snd_Grid1[IDS]; i++){ 
-	  n1 = Snd_Grid1[IDS][i];
-          nn1 = My_Cell0[n1];
-          MN1 = nn1*Ngrid2*Ngrid3;
-          MN0 = i*Ngrid2*Ngrid3;
-          for (n2=0; n2<Ngrid2; n2++){
-            MN2 = n2*Ngrid3;
-
-            if (k==0){
-              for (n3=0; n3<Ngrid3; n3++){
-                MN = MN1 + MN2 + n3;
-                tmp_array0[MN0+MN2+n3] = data0[MN];
-	      }
-	    }
-            else if (k==1){
-              for (n3=0; n3<Ngrid3; n3++){
-                MN = MN1 + MN2 + n3;
-                tmp_array0[MN0+MN2+n3] = data1[MN];
-	      }
-	    }
-            else if (k==2){
-              for (n3=0; n3<Ngrid3; n3++){
-                MN = MN1 + MN2 + n3;
-                tmp_array0[MN0+MN2+n3] = data2[MN];
-	      }
-	    }
-            else if (k==3){
-              for (n3=0; n3<Ngrid3; n3++){
-                MN = MN1 + MN2 + n3;
-                tmp_array0[MN0+MN2+n3] = data3[MN];
-	      }
-	    }
-
-	  }
-        }
-
-        MPI_Isend(&tmp_array0[0], Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3,
-                  MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-      }
-
-      /* Recv */
-      if (Num_Rcv_Grid1[IDR]!=0){
-
-        tmp_array1 = (double*)malloc(sizeof(double)*Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3); 
-
-        MPI_Recv(&tmp_array1[0], Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3,
-		 MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-        for (i=0; i<Num_Rcv_Grid1[IDR]; i++){ 
-	  n1 = Rcv_Grid1[IDR][i];
-          nn1 = My_Cell0[n1];
-          nn0 = n1 - Start_Grid1[myid];
-          MN0 = i*Ngrid2*Ngrid3;
-          for (n2=0; n2<Ngrid2; n2++){
-            MN2 = n2*Ngrid3;
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN0 + MN2 + n3;
-              V[k][nn0][n2][n3] = tmp_array1[MN];
-	    }
-	  }
-        }
-
-        free(tmp_array1);
-      }
-
-      if (Num_Snd_Grid1[IDS]!=0){
-        MPI_Wait(&request,&stat);
-        free(tmp_array0);
-      }
-
-    }
-
-    /* use own densities */
-    for (n1=Start_Grid1[myid]; n1<=End_Grid1[myid]; n1++){
-      nn1 = My_Cell0[n1];
-      nn0 = n1 - Start_Grid1[myid]; 
-      if (nn1!=-1){
-        MN1 = nn1*Ngrid2*Ngrid3;
-        for (n2=0; n2<Ngrid2; n2++){
-          MN2 = n2*Ngrid3;
-
-          if (k==0){
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              V[k][nn0][n2][n3] = data0[MN];
-            }    
-	  }
-          else if (k==1){
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              V[k][nn0][n2][n3] = data1[MN];
-            }    
-	  }
-          else if (k==2){
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              V[k][nn0][n2][n3] = data2[MN];
-            }    
-	  }
-          else if (k==3){
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              V[k][nn0][n2][n3] = data3[MN];
-            }    
-	  }
-        }    
-      }
-    }
-
-  } /* mul */
-
 
   /****************************************************
                     output data 
@@ -2124,53 +1923,42 @@ static void Print_VectorData(FILE *fp, char fext[],
     }
   }
 
-  for (n1=0; n1<My_NGrid1_Poisson; n1++){
-    nn1 = Start_Grid1[myid] + n1;
- 
-    for (n2=0; n2<Ngrid2; n2++){
-      for (n3=0; n3<Ngrid3; n3++){
-
-	if (nn1%interval==0 && n2%interval==0 && n3%interval==0){
-
-	  GN = nn1*Ngrid2*Ngrid3 + n2*Ngrid3 + n3; 
-
-	  Get_Grid_XYZ(GN,Cxyz);
-	  x = Cxyz[1];
-	  y = Cxyz[2];
-	  z = Cxyz[3];
-
-	  sden  = V[0][n1][n2][n3] - V[1][n1][n2][n3];
-	  theta = V[2][n1][n2][n3];
-	  phi   = V[3][n1][n2][n3];
-
-	  vx = sden*sin(theta)*cos(phi);
-	  vy = sden*sin(theta)*sin(phi);
-	  vz = sden*cos(theta);
-
-	  fprintf(fp,"X %13.3E %13.3E %13.3E %13.3E %13.3E %13.3E\n",
-		  BohrR*x,BohrR*y,BohrR*z,vx,vy,vz);
-
-	}
-      }
-    }
-  }
-
   /****************************************************
-   freeing of arrays:
-
-   double V[mul][My_NGrid1_Poisson][Ngrid2][Ngrid3];
+                 fprintf vector data
   ****************************************************/
 
-  for (k=0; k<mul; k++){
-    for (i=0; i<My_NGrid1_Poisson; i++){
-      for (j=0; j<Ngrid2; j++){
-        free(V[k][i][j]);
-      }
-      free(V[k][i]);
+  N2D = Ngrid1*Ngrid2;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid3;
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+   
+    GN_AB = BN_AB + GNs;
+    n1 = GN_AB/(Ngrid2*Ngrid3);
+    n2 = (GN_AB - n1*(Ngrid2*Ngrid3))/Ngrid3;
+    n3 = GN_AB - n1*(Ngrid2*Ngrid3) - n2*Ngrid3;
+
+    if (n1%interval==0 && n2%interval==0 && n3%interval==0){
+
+      GN = n1*Ngrid2*Ngrid3 + n2*Ngrid3 + n3; 
+
+      Get_Grid_XYZ(GN,Cxyz);
+      x = Cxyz[1];
+      y = Cxyz[2];
+      z = Cxyz[3];
+
+      sden  = data0[BN_AB] - data1[BN_AB];
+      theta = data2[BN_AB];
+      phi   = data3[BN_AB];
+
+      vx = sden*sin(theta)*cos(phi);
+      vy = sden*sin(theta)*sin(phi);
+      vz = sden*cos(theta);
+
+      fprintf(fp,"X %13.3E %13.3E %13.3E %13.3E %13.3E %13.3E\n",
+	      BohrR*x,BohrR*y,BohrR*z,vx,vy,vz);
+
     }
-    free(V[k]);
   }
-  free(V);
 
   /****************************************************
   fclose(fp);
@@ -2185,41 +1973,6 @@ static void Print_VectorData(FILE *fp, char fext[],
   MPI_Barrier(mpi_comm_level1);
 
   if (myid==Host_ID){
-
-#ifdef xt3
-
-    sprintf(fname1,"%s%s%s",filepath,filename,fext);
-    fp1 = fopen(fname1,"a");
-    setvbuf(fp1,buf,_IOFBF,fp_bsize);  /* setvbuf */
-
-    if (fp1!=NULL){
-      remove(fname1); 
-      fclose(fp1); 
-    }
-
-    for (ID=0; ID<numprocs; ID++){
-      sprintf(fname1,"%s%s%s",filepath,filename,fext);
-      fp1 = fopen(fname1,"a");
-      setvbuf(fp1,buf,_IOFBF,fp_bsize);  /* setvbuf */
-      fseek(fp1,0,SEEK_END);
-
-      sprintf(fname2,"%s%s%s%i",filepath,filename,fext,ID);
-      fp2 = fopen(fname2,"r");
-      setvbuf(fp2,buf,_IOFBF,fp_bsize);  /* setvbuf */
-
-      if (fp2!=NULL){
-        for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
-	fclose(fp2); 
-      }
-      fclose(fp1); 
-    }  
-
-    for (ID=0; ID<numprocs; ID++){
-      sprintf(operate,"%s%s%s%i",filepath,filename,fext,ID);
-      remove(operate);
-    }
-
-#else
 
     sprintf(operate,"cat %s%s%s0 > %s%s%s",
             filepath,filename,fext,filepath,filename,fext);
@@ -2236,13 +1989,7 @@ static void Print_VectorData(FILE *fp, char fext[],
       sprintf(operate,"rm %s%s%s%i",filepath,filename,fext,ID);
       system(operate);
     }
-
-#endif
-
   }
-
-  /* free buf */
-  free(buf);
 }
 
 
@@ -2867,7 +2614,6 @@ void out_Partial_Charge_Density()
   FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
   int numprocs,myid,ID;
-  double scaxsf;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -2896,16 +2642,16 @@ void out_Partial_Charge_Density()
     setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-    if (myid==Host_ID) Print_CubeTitle(fp);
+    if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
 
     if (SpinP_switch==0) {
-      for (MN=0; MN<My_NumGrid1; MN++){
-        Density_Grid[0][MN] = 2.0*Density_Grid[0][MN];
+      for (MN=0; MN<My_NumGridB_AB; MN++){
+        Density_Grid_B[0][MN] = 2.0*Density_Grid_B[0][MN];
       }
-      Print_CubeData(fp,file1,Density_Grid[0],(void*)NULL,(void*)NULL);
+      Print_CubeData(fp,file1,Density_Grid_B[0],(void*)NULL,(void*)NULL);
     }
     else {
-      Print_CubeData(fp,file1,Density_Grid[0],Density_Grid[1],"add");
+      Print_CubeData(fp,file1,Density_Grid_B[0],Density_Grid_B[1],"add");
     }
 
   }
@@ -2929,8 +2675,8 @@ void out_Partial_Charge_Density()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file2,Density_Grid[0],NULL,NULL);
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file2,Density_Grid_B[0],NULL,NULL);
     }
     else{
       printf("Failure of saving the electron density\n");
@@ -2948,13 +2694,12 @@ void out_Partial_Charge_Density()
       setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
 #endif
 
-      if (myid==Host_ID) Print_CubeTitle(fp);
-      Print_CubeData(fp,file3,Density_Grid[1],NULL,NULL);
+      if (myid==Host_ID) Print_CubeTitle(fp,0,0.0);
+      Print_CubeData(fp,file3,Density_Grid_B[1],NULL,NULL);
     }
     else{
       printf("Failure of saving the electron density\n");
     }
-
   }
 
 }
@@ -2971,10 +2716,10 @@ void Set_Partial_Density_Grid(double *****CDM)
   int Cwan,NO0,NO1,Rn,N,Hwan,i,j,k,n;
   int Max_Size,My_Max,top_num;
   double time0;
-  int h_AN,Gh_AN,Rnh,spin,Nc,GNc,GRc,GN,Nh,Nog;
+  int h_AN,Gh_AN,Rnh,spin,Nc,GRc,Nh,Nog;
   int Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3;
-  int mm,spinmax;
-
+  unsigned long long int LN,BN,AN,n2D,N2D;
+  unsigned long long int GNc,GN;
   double tmp0,tmp1,sk1,sk2,sk3,tot_den,sum;
   double tmp0_0,tmp0_1,tmp0_2,tmp0_3;
   double sum_0,sum_1,sum_2,sum_3;
@@ -2983,16 +2728,14 @@ void Set_Partial_Density_Grid(double *****CDM)
   double Re11,Re22,Re12,Im12,phi,theta;
   double x,y,z,Cxyz[4];
   double TStime,TEtime;
-  double *tmp_array;
-  double *tmp_array2;
   double ***Tmp_Den_Grid;
-  double **Tmp_Den2_Grid;
+  double **Den_Snd_Grid_A2B;
+  double **Den_Rcv_Grid_A2B; 
   double *orbs0,*orbs1;
   double *orbs0_0,*orbs0_1,*orbs0_2,*orbs0_3;
   double *orbs1_0,*orbs1_1,*orbs1_2,*orbs1_3;
 
   double ***tmp_CDM;
-  int *Snd_Size,*Rcv_Size;
   int numprocs,myid,tag=999,ID,IDS,IDR;
   double Stime_atom, Etime_atom;
 
@@ -3003,43 +2746,36 @@ void Set_Partial_Density_Grid(double *****CDM)
   int OMPID,Nthrds,Nprocs;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  /* set spinmax */
+  /* allocation of arrays */
 
-  if      (SpinP_switch==0) spinmax = 0;
-  else if (SpinP_switch==1) spinmax = 1;
-  else if (SpinP_switch==3) spinmax = 1;
-
-  /****************************************************
-             initialize electron densities
-  ****************************************************/
-
-  for (spin=0; spin<=spinmax; spin++){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Density_Grid[spin][MN] = 0.0;
+  Tmp_Den_Grid = (double***)malloc(sizeof(double**)*(SpinP_switch+1)); 
+  for (i=0; i<(SpinP_switch+1); i++){
+    Tmp_Den_Grid[i] = (double**)malloc(sizeof(double*)*(Matomnum+1)); 
+    Tmp_Den_Grid[i][0] = (double*)malloc(sizeof(double)*1); 
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = F_M2G[Mc_AN];
+      Tmp_Den_Grid[i][Mc_AN] = (double*)malloc(sizeof(double)*GridN_Atom[Gc_AN]);
     }
+  }
+
+  Den_Snd_Grid_A2B = (double**)malloc(sizeof(double*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Den_Snd_Grid_A2B[ID] = (double*)malloc(sizeof(double)*Num_Snd_Grid_A2B[ID]*(SpinP_switch+1));
+  }
+
+  Den_Rcv_Grid_A2B = (double**)malloc(sizeof(double*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Den_Rcv_Grid_A2B[ID] = (double*)malloc(sizeof(double)*Num_Rcv_Grid_A2B[ID]*(SpinP_switch+1));
   }
 
   /**********************************************
               calculate Tmp_Den_Grid
   ***********************************************/
     
-  /* allocation of Tmp_Den_Grid */
-
-  Tmp_Den_Grid = (double***)malloc(sizeof(double**)*(spinmax+1)); 
-  for (i=0; i<(spinmax+1); i++){
-    Tmp_Den_Grid[i] = (double**)malloc(sizeof(double*)*(Matomnum+MatomnumF+1)); 
-    Tmp_Den_Grid[i][0] = (double*)malloc(sizeof(double)*1); 
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-      Gc_AN = F_M2G[Mc_AN];
-      Tmp_Den_Grid[i][Mc_AN] = (double*)malloc(sizeof(double)*GridN_Atom[Gc_AN]);
-    }
-  }
-
-#pragma omp parallel shared(List_YOUSO,time_per_atom,Tmp_Den_Grid,Orbs_Grid,COrbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,CDM,SpinP_switch,WhatSpecies,ncn,F_G2M,natn,Spe_Total_CNO,M2G) private(OMPID,Nthrds,Nprocs,Mc_AN,h_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,NO0,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,i,j,tmp_CDM,Nog,Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3,orbs0_0,orbs0_1,orbs0_2,orbs0_3,orbs1_0,orbs1_1,orbs1_2,orbs1_3,sum_0,sum_1,sum_2,sum_3,tmp0_0,tmp0_1,tmp0_2,tmp0_3,mm,Nc,Nh,orbs0,orbs1,sum,tmp0)
+#pragma omp parallel shared(myid,G2ID,Orbs_Grid_FNAN,List_YOUSO,time_per_atom,Tmp_Den_Grid,Orbs_Grid,COrbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,CDM,SpinP_switch,WhatSpecies,ncn,F_G2M,natn,Spe_Total_CNO,M2G) private(OMPID,Nthrds,Nprocs,Mc_AN,h_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,NO0,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,i,j,tmp_CDM,Nog,Nc_0,Nc_1,Nc_2,Nc_3,Nh_0,Nh_1,Nh_2,Nh_3,orbs0_0,orbs0_1,orbs0_2,orbs0_3,orbs1_0,orbs1_1,orbs1_2,orbs1_3,sum_0,sum_1,sum_2,sum_3,tmp0_0,tmp0_1,tmp0_2,tmp0_3,Nc,Nh,orbs0,orbs1,sum,tmp0)
   {
 
     orbs0 = (double*)malloc(sizeof(double)*List_YOUSO[7]);
@@ -3054,8 +2790,8 @@ void Set_Partial_Density_Grid(double *****CDM)
     orbs1_2 = (double*)malloc(sizeof(double)*List_YOUSO[7]);
     orbs1_3 = (double*)malloc(sizeof(double)*List_YOUSO[7]);
 
-    tmp_CDM = (double***)malloc(sizeof(double**)*(spinmax+1)); 
-    for (i=0; i<(spinmax+1); i++){
+    tmp_CDM = (double***)malloc(sizeof(double**)*(SpinP_switch+1)); 
+    for (i=0; i<(SpinP_switch+1); i++){
       tmp_CDM[i] = (double**)malloc(sizeof(double*)*List_YOUSO[7]); 
       for (j=0; j<List_YOUSO[7]; j++){
 	tmp_CDM[i][j] = (double*)malloc(sizeof(double)*List_YOUSO[7]); 
@@ -3078,7 +2814,7 @@ void Set_Partial_Density_Grid(double *****CDM)
       Cwan = WhatSpecies[Gc_AN];
       NO0 = Spe_Total_CNO[Cwan]; 
 
-      for (spin=0; spin<=spinmax; spin++){
+      for (spin=0; spin<=SpinP_switch; spin++){
 	for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
 	  Tmp_Den_Grid[spin][Mc_AN][Nc] = 0.0;
 	}
@@ -3096,7 +2832,7 @@ void Set_Partial_Density_Grid(double *****CDM)
 
 	/* store CDM into tmp_CDM */
 
-	for (spin=0; spin<=spinmax; spin++){
+	for (spin=0; spin<=SpinP_switch; spin++){
 	  for (i=0; i<NO0; i++){
 	    for (j=0; j<NO1; j++){
 	      tmp_CDM[spin][i][j] = CDM[spin][Mc_AN][h_AN][i][j];
@@ -3119,19 +2855,30 @@ void Set_Partial_Density_Grid(double *****CDM)
 	  Nh_3 = GListTAtoms2[Mc_AN][h_AN][Nog+3];
 
 	  for (i=0; i<NO0; i++){
-	    orbs0_0[i] = Orbs_Grid[Mc_AN][i][Nc_0];
-	    orbs0_1[i] = Orbs_Grid[Mc_AN][i][Nc_1];
-	    orbs0_2[i] = Orbs_Grid[Mc_AN][i][Nc_2];
-	    orbs0_3[i] = Orbs_Grid[Mc_AN][i][Nc_3];
-	  }
-	  for (j=0; j<NO1; j++){
-	    orbs1_0[j] = Orbs_Grid[Mh_AN][j][Nh_0];
-	    orbs1_1[j] = Orbs_Grid[Mh_AN][j][Nh_1];
-	    orbs1_2[j] = Orbs_Grid[Mh_AN][j][Nh_2];
-	    orbs1_3[j] = Orbs_Grid[Mh_AN][j][Nh_3];
+	    orbs0_0[i] = Orbs_Grid[Mc_AN][Nc_0][i];/* AITUNE */
+	    orbs0_1[i] = Orbs_Grid[Mc_AN][Nc_1][i];/* AITUNE */
+	    orbs0_2[i] = Orbs_Grid[Mc_AN][Nc_2][i];/* AITUNE */
+	    orbs0_3[i] = Orbs_Grid[Mc_AN][Nc_3][i];/* AITUNE */
 	  }
 
-	  for (spin=0; spin<=spinmax; spin++){
+	  if (G2ID[Gh_AN]==myid){
+	    for (j=0; j<NO1; j++){
+	      orbs1_0[j] = Orbs_Grid[Mh_AN][Nh_0][j];/* AITUNE */
+	      orbs1_1[j] = Orbs_Grid[Mh_AN][Nh_1][j];/* AITUNE */
+	      orbs1_2[j] = Orbs_Grid[Mh_AN][Nh_2][j];/* AITUNE */
+	      orbs1_3[j] = Orbs_Grid[Mh_AN][Nh_3][j];/* AITUNE */
+	    }
+	  }
+	  else{
+	    for (j=0; j<NO1; j++){
+	      orbs1_0[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog  ][j];/* AITUNE */
+	      orbs1_1[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog+1][j];/* AITUNE */
+	      orbs1_2[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog+2][j];/* AITUNE */
+	      orbs1_3[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog+3][j];/* AITUNE */
+	    }
+	  }
+	  
+	  for (spin=0; spin<=SpinP_switch; spin++){
 
 	    /* Tmp_Den_Grid */
 
@@ -3165,40 +2912,43 @@ void Set_Partial_Density_Grid(double *****CDM)
 	    Tmp_Den_Grid[spin][Mc_AN][Nc_2] += sum_2;
 	    Tmp_Den_Grid[spin][Mc_AN][Nc_3] += sum_3;
 
+	  } /* spin */
+	} /* Nog */
+
+	for (; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+ 
+	  Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+	  Nh = GListTAtoms2[Mc_AN][h_AN][Nog]; 
+ 
+	  for (i=0; i<NO0; i++){
+	    orbs0[i] = Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 	  }
-	}
 
-	mm = NumOLG[Mc_AN][h_AN]-(NumOLG[Mc_AN][h_AN]/4)*4;
-
-	if (mm!=0){
-
-	  for (Nog=NumOLG[Mc_AN][h_AN]-mm; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
- 
-	    Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
-	    Nh = GListTAtoms2[Mc_AN][h_AN][Nog]; 
- 
-	    for (i=0; i<NO0; i++){
-	      orbs0[i] = Orbs_Grid[Mc_AN][i][Nc];
-	    }
+	  if (G2ID[Gh_AN]==myid){
 	    for (j=0; j<NO1; j++){
-	      orbs1[j] = Orbs_Grid[Mh_AN][j][Nh];
+	      orbs1[j] = Orbs_Grid[Mh_AN][Nh][j];/* AITUNE */
 	    }
+	  }
+	  else{
+	    for (j=0; j<NO1; j++){
+	      orbs1[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];/* AITUNE */  
+	    }
+	  }
 
-	    for (spin=0; spin<=spinmax; spin++){
+	  for (spin=0; spin<=SpinP_switch; spin++){
  
-	      /* Tmp_Den_Grid */
+	    /* Tmp_Den_Grid */
  
-	      sum = 0.0;
-	      for (i=0; i<NO0; i++){
-		tmp0 = 0.0;
-		for (j=0; j<NO1; j++){
-		  tmp0 += orbs1[j]*tmp_CDM[spin][i][j];
-		}
-		sum += orbs0[i]*tmp0;
+	    sum = 0.0;
+	    for (i=0; i<NO0; i++){
+	      tmp0 = 0.0;
+	      for (j=0; j<NO1; j++){
+		tmp0 += orbs1[j]*tmp_CDM[spin][i][j];
 	      }
- 
-	      Tmp_Den_Grid[spin][Mc_AN][Nc] += sum;
+	      sum += orbs0[i]*tmp0;
 	    }
+ 
+	    Tmp_Den_Grid[spin][Mc_AN][Nc] += sum;
 	  }
 	}
 
@@ -3223,7 +2973,7 @@ void Set_Partial_Density_Grid(double *****CDM)
     free(orbs1_2);
     free(orbs1_3);
 
-    for (i=0; i<(spinmax+1); i++){
+    for (i=0; i<(SpinP_switch+1); i++){
       for (j=0; j<List_YOUSO[7]; j++){
 	free(tmp_CDM[i][j]);
       }
@@ -3236,266 +2986,143 @@ void Set_Partial_Density_Grid(double *****CDM)
   } /* #pragma omp parallel */
 
   /******************************************************
-   MPI:
-        Tmp_Den_Grid 
+      MPI communication from the partitions A to B 
   ******************************************************/
- 
-  /* allocation of arrays  */
-  Snd_Size = (int*)malloc(sizeof(int)*numprocs); 
-  Rcv_Size = (int*)malloc(sizeof(int)*numprocs); 
-   
-  /* find data size for sending and recieving */
-
-  My_Max = -10000;
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      /*  sending size */
-      if (F_Snd_Num[IDS]!=0){
-        /* find data size */ 
-        size1 = 0; 
-        for (n=0; n<F_Snd_Num[IDS]; n++){
-          Gc_AN = Snd_GAN[IDS][n];
-          size1 += GridN_Atom[Gc_AN]*(spinmax+1);
-        }
-
-        Snd_Size[IDS] = size1;
-        MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      }
-      else{
-        Snd_Size[IDS] = 0;
-      }
-
-      /*  receiving size */
-      if (F_Rcv_Num[IDR]!=0){
-        MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-        Rcv_Size[IDR] = size2;
-      }
-      else{
-        Rcv_Size[IDR] = 0;
-      }
-      if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
-    } 
-    else{
-      Snd_Size[IDS] = 0;
-      Rcv_Size[IDR] = 0;
-    }
-
-    if (My_Max<Snd_Size[IDS]) My_Max = Snd_Size[IDS];
-    if (My_Max<Rcv_Size[IDR]) My_Max = Rcv_Size[IDR];
-  }  
-
-  MPI_Allreduce(&My_Max, &Max_Size, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
-  tmp_array  = (double*)malloc(sizeof(double)*Max_Size);
-  tmp_array2 = (double*)malloc(sizeof(double)*Max_Size);
-
-  /* send and receive Tmp_Den_Grid */
-
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-
-      /* sending of data  */
-
-      if (F_Snd_Num[IDS]!=0){
-
-        /* find data size */
-        size1 = Snd_Size[IDS];
-
-        /* multidimentional array to vector array */
-        k = 0; 
-	for (spin=0; spin<=spinmax; spin++){
-          for (n=0; n<F_Snd_Num[IDS]; n++){
-            Mc_AN = Snd_MAN[IDS][n];
-            Gc_AN = Snd_GAN[IDS][n];
-            for (i=0; i<GridN_Atom[Gc_AN]; i++){
-              tmp_array[k] = Tmp_Den_Grid[spin][Mc_AN][i];
-              k++;
-            }
-  	  } 
-	}
-
-        /* MPI_Isend */
-        MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-      }
-
-      /*****************************
-         receiving of block data
-      *****************************/
-
-      if (F_Rcv_Num[IDR]!=0){
   
-        /* find data size */
-        size2 = Rcv_Size[IDR]; 
+  /* copy Tmp_Den_Grid to Den_Snd_Grid_A2B */
 
-        /* MPI_Recv */
-        MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_A2B[ID] = 0;
+  
+  N2D = Ngrid1*Ngrid2;
 
-        k = 0;
-        for (spin=0; spin<=spinmax; spin++){
-          Mc_AN = F_TopMAN[IDR] - 1;
-          for (n=0; n<F_Rcv_Num[IDR]; n++){
-            Mc_AN++;
-            Gc_AN = Rcv_GAN[IDR][n];
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
 
-            for (i=0; i<GridN_Atom[Gc_AN]; i++){
-              Tmp_Den_Grid[spin][Mc_AN][i] = tmp_array2[k];
-              k++;
-            }
-          }
-	}
+    Gc_AN = M2G[Mc_AN];
+
+    for (AN=0; AN<GridN_Atom[Gc_AN]; AN++){
+
+      GN = GridListAtom[Mc_AN][AN];
+      GN2N(GN,N3);
+      n2D = N3[1]*Ngrid2 + N3[2];
+      ID = (int)(n2D*(unsigned long long int)numprocs/N2D);
+
+      if (SpinP_switch==0){
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]] = Tmp_Den_Grid[0][Mc_AN][AN];
       }
-      if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
-    } 
-  }  
-
-  /* freeing of arrays  */
-  free(tmp_array);
-  free(tmp_array2);
-  free(Snd_Size);
-  free(Rcv_Size);
-
-  /**********************************************
-                 calc Density_Grid
-  ***********************************************/
-
-  for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-
-    dtime(&Stime_atom);
-
-    Gc_AN = F_M2G[Mc_AN];
-    Cwan = WhatSpecies[Gc_AN];
-
-    for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
-      MN = MGridListAtom[Mc_AN][Nc];
-      GRc = CellListAtom[Mc_AN][Nc];
-
-      if ( (0<=MN && Solver!=4) || (0<=MN && Solver==4 && atv_ijk[GRc][1]==0) ){ 
-
-	for (spin=0; spin<=spinmax; spin++){
-	  Density_Grid[spin][MN] += Tmp_Den_Grid[spin][Mc_AN][Nc];
-	}
+      else if (SpinP_switch==1){
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]*2+0] = Tmp_Den_Grid[0][Mc_AN][AN];
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]*2+1] = Tmp_Den_Grid[1][Mc_AN][AN];
       }
+      else if (SpinP_switch==3){
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]*4+0] = Tmp_Den_Grid[0][Mc_AN][AN];
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]*4+1] = Tmp_Den_Grid[1][Mc_AN][AN];
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]*4+2] = Tmp_Den_Grid[2][Mc_AN][AN];
+        Den_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]*4+3] = Tmp_Den_Grid[3][Mc_AN][AN];
+      }
+
+      Num_Snd_Grid_A2B[ID]++;
+    }
+  }    
+
+  /* MPI: A to B */  
+
+  tag = 999;
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (Num_Snd_Grid_A2B[IDS]!=0){
+      MPI_Isend( &Den_Snd_Grid_A2B[IDS][0], Num_Snd_Grid_A2B[IDS]*(SpinP_switch+1), 
+                 MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
     }
 
-    dtime(&Etime_atom);
-    time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+    if (Num_Rcv_Grid_A2B[IDR]!=0){
+      MPI_Recv( &Den_Rcv_Grid_A2B[IDR][0], Num_Rcv_Grid_A2B[IDR]*(SpinP_switch+1), 
+                MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+    }
+
+    if (Num_Snd_Grid_A2B[IDS]!=0) MPI_Wait(&request,&stat);
   }
+      
+  /******************************************************
+   superposition of rho_i to calculate charge density 
+   in the partition B.
+  ******************************************************/
+
+  /* initialize arrays */
+
+  for (spin=0; spin<(SpinP_switch+1); spin++){
+    for (BN=0; BN<My_NumGridB_AB; BN++){
+      Density_Grid_B[spin][BN] = 0.0;
+    }
+  }
+
+  /* superposition of densities rho_i */
+
+  for (ID=0; ID<numprocs; ID++){
+
+    for (LN=0; LN<Num_Rcv_Grid_A2B[ID]; LN++){
+
+      BN    = Index_Rcv_Grid_A2B[ID][3*LN+0];      
+      Gc_AN = Index_Rcv_Grid_A2B[ID][3*LN+1];        
+      GRc   = Index_Rcv_Grid_A2B[ID][3*LN+2]; 
+
+      if (Solver!=4 || (Solver==4 && atv_ijk[GRc][1]==0 )){
+
+	/* spin collinear non-polarization */
+	if ( SpinP_switch==0 ){
+	  Density_Grid_B[0][BN] += Den_Rcv_Grid_A2B[ID][LN];
+	}
+
+	/* spin collinear polarization */
+	else if ( SpinP_switch==1 ){
+	  Density_Grid_B[0][BN] += Den_Rcv_Grid_A2B[ID][LN*2  ];
+	  Density_Grid_B[1][BN] += Den_Rcv_Grid_A2B[ID][LN*2+1];
+	} 
+
+	/* spin non-collinear */
+	else if ( SpinP_switch==3 ){
+	  Density_Grid_B[0][BN] += Den_Rcv_Grid_A2B[ID][LN*4  ];
+	  Density_Grid_B[1][BN] += Den_Rcv_Grid_A2B[ID][LN*4+1];
+	  Density_Grid_B[2][BN] += Den_Rcv_Grid_A2B[ID][LN*4+2];
+	  Density_Grid_B[3][BN] += Den_Rcv_Grid_A2B[ID][LN*4+3];
+	} 
+
+      } /* if (Solve!=4.....) */           
+
+    } /* AN */ 
+  } /* ID */  
 
   /******************************************************
-         add Tmp_Den2_Grid in terms of FNAN2 
+             MPI: from the partitions B to C
   ******************************************************/
 
-  /* allocation of array */
-  Tmp_Den2_Grid = (double**)malloc(sizeof(double*)*(spinmax+1));
-  for (i=0; i<(spinmax+1); i++){
-    Tmp_Den2_Grid[i] = (double*)malloc(sizeof(double)*FNAN2_Grid);
-  }
+  Data_Grid_Copy_B2C_2( Density_Grid_B, Density_Grid );  
 
-  for (spin=0; spin<=spinmax; spin++){
+  /******************************************************
+              diagonalize spinor density 
+  ******************************************************/
 
-    /* MPI */
-
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      if (ID!=0){
-
-        /*****************************
-              sending of data 
-        *****************************/
-
-        if (Num_Snd_FNAN2_Grid[IDS]!=0){
-        
-          tmp_array = (double*)malloc(sizeof(double)*Num_Snd_FNAN2_Grid[IDS]);
-
-          /* vector array */
-          for (i=0; i<Num_Snd_FNAN2_Grid[IDS]; i++){
-            Gc_AN = Snd_FNAN2_At[IDS][i];
-            Mc_AN = F_G2M[Gc_AN];
-            Nc    = Snd_FNAN2_Nc[IDS][i];
-            tmp_array[i] = Tmp_Den_Grid[spin][Mc_AN][Nc];
-          }
-
-          /* MPI_Isend */
-          MPI_Isend(&tmp_array[0], Num_Snd_FNAN2_Grid[IDS], MPI_DOUBLE,
-                    IDS, tag, mpi_comm_level1, &request);
-
-        }
-
-        /*****************************
-              receiving of data
-        *****************************/
-
-        if (Num_Rcv_FNAN2_Grid[IDR]!=0){
-          top_num = TopMAN2_Grid[IDR];
-          /* MPI_Recv */
-          MPI_Recv(&Tmp_Den2_Grid[spin][top_num], Num_Rcv_FNAN2_Grid[IDR],
-                   MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-	}
-
-        if (Num_Snd_FNAN2_Grid[IDS]!=0){
-          MPI_Wait(&request,&stat);
-          free(tmp_array);
-        }
-      }
-    }
-  } /* spin */
-
-  for (spin=0; spin<=spinmax; spin++){
-
-    /* Density_Grid += Tmp_Den2_Grid */ 
-
-    if (Solver!=4){
-      for (i=0; i<FNAN2_Grid; i++){
-	MN = Rcv_FNAN2_MN[i];
-	Density_Grid[spin][MN] += Tmp_Den2_Grid[spin][i];
-      }
-    }
-    else if (Solver==4){
-      for (i=0; i<FNAN2_Grid; i++){
-	MN = Rcv_FNAN2_MN[i];
-        GRc = Rcv_FNAN2_GRc[i];
-
-        if (atv_ijk[GRc][1]==0){
-  	  Density_Grid[spin][MN] += Tmp_Den2_Grid[spin][i];
-	}
-      }
-    }
-  }
-
-  /* if (SpinP_switch==0) */
-
-  if (SpinP_switch==0){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Density_Grid[1][MN] = Density_Grid[0][MN]; 
-    }
-  }
+  if (SpinP_switch==3) diagonalize_nc_density();
 
   /* freeing of arrays */
 
-  for (i=0; i<(spinmax+1); i++){
-    free(Tmp_Den2_Grid[i]);
-  }
-  free(Tmp_Den2_Grid);
-
-  for (i=0; i<(spinmax+1); i++){
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+  for (i=0; i<(SpinP_switch+1); i++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(Tmp_Den_Grid[i][Mc_AN]);
     }
     free(Tmp_Den_Grid[i]);
   }
   free(Tmp_Den_Grid);
+
+  for (ID=0; ID<numprocs; ID++){
+    free(Den_Snd_Grid_A2B[ID]);
+  }
+  free(Den_Snd_Grid_A2B);
+
+  for (ID=0; ID<numprocs; ID++){
+    free(Den_Rcv_Grid_A2B[ID]);
+  }
+  free(Den_Rcv_Grid_A2B);
 }
-
-
-
-

@@ -46,11 +46,7 @@
 #define MAXBUF        1024
 #define fp_bsize      1048576     /* buffer size for setvbuf */
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 void read_input(char *file);
 void read_vhart(char *file);

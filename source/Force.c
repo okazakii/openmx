@@ -6,6 +6,7 @@
   Log of Force.c:
 
      22/Nov/2001  Released by T.Ozaki
+     18/Apr/2013  Force3() modified by A.M.Ito
 
 ***********************************************************************/
 
@@ -14,20 +15,10 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
+#include "mpi.h"
+#include <omp.h>
 
 #define  measure_time   0
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
 
 
 static void dH_U_full(
@@ -35,19 +26,19 @@ static void dH_U_full(
                double *****OLP, double ****v_eff,
                double ***Hx, double ***Hy, double ***Hz);
 
-static void dH_U_NC_full(
-               int Mc_AN, int h_AN, int q_AN,
-               double *****OLP, dcomplex *****NC_v_eff,
-               dcomplex ****Hx, dcomplex ****Hy, dcomplex ****Hz);
+static void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
+			 double *****OLP, dcomplex *****NC_v_eff,
+			 dcomplex ****Hx, dcomplex ****Hy, dcomplex ****Hz);
 
-static void dHNL(
-          int Mc_AN, int h_AN, int q_AN,
-          double ******DS_NL1,
-          dcomplex ***Hx, dcomplex ***Hy, dcomplex ***Hz);
+static void dHNL(int where_flag,
+		 int Mc_AN, int h_AN, int q_AN,
+		 double ******DS_NL1,
+		 dcomplex ***Hx, dcomplex ***Hy, dcomplex ***Hz);
 
-static void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
-		  Type_DS_VNA *****DS_VNA1, double *****TmpHVNA2,
-		  double **Hx);
+static void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
+                  Type_DS_VNA *****DS_VNA1, 
+                  double *****TmpHVNA2, double *****TmpHVNA3,
+                  double **Hx, double **Hy, double **Hz);
 
 
 static void dHNL_SO(
@@ -79,12 +70,12 @@ static void dHNL_SO(
 	     int Mj_AN, int kl, int n,
 	     double ******DS_NL1);
 
-static void MPI_CntDS_NL();
-static void MPI_CntHVNA2();
 static void MPI_OLP(double *****OLP1);
 static void Force3();
 static void Force4();
 static void Force4B(double *****CDM0);
+
+static void Force_HNL(double *****CDM0, double *****iDM0);
 
 
 double Force(double *****H0,
@@ -94,10 +85,11 @@ double Force(double *****H0,
              double *****EDM)
 {
   static int firsttime=1;
-  int Nc,GNc,GRc,Cwan,s1,s2;
+  int Nc,GNc,GRc,Cwan,s1,s2,BN_AB;
   int Mc_AN,Gc_AN,MNc,start_q_AN;
   double x,y,z,dx,dy,dz,tmp0,tmp1,tmp2,tmp3;
-  double sumx,sumy,sumz,r,dege;
+  double xx,r2,tot_den;
+  double sumx,sumy,sumz,r,dege,pref;
   int i,j,k,l,Hwan,Qwan,so,p0,q,q0;
   int h_AN,Gh_AN,q_AN,Gq_AN;
   int ian,jan,kl,spin,spinmax,al,be,p,size_CDM0,size_iDM0;
@@ -283,17 +275,17 @@ double Force(double *****H0,
   ****************************************************/
 
   for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
-
+  
     Gc_AN = M2G[Mc_AN];
     Cwan = WhatSpecies[Gc_AN];
     tno1 = Spe_Total_CNO[Cwan];
-
+  
     for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
+  
       Gh_AN = natn[Gc_AN][h_AN];
       Hwan = WhatSpecies[Gh_AN];
       tno2 = Spe_Total_CNO[Hwan];
-
+  
       for (spin=0; spin<=SpinP_switch; spin++){
         for (i=0; i<tno1; i++){
 	  for (j=0; j<tno2; j++){
@@ -303,7 +295,7 @@ double Force(double *****H0,
       }
     }
   }
-
+  
   /****************************************************
     iDM to iDM0
   ****************************************************/
@@ -688,19 +680,26 @@ double Force(double *****H0,
 
   dtime(&stime);
 
-  /* 
-    set RefVxc_Grid, where the CA-LDA exchange-correlation 
-    functional is alway used.
-  */
+  /****************************************************
+   set RefVxc_Grid, where the CA-LDA exchange-correlation 
+   functional is alway used.
+  ****************************************************/
 
   XC_P_switch = 1;
-  Set_XC_Grid( XC_P_switch, 1,
-               ADensity_Grid,ADensity_Grid,
-               ADensity_Grid,ADensity_Grid,
-               RefVxc_Grid, RefVxc_Grid,
-               RefVxc_Grid, RefVxc_Grid );
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+    tot_den = ADensity_Grid_B[BN_AB] + ADensity_Grid_B[BN_AB];
+    if (PCC_switch==1) {
+      tot_den += PCCDensity_Grid_B[BN_AB]*2.0;
+    }
+    RefVxc_Grid_B[BN_AB] = XC_Ceperly_Alder(tot_den,XC_P_switch);
+  }
+  
+  Data_Grid_Copy_B2C_1( RefVxc_Grid_B,  RefVxc_Grid  );
+  Data_Grid_Copy_B2C_1( dVHart_Grid_B,  dVHart_Grid  );
+  Data_Grid_Copy_B2C_2( Vxc_Grid_B,     Vxc_Grid     );
+  Data_Grid_Copy_B2C_2( Density_Grid_B, Density_Grid );
 
-#pragma omp parallel shared(time_per_atom,level_stdout,GridVol,Vxc_Grid,RefVxc_Grid,SpinP_switch,F_Vxc_flag,PCC_switch,dVHart_Grid,F_dVHart_flag,Gxyz,atv,MGridListAtom,CellListAtom,GridListAtom,GridN_Atom,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,sumx,sumy,sumz,Nc,GNc,GRc,MNc,Cxyz,x,y,z,dx,dy,dz,r,tmp0,tmp1,tmp2)
+#pragma omp parallel shared(Spe_Atomic_Den,Spe_PAO_XV,Spe_Num_Mesh_PAO,time_per_atom,level_stdout,GridVol,Vxc_Grid,RefVxc_Grid,SpinP_switch,F_Vxc_flag,PCC_switch,dVHart_Grid,F_dVHart_flag,Gxyz,atv,MGridListAtom,CellListAtom,GridListAtom,GridN_Atom,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,sumx,sumy,sumz,Nc,GNc,GRc,MNc,Cxyz,x,y,z,dx,dy,dz,r,r2,tmp0,tmp1,tmp2,xx)
   {
 
     /* get info. on OpenMP */ 
@@ -734,21 +733,24 @@ double Force(double *****H0,
 	dx = Gxyz[Gc_AN][1] - x;
 	dy = Gxyz[Gc_AN][2] - y;
 	dz = Gxyz[Gc_AN][3] - z;
-	r = sqrt(dx*dx + dy*dy + dz*dz);
+        r2 = dx*dx + dy*dy + dz*dz;
+	r = sqrt(r2);
+        xx = 0.5*log(r2);
 
-	/* for empty atoms or finite elemens basis */
+	/* for empty atoms */
 	if (r<1.0e-10) r = 1.0e-10;
 
 	if (1.0e-14<r){
 
-	  tmp0 = Dr_AtomicDenF(Cwan,r);
+	  tmp0 = Dr_KumoF( Spe_Num_Mesh_PAO[Cwan], xx, r, 
+                           Spe_PAO_XV[Cwan], Spe_PAO_RV[Cwan], Spe_Atomic_Den[Cwan]);
 
 	  tmp1 = dVHart_Grid[MNc]*tmp0/r*F_dVHart_flag;
 	  sumx += tmp1*dx;
 	  sumy += tmp1*dy;
 	  sumz += tmp1*dz;
 
-          /* contribution of Exc^(0)*/
+          /* contribution of Exc^(0) */
 
 	  tmp1 = RefVxc_Grid[MNc]*tmp0/r*F_Vxc_flag;
 	  sumx += tmp1*dx;
@@ -758,7 +760,8 @@ double Force(double *****H0,
 	  /* partial core correction */
 	  if (PCC_switch==1){
 
-	    tmp0 = 0.5*Dr_AtomicPCCF(Cwan,r)*F_Vxc_flag;
+	    tmp0 = 0.5*F_Vxc_flag*Dr_KumoF( Spe_Num_Mesh_VPS[Cwan], xx, r, 
+                                     Spe_VPS_XV[Cwan], Spe_VPS_RV[Cwan], Spe_Atomic_PCC[Cwan]);
 
 	    if (SpinP_switch==0) tmp2 = 2.0*Vxc_Grid[0][MNc];
 	    else                 tmp2 = Vxc_Grid[0][MNc] + Vxc_Grid[1][MNc];
@@ -768,14 +771,13 @@ double Force(double *****H0,
 	    sumy -= tmp1*dy;
 	    sumz -= tmp1*dz;
 
-            /* contribution of Exc^(0)*/
+            /* contribution of Exc^(0) */
 
 	    tmp2 = 2.0*RefVxc_Grid[MNc];
 	    tmp1 = tmp2*tmp0/r;
 	    sumx += tmp1*dx;
 	    sumy += tmp1*dy;
 	    sumz += tmp1*dz;
-
 	  }
 	}
       }
@@ -799,7 +801,6 @@ double Force(double *****H0,
   if(myid==0 && measure_time){
     printf("Time for force#1=%18.5f\n",etime-stime);fflush(stdout);
   } 
-
 
   /****************************************************
      added by T.Ohwaki
@@ -851,7 +852,6 @@ double Force(double *****H0,
 
    H0
    OLP
-   DS_NL
   ****************************************************/
 
   MPI_Barrier(mpi_comm_level1);
@@ -867,18 +867,9 @@ double Force(double *****H0,
     Cont_Matrix0(OLP[1],CntOLP[1]);
     Cont_Matrix0(OLP[2],CntOLP[2]);
     Cont_Matrix0(OLP[3],CntOLP[3]);
-
-    for (so=0; so<(SO_switch+1); so++){
-      Cont_Matrix1(DS_NL[so][0],CntDS_NL[so][0]);
-      Cont_Matrix1(DS_NL[so][1],CntDS_NL[so][1]);
-      Cont_Matrix1(DS_NL[so][2],CntDS_NL[so][2]);
-      Cont_Matrix1(DS_NL[so][3],CntDS_NL[so][3]);
-    }
-
-    MPI_CntDS_NL();
   }
 
-  if ( (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) && F_U_flag==1){
+  if ( Hub_U_switch==1 && Hub_U_occupation==1 ){
     MPI_OLP(OLP);
   }
 
@@ -887,7 +878,7 @@ double Force(double *****H0,
   /****************************************************
                       #2 of force
 
-        kinetic operator, non-local potentials
+                   kinetic operator
   ****************************************************/
 
   dtime(&stime);
@@ -896,7 +887,7 @@ double Force(double *****H0,
     printf("  Force calculation #2\n");fflush(stdout);
   }
 
-#pragma omp parallel shared(time_per_atom,Gxyz,myid,level_stdout,iDM0,CDM0,CntH0,H0,F_Kin_flag,NC_v_eff,OLP,Hub_U_occupation,CntDS_NL,DS_NL,Cnt_switch,F_NL_flag,List_YOUSO,RMI1,Zeeman_NCO_switch,Zeeman_NCS_switch,Constraint_NCS_switch,F_U_flag,Hub_U_switch,SO_switch,SpinP_switch,Spe_Total_CNO,F_G2M,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,dEx,dEy,dEz,h_AN,Gh_AN,Mh_AN,Hwan,ian,start_q_AN,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,so,i,j,k,Hx,Hy,Hz,HUx,HUy,HUz,NC_HUx,NC_HUy,NC_HUz,s1,s2)
+#pragma omp parallel shared(time_per_atom,Gxyz,myid,level_stdout,iDM0,CDM0,CntH0,H0,F_Kin_flag,NC_v_eff,OLP,Hub_U_occupation,Cnt_switch,F_NL_flag,List_YOUSO,RMI1,Zeeman_NCO_switch,Zeeman_NCS_switch,Constraint_NCS_switch,F_U_flag,Hub_U_switch,SO_switch,SpinP_switch,Spe_Total_CNO,F_G2M,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,dEx,dEy,dEz,h_AN,Gh_AN,Mh_AN,Hwan,ian,start_q_AN,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,so,i,j,k,Hx,Hy,Hz,HUx,HUy,HUz,NC_HUx,NC_HUy,NC_HUz,s1,s2,pref)
   {
 
     /* allocation of arrays */
@@ -1040,18 +1031,6 @@ double Force(double *****H0,
 		  Hz[so][i][j] = Complex(0.0,0.0);
 		}
 	      }
-	    }
-
-	    /****************************************************
-                  Contribution from the non-local parts
-	    ****************************************************/
-
-	    if (F_NL_flag==1){
-
-	      if (Cnt_switch==0)
-		dHNL(Mc_AN,h_AN,q_AN,DS_NL,Hx,Hy,Hz);
-	      else
-		dHNL(Mc_AN,h_AN,q_AN,CntDS_NL,Hx,Hy,Hz);
 	    }
 
 	    /****************************************************
@@ -1240,18 +1219,14 @@ double Force(double *****H0,
 
 	    if (SpinP_switch==0){
 
+              if (q_AN==h_AN) pref = 2.0;
+              else            pref = 4.0; 
+
 	      for (i=0; i<Spe_Total_CNO[Hwan]; i++){
 		for (j=0; j<Spe_Total_CNO[Qwan]; j++){
-		  if (q_AN==h_AN){
-		    dEx += 2.0*CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r;
-		    dEy += 2.0*CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r;
-		    dEz += 2.0*CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r;
-		  }
-		  else{
-		    dEx += 4.0*CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r;
-		    dEy += 4.0*CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r;
-		    dEz += 4.0*CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r;
-		  }
+		  dEx += pref*CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r;
+		  dEy += pref*CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r;
+		  dEz += pref*CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r;
 		}
 	      }
 	    }
@@ -1261,25 +1236,18 @@ double Force(double *****H0,
 	    else if (SpinP_switch==1 || (SpinP_switch==3 && SO_switch==0 && Hub_U_switch==0
 		 && Constraint_NCS_switch==0 && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0)){ 
 
+              if (q_AN==h_AN) pref = 1.0;
+              else            pref = 2.0; 
+
 	      for (i=0; i<Spe_Total_CNO[Hwan]; i++){
 		for (j=0; j<Spe_Total_CNO[Qwan]; j++){
-		  if (q_AN==h_AN){
-		    dEx += CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r
-		         + CDM0[1][Mh_AN][kl][i][j]*Hx[1][i][j].r;
-		    dEy += CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r
-		         + CDM0[1][Mh_AN][kl][i][j]*Hy[1][i][j].r;
-		    dEz += CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r
-		         + CDM0[1][Mh_AN][kl][i][j]*Hz[1][i][j].r;
-		  }
-		  else{
-		    dEx += 2.0*CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r
-		         + 2.0*CDM0[1][Mh_AN][kl][i][j]*Hx[1][i][j].r;
-		    dEy += 2.0*CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r
-		         + 2.0*CDM0[1][Mh_AN][kl][i][j]*Hy[1][i][j].r;
-		    dEz += 2.0*CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r
-		         + 2.0*CDM0[1][Mh_AN][kl][i][j]*Hz[1][i][j].r;
-		  } 
 
+		  dEx += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r
+		               + CDM0[1][Mh_AN][kl][i][j]*Hx[1][i][j].r);
+		  dEy += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r
+		               + CDM0[1][Mh_AN][kl][i][j]*Hy[1][i][j].r);
+		  dEz += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r
+		               + CDM0[1][Mh_AN][kl][i][j]*Hz[1][i][j].r);
 		}
 	      }
 	    }
@@ -2007,6 +1975,16 @@ double Force(double *****H0,
   } /* if ( (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) 
        && F_U_flag==1 && Hub_U_occupation==2) */
 
+  /****************************************************
+                 Force arising from HNL
+  ****************************************************/
+
+  Force_HNL(CDM0, iDM0);
+
+  /****************************************************
+   freeing of arrays:
+  ****************************************************/
+
   if (   (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)
 	 && (Hub_U_occupation==1 || Hub_U_occupation==2)
 	 && SpinP_switch!=3 ){
@@ -2035,10 +2013,6 @@ double Force(double *****H0,
     }
     free(HUz);
   }
-
-  /****************************************************
-   freeing of arrays:
-  ****************************************************/
 
   free(Fx);
   free(Fy);
@@ -2154,7 +2128,479 @@ double Force(double *****H0,
 }
 
 
+
 void Force3()
+{
+  /****************************************************
+                      #3 of Force
+
+               dn/dx * (VNA + dVH + Vxc)
+           or
+               dn/dx * (dVH + Vxc)
+  ****************************************************/
+  /* for OpenMP */
+
+  /* MPI */
+  int numprocs,myid;
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /**********************************************************
+              main loop for calculation of force #3
+  **********************************************************/
+  /* shared memory for force */
+  
+  double*** dChi0 = (double***)malloc(sizeof(double**)*Max_GridN_Atom);
+  {
+	double** p2 = (double**)malloc(sizeof(double*)*Max_GridN_Atom*List_YOUSO[7]);
+	double* p = (double*)malloc(sizeof(double)*Max_GridN_Atom*List_YOUSO[7]*3);
+	int Nc;
+	for (Nc=0; Nc<Max_GridN_Atom; Nc++){
+	  dChi0[Nc] = p2;
+	  p2 += List_YOUSO[7];
+	  int i;
+	  for (i=0; i<List_YOUSO[7]; i++){
+	    dChi0[Nc][i] = p;
+	    p += 3;
+	  }
+	}
+  }
+
+  int gNthrds;
+#pragma omp parallel
+  {
+     gNthrds = omp_get_num_threads();
+  }
+   
+  double* ai_sh_sum = (double*)malloc(sizeof(double)*3*gNthrds);
+    
+
+#pragma omp parallel
+  {
+
+    /* get info. on OpenMP */ 
+
+    int OMPID = omp_get_thread_num();
+    int Nthrds = omp_get_num_threads();
+
+    /* allocation of arrays */
+   
+    double** dorbs0 = (double**)malloc(sizeof(double*)*4);
+    {
+      int i;
+      for (i=0; i<4; i++){
+	dorbs0[i] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+      }
+    }
+    double* orbs1 = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+
+    double*** dDen_Grid = (double***)malloc(sizeof(double**)*Max_GridN_Atom);
+    {
+      double** p2 = (double**)malloc(sizeof(double*)*Max_GridN_Atom*(SpinP_switch+1));
+      double* p = (double*)malloc(sizeof(double)*Max_GridN_Atom*(SpinP_switch+1)*3);
+      int Nc;
+      for (Nc=0; Nc<Max_GridN_Atom; Nc++){
+	dDen_Grid[Nc] = p2;
+	p2 += (SpinP_switch+1);
+	int i;
+	for (i=0; i<(SpinP_switch+1); i++){
+	  dDen_Grid[Nc][i] = p;
+	  p += 3;
+	}
+      }
+    }
+    /* allocated as shared memory */
+/*
+#pragma omp master
+    {
+      dChi0 = (double***)malloc(sizeof(double**)*Max_GridN_Atom);
+      {
+	double** p2 = (double**)malloc(sizeof(double*)*Max_GridN_Atom*List_YOUSO[7]);
+	double* p = (double*)malloc(sizeof(double)*Max_GridN_Atom*List_YOUSO[7]*3);
+	int Nc;
+	for (Nc=0; Nc<Max_GridN_Atom; Nc++){
+	  dChi0[Nc] = p2;
+	  p2 += List_YOUSO[7];
+	  int i;
+	  for (i=0; i<List_YOUSO[7]; i++){
+	    dChi0[Nc][i] = p;
+	    p += 3;
+	  }
+	}
+      }
+
+      ai_sh_sum = (double*)malloc(sizeof(double)*3*Nthrds);
+    }
+#pragma omp barrier
+*/
+    int Mc_AN;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++){
+	    
+      int Gc_AN = M2G[Mc_AN];
+      int Cwan = WhatSpecies[Gc_AN];
+      int NO0 = Spe_Total_CNO[Cwan];
+
+      /***********************************
+  	         calc dOrb0
+      ***********************************/
+		
+      int Nc;
+#pragma omp for
+      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+
+	int GNc = GridListAtom[Mc_AN][Nc]; 
+	int GRc = CellListAtom[Mc_AN][Nc];
+	int MNc = MGridListAtom[Mc_AN][Nc];
+
+	double Cxyz[4];
+	Get_Grid_XYZ(GNc,Cxyz);
+	double x = Cxyz[1] + atv[GRc][1];
+	double y = Cxyz[2] + atv[GRc][2];
+	double z = Cxyz[3] + atv[GRc][3];
+	double dx = x - Gxyz[Gc_AN][1];
+	double dy = y - Gxyz[Gc_AN][2];
+	double dz = z - Gxyz[Gc_AN][3];
+
+	if (Cnt_switch==0){
+	  Get_dOrbitals(Cwan,dx,dy,dz,dorbs0);
+	}else{
+	  Get_Cnt_dOrbitals(Mc_AN,dx,dy,dz,dorbs0);
+	}
+		
+	int k;
+	for (k=0; k<3; k++){
+	  int i;
+	  for (i=0; i<NO0; i++){
+	    dChi0[Nc][i][k] = dorbs0[k+1][i];
+	  }
+	}
+      }/* Nc */
+
+
+      /***********************************
+                calc dDen_Grid
+      ***********************************/
+
+      /* initialize */
+		
+      /* AITUNE  this loop must not be parallelized by omp */
+      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+	int i;
+	for (i=0; i<=SpinP_switch; i++){
+	  int k;
+	  for (k=0; k<3; k++){
+	    dDen_Grid[Nc][i][k] = 0.0;
+	  }
+	}
+      }/* Nc */
+
+
+      int h_AN;
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	int Gh_AN = natn[Gc_AN][h_AN];
+	int Mh_AN = F_G2M[Gh_AN];
+	int Rnh = ncn[Gc_AN][h_AN];
+	int Hwan = WhatSpecies[Gh_AN];
+	int NO1 = Spe_Total_CNO[Hwan];
+
+	int Nog;
+#pragma omp for
+	for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+
+	  int Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+	  int Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+	  /*
+	  double const * const * ai_dorbs0 = dChi0[Nc];
+	  */
+
+	  double** const ai_dorbs0 = dChi0[Nc];
+
+	  /* set orbs1 */
+				
+	  if (G2ID[Gh_AN]==myid){
+	    int j;
+	    for (j=0; j<NO1; j++){
+	      orbs1[j] = Orbs_Grid[Mh_AN][Nh][j];
+	    }
+	  }
+	  else{
+	    int j;
+	    for (j=0; j<NO1; j++) {
+	      orbs1[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+	    }
+	  } 
+				
+
+	  int spin;
+	  for (spin=0; spin<=SpinP_switch; spin++){
+			
+	    double tmpx = 0.0;
+	    double tmpy = 0.0;
+	    double tmpz = 0.0;
+
+	    int i;
+	    for (i=0; i<NO0; i++){
+	      double tmp0 = 0.0;
+	      int j;
+	      for (j=0; j<NO1; j++){
+		tmp0 += orbs1[j]*DM[0][spin][Mc_AN][h_AN][i][j];
+	      }
+			
+	      tmpx += ai_dorbs0[i][0]*tmp0;
+	      tmpy += ai_dorbs0[i][1]*tmp0;
+	      tmpz += ai_dorbs0[i][2]*tmp0;
+	    }
+
+	    /* due to difference in the definition between density matrix and density */
+	    /* AITUNE
+	       the sign of the case spin==3 is negative but the negative sign is 
+	       cancell in the "calc force #3" section. */
+			  
+	    if (spin==3){
+	      dDen_Grid[Nc][spin][0] -= tmpx;
+	      dDen_Grid[Nc][spin][1] -= tmpy;
+	      dDen_Grid[Nc][spin][2] -= tmpz;
+	    }else{
+	      dDen_Grid[Nc][spin][0] += tmpx;
+	      dDen_Grid[Nc][spin][1] += tmpy;
+	      dDen_Grid[Nc][spin][2] += tmpz;
+	    }
+			  
+	  }/* spin */
+	}/* Nog */
+      }/* h_AN */
+
+
+      /***********************************
+                 calc force #3
+      ***********************************/
+
+      /* spin collinear */
+      double sumx = 0.0;
+      double sumy = 0.0;
+      double sumz = 0.0;
+
+      if (SpinP_switch==0 || SpinP_switch==1){
+
+	int spin;
+	for (spin=0; spin<=SpinP_switch; spin++){ 
+	  int Nc;
+	  for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+	  
+	    int MNc = MGridListAtom[Mc_AN][Nc];
+		
+	    double Vpt;
+	    if (0<=MNc){
+	      if ( E_Field_switch==1 ){
+
+		if (ProExpn_VNA==0){
+
+		  Vpt = F_dVHart_flag*dVHart_Grid[MNc]
+		    + F_Vxc_flag*Vxc_Grid[spin][MNc]
+		    + F_VNA_flag*VNA_Grid[MNc]
+		    + F_VEF_flag*VEF_Grid[MNc];
+
+		}else{
+
+		  Vpt = F_dVHart_flag*dVHart_Grid[MNc]
+		    + F_Vxc_flag*Vxc_Grid[spin][MNc]
+		    + F_VEF_flag*VEF_Grid[MNc];
+
+		}
+
+	      }else{ 
+		if (ProExpn_VNA==0){
+
+		  Vpt = F_dVHart_flag*dVHart_Grid[MNc]
+		    + F_Vxc_flag*Vxc_Grid[spin][MNc]
+		    + F_VNA_flag*VNA_Grid[MNc];
+
+		}else{
+
+		  Vpt = F_dVHart_flag*dVHart_Grid[MNc]
+		    + F_Vxc_flag*Vxc_Grid[spin][MNc];
+
+		}
+	      }
+	    }else{
+	      Vpt = 0.0;
+	    }
+
+	    sumx += dDen_Grid[Nc][spin][0]*Vpt;
+	    sumy += dDen_Grid[Nc][spin][1]*Vpt;
+	    sumz += dDen_Grid[Nc][spin][2]*Vpt;
+
+	  }
+	}
+
+	if (SpinP_switch==0){
+	  sumx = 4.0*sumx;
+	  sumy = 4.0*sumy;
+	  sumz = 4.0*sumz;
+	}else if (SpinP_switch==1){
+	  sumx = 2.0*sumx;
+	  sumy = 2.0*sumy;
+	  sumz = 2.0*sumz;
+	}
+		
+		
+      }else if (SpinP_switch==3){
+
+	/* spin non-collinear */
+
+	int Nc;
+	for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+	  
+	  int MNc = MGridListAtom[Mc_AN][Nc];
+
+	  double ReVpt11;
+	  double ReVpt22;
+	  double ReVpt21;
+	  double ImVpt21;
+
+	  if (0<=MNc){
+	    if ( E_Field_switch==1 ){
+
+	      if (ProExpn_VNA==0){
+
+		ReVpt11 = F_dVHart_flag*dVHart_Grid[MNc]
+		  + F_Vxc_flag*Vxc_Grid[0][MNc]
+		  + F_VNA_flag*VNA_Grid[MNc]
+		  + F_VEF_flag*VEF_Grid[MNc];
+
+		ReVpt22 = F_dVHart_flag*dVHart_Grid[MNc]
+		  + F_Vxc_flag*Vxc_Grid[1][MNc]
+		  + F_VNA_flag*VNA_Grid[MNc]
+		  + F_VEF_flag*VEF_Grid[MNc];
+
+		ReVpt21 =  F_Vxc_flag*Vxc_Grid[2][MNc];
+		ImVpt21 = -F_Vxc_flag*Vxc_Grid[3][MNc];
+	      }else{
+
+		ReVpt11 = F_dVHart_flag*dVHart_Grid[MNc]
+		  + F_Vxc_flag*Vxc_Grid[0][MNc]
+		  + F_VEF_flag*VEF_Grid[MNc];
+
+		ReVpt22 = F_dVHart_flag*dVHart_Grid[MNc]
+		  + F_Vxc_flag*Vxc_Grid[1][MNc]
+		  + F_VEF_flag*VEF_Grid[MNc];
+
+		ReVpt21 =  F_Vxc_flag*Vxc_Grid[2][MNc];
+		ImVpt21 = -F_Vxc_flag*Vxc_Grid[3][MNc];
+	      } 
+
+	    }else{ 
+
+	      if (ProExpn_VNA==0){
+
+		ReVpt11 = F_dVHart_flag*dVHart_Grid[MNc]
+		  + F_Vxc_flag*Vxc_Grid[0][MNc]
+		  + F_VNA_flag*VNA_Grid[MNc];
+
+		ReVpt22 = F_dVHart_flag*dVHart_Grid[MNc]
+		  + F_Vxc_flag*Vxc_Grid[1][MNc]
+		  + F_VNA_flag*VNA_Grid[MNc];
+
+		ReVpt21 =  F_Vxc_flag*Vxc_Grid[2][MNc];
+		ImVpt21 = -F_Vxc_flag*Vxc_Grid[3][MNc];
+						
+	      }else{
+
+		ReVpt11 = F_dVHart_flag*dVHart_Grid[MNc] + F_Vxc_flag*Vxc_Grid[0][MNc];
+		ReVpt22 = F_dVHart_flag*dVHart_Grid[MNc] + F_Vxc_flag*Vxc_Grid[1][MNc];
+
+		ReVpt21 =  F_Vxc_flag*Vxc_Grid[2][MNc];
+		ImVpt21 = -F_Vxc_flag*Vxc_Grid[3][MNc];
+	      }
+
+	    }
+	  }else{ 
+	    ReVpt11 = 0.0;
+	    ReVpt22 = 0.0;
+	    ReVpt21 = 0.0;
+	    ImVpt21 = 0.0;
+	  }
+		  
+	  sumx +=      dDen_Grid[Nc][0][0]*ReVpt11;
+	  sumx +=      dDen_Grid[Nc][1][0]*ReVpt22;
+	  sumx +=  2.0*dDen_Grid[Nc][2][0]*ReVpt21;
+	  sumx += -2.0*dDen_Grid[Nc][3][0]*ImVpt21;
+	  /* AITUNE  sign is opposite by tune in the above section */
+				
+
+	  sumy +=      dDen_Grid[Nc][0][1]*ReVpt11;
+	  sumy +=      dDen_Grid[Nc][1][1]*ReVpt22;
+	  sumy +=  2.0*dDen_Grid[Nc][2][1]*ReVpt21;
+	  sumy += -2.0*dDen_Grid[Nc][3][1]*ImVpt21;
+	  /* AITUNE  sign is opposite by tune in the above section */
+
+
+	  sumz +=      dDen_Grid[Nc][0][2]*ReVpt11;
+	  sumz +=      dDen_Grid[Nc][1][2]*ReVpt22;
+	  sumz +=  2.0*dDen_Grid[Nc][2][2]*ReVpt21;
+	  sumz += -2.0*dDen_Grid[Nc][3][2]*ImVpt21;
+	  /* AITUNE  sign is opposite by tune in the above section */
+
+	}
+
+	sumx = 2.0*sumx;
+	sumy = 2.0*sumy;
+	sumz = 2.0*sumz;
+
+      }
+
+      /* gather sumx, sumy, and sumz into Gxyz[Gc_AN][17,18,19] */
+      ai_sh_sum[OMPID*3] = sumx*GridVol;
+      ai_sh_sum[OMPID*3+1] = sumy*GridVol;
+      ai_sh_sum[OMPID*3+2] = sumz*GridVol;
+#pragma omp barrier
+#pragma omp master
+      {
+	int t;
+	for (t = 0; t < Nthrds*3; t+=3){
+	  Gxyz[Gc_AN][17] += ai_sh_sum[t];
+	  Gxyz[Gc_AN][18] += ai_sh_sum[t+1];
+	  Gxyz[Gc_AN][19] += ai_sh_sum[t+2];
+	}
+      }
+		
+		
+      if (2<=level_stdout){
+	printf("<Force>  force(3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+	       myid,Mc_AN,Gc_AN,sumx*GridVol,sumy*GridVol,sumz*GridVol);fflush(stdout);
+      }
+		
+
+    } /* Mc_AN */
+
+    /* freeing of arrays */
+	
+    free(dDen_Grid[0][0]);
+    free(dDen_Grid[0]);
+    free(dDen_Grid);
+	
+    free(orbs1);
+
+    int i;
+    for (i=0; i<4; i++){
+      free(dorbs0[i]);
+    }
+    free(dorbs0);
+
+  } /* #pragma omp parallel */
+
+  /* free */
+  free(dChi0[0][0]);
+  free(dChi0[0]);
+  free(dChi0);
+  free(ai_sh_sum);
+}
+
+
+
+void Force3_org3665()
 {
   /****************************************************
                       #3 of Force
@@ -2186,7 +2632,7 @@ void Force3()
               main loop for calculation of force #3
   **********************************************************/
 
-#pragma omp parallel shared(level_stdout,GridVol,F_VEF_flag,VEF_Grid,F_VNA_flag,VNA_Grid,F_Vxc_flag,Vxc_Grid,dVHart_Grid,F_dVHart_flag,ProExpn_VNA,E_Field_switch,DM,Orbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,ncn,F_G2M,natn,FNAN,Max_GridN_Atom,SpinP_switch,List_YOUSO,Cnt_switch,Gxyz,atv,MGridListAtom,CellListAtom,GridListAtom,GridN_Atom,Spe_Total_CNO,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Gc_AN,Cwan,NO0,Nc,GNc,GRc,MNc,Cxyz,x,y,z,dx,dy,dz,dorbs0,orbs1,dDen_Grid,dChi0,i,k,h_AN,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,Nog,Nh,j,sum,tmp0,sumx,sumy,sumz,Vpt,ReVpt11,ReVpt22,ReVpt21,ImVpt21)
+#pragma omp parallel shared(Orbs_Grid_FNAN,G2ID,myid,level_stdout,GridVol,F_VEF_flag,VEF_Grid,F_VNA_flag,VNA_Grid,F_Vxc_flag,Vxc_Grid,dVHart_Grid,F_dVHart_flag,ProExpn_VNA,E_Field_switch,DM,Orbs_Grid,GListTAtoms2,GListTAtoms1,NumOLG,ncn,F_G2M,natn,FNAN,Max_GridN_Atom,SpinP_switch,List_YOUSO,Cnt_switch,Gxyz,atv,MGridListAtom,CellListAtom,GridListAtom,GridN_Atom,Spe_Total_CNO,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Gc_AN,Cwan,NO0,Nc,GNc,GRc,MNc,Cxyz,x,y,z,dx,dy,dz,dorbs0,orbs1,dDen_Grid,dChi0,i,k,h_AN,Gh_AN,Mh_AN,Rnh,Hwan,NO1,spin,Nog,Nh,j,sum,tmp0,sumx,sumy,sumz,Vpt,ReVpt11,ReVpt22,ReVpt21,ImVpt21)
   {
 
     /* allocation of arrays */
@@ -2291,7 +2737,12 @@ void Force3()
 
 	    /* set orbs1 */
 
-	    for (j=0; j<NO1; j++) orbs1[j] = Orbs_Grid[Mh_AN][j][Nh];
+            if (G2ID[Gh_AN]==myid){
+  	      for (j=0; j<NO1; j++) orbs1[j] = Orbs_Grid[Mh_AN][Nh][j];/* AITUNE */
+	    }
+            else{
+  	      for (j=0; j<NO1; j++) orbs1[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];/* AITUNE */
+            } 
 
 	    for (k=0; k<3; k++){
 	      sum = 0.0;
@@ -2624,6 +3075,1444 @@ void Force4()
 
 
 
+void Force_HNL(double *****CDM0, double *****iDM0)
+{
+  /****************************************************
+                  Force arising from HNL
+  ****************************************************/
+
+  int Mc_AN,Gc_AN,Cwan,i,j,h_AN,q_AN,Mq_AN,start_q_AN;
+  int jan,kl,kl1,Qwan,Gq_AN,Gh_AN,Mh_AN,Hwan,ian;
+  int l1,l2,l3,l,LL,Mul1,tno0,ncp,so;
+  int tno1,tno2,size1,size2,n,kk,num,po,po1,po2;
+  int numprocs,myid,tag=999,ID,IDS,IDR;
+  int **S_array,**R_array;
+  int S_comm_flag,R_comm_flag;
+  int SA_num,q,Sc_AN,GSc_AN,smul;
+  int Sc_wan,Sh_AN,GSh_AN,Sh_wan;
+  int Sh_AN2,fan,jg,j0,jg0,Mj_AN0;
+  int Original_Mc_AN;
+
+  double rcutA,rcutB,rcut;
+  double dEx,dEy,dEz,ene,pref;
+  double Stime_atom, Etime_atom;
+  dcomplex ***Hx,***Hy,***Hz;
+  dcomplex ***Hx0,***Hy0,***Hz0;
+  dcomplex ***Hx1,***Hy1,***Hz1;
+  int *Snd_DS_NL_Size,*Rcv_DS_NL_Size;  
+  int *Indicator;
+  double *tmp_array;
+  double *tmp_array2;
+
+  /* for OpenMP */
+  int OMPID,Nthrds,Nthrds0,Nprocs,Nloop,ODNloop;
+  int *OneD2h_AN,*OneD2q_AN;
+  double *dEx_threads;
+  double *dEy_threads;
+  double *dEz_threads;
+  double stime,etime;
+  double stime1,etime1;
+
+  MPI_Status stat;
+  MPI_Request request;
+
+  /* MPI */
+
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  dtime(&stime);
+
+  /****************************
+       allocation of arrays 
+  *****************************/
+
+  Indicator = (int*)malloc(sizeof(int)*numprocs);
+
+  S_array = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    S_array[ID] = (int*)malloc(sizeof(int)*3);
+  }
+
+  R_array = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    R_array[ID] = (int*)malloc(sizeof(int)*3);
+  }
+
+  Snd_DS_NL_Size = (int*)malloc(sizeof(int)*numprocs);
+  Rcv_DS_NL_Size = (int*)malloc(sizeof(int)*numprocs);
+
+  /* initialize the temporal array storing the force contribution */
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = F_M2G[Mc_AN];
+    Gxyz[Gc_AN][41] = 0.0;
+    Gxyz[Gc_AN][42] = 0.0;
+    Gxyz[Gc_AN][43] = 0.0;
+  }
+
+  /*************************************************************
+                    contraction of DS_NL
+     Note: DS_NL is overwritten by CntDS_NL in Cont_Matrix1().
+  *************************************************************/
+
+  if (Cnt_switch==1){
+    for (so=0; so<(SO_switch+1); so++){
+      Cont_Matrix1(DS_NL[so][0],CntDS_NL[so][0]);
+      Cont_Matrix1(DS_NL[so][1],CntDS_NL[so][1]);
+      Cont_Matrix1(DS_NL[so][2],CntDS_NL[so][2]);
+      Cont_Matrix1(DS_NL[so][3],CntDS_NL[so][3]);
+    }
+  }
+
+  /*****************************************}********************** 
+      THE FIRST CASE:
+      In case of I=i or I=j 
+      for d [ \sum_k <i|k>ek<k|j> ]/dRI  
+  ****************************************************************/
+
+  /*******************************************************
+   *******************************************************
+       multiplying overlap integrals WITH COMMUNICATION
+
+       In case of I=i or I=j 
+       for d [ \sum_k <i|k>ek<k|j> ]/dRI  
+   *******************************************************
+   *******************************************************/
+
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&stime);
+
+  Hx0 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+  for (i=0; i<3; i++){
+    Hx0[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      Hx0[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+    }
+  }
+
+  Hy0 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+  for (i=0; i<3; i++){
+    Hy0[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      Hy0[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+    }
+  }
+
+  Hz0 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+  for (i=0; i<3; i++){
+    Hz0[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      Hz0[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+    }
+  }
+
+  Hx1 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+  for (i=0; i<3; i++){
+    Hx1[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      Hx1[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+    }
+  }
+
+  Hy1 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+  for (i=0; i<3; i++){
+    Hy1[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      Hy1[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+    }
+  }
+
+  Hz1 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+  for (i=0; i<3; i++){
+    Hz1[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      Hz1[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+    }
+  }
+
+  for (ID=0; ID<numprocs; ID++){
+    F_Snd_Num_WK[ID] = 0;
+    F_Rcv_Num_WK[ID] = 0;
+  }
+
+  do {
+
+    /***********************************                                                            
+            set the size of data                                                                      
+    ************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      /* find the data size to send the block data */
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
+
+	size1 = 0;
+	n = F_Snd_Num_WK[IDS];
+
+	Mc_AN = Snd_MAN[IDS][n];
+	Gc_AN = Snd_GAN[IDS][n];
+	Cwan = WhatSpecies[Gc_AN];
+	tno1 = Spe_Total_NO[Cwan];
+
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Hwan];
+	  size1 += (VPS_j_dependency[Hwan]+1)*tno1*tno2;
+	}
+
+	Snd_DS_NL_Size[IDS] = size1;
+	MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+      }
+      else{
+	Snd_DS_NL_Size[IDS] = 0;
+      }
+
+      /* receiving of the size of the data */
+
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
+	MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+	Rcv_DS_NL_Size[IDR] = size2;
+      }
+      else{
+	Rcv_DS_NL_Size[IDR] = 0;
+      }
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) )  MPI_Wait(&request,&stat);
+
+    } /* ID */
+
+      /***********************************
+                 data transfer
+      ************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      /******************************
+            sending of the data 
+      ******************************/
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
+
+	size1 = Snd_DS_NL_Size[IDS];
+
+	/* allocation of the array */
+
+	tmp_array = (double*)malloc(sizeof(double)*size1);
+
+	/* multidimentional array to the vector array */
+
+	num = 0;
+	n = F_Snd_Num_WK[IDS];
+
+	Mc_AN = Snd_MAN[IDS][n];
+	Gc_AN = Snd_GAN[IDS][n];
+	Cwan = WhatSpecies[Gc_AN]; 
+	tno1 = Spe_Total_NO[Cwan];
+
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];        
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Hwan];
+
+	  for (so=0; so<=VPS_j_dependency[Hwan]; so++){
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+		tmp_array[num] = DS_NL[so][0][Mc_AN][h_AN][i][j];
+		num++;
+	      } 
+	    } 
+	  }
+	}
+
+	MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+      }
+
+      /******************************
+        receiving of the block data
+      ******************************/
+
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
+        
+	size2 = Rcv_DS_NL_Size[IDR];
+	tmp_array2 = (double*)malloc(sizeof(double)*size2);
+	MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+
+	/* store */
+
+	num = 0;
+	n = F_Rcv_Num_WK[IDR];
+	Original_Mc_AN = F_TopMAN[IDR] + n;
+
+	Gc_AN = Rcv_GAN[IDR][n];
+	Cwan = WhatSpecies[Gc_AN];
+	tno1 = Spe_Total_NO[Cwan];
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Hwan];
+
+	  for (so=0; so<=VPS_j_dependency[Hwan]; so++){
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+		DS_NL[so][0][Matomnum+1][h_AN][i][j] = tmp_array2[num];
+		num++;
+	      }
+	    }
+	  }
+	}
+
+	/* free tmp_array2 */
+	free(tmp_array2);
+
+	/*****************************************************************
+                             multiplying overlap integrals
+	*****************************************************************/
+
+	for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	  dtime(&Stime_atom);
+
+	  dEx = 0.0; 
+	  dEy = 0.0; 
+	  dEz = 0.0; 
+
+	  Gc_AN = M2G[Mc_AN];
+	  Cwan = WhatSpecies[Gc_AN];
+	  fan = FNAN[Gc_AN];
+
+	  h_AN = 0;
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Mh_AN = F_G2M[Gh_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  ian = Spe_Total_CNO[Hwan];
+
+	  n = F_Rcv_Num_WK[IDR];
+	  jg = Rcv_GAN[IDR][n];
+
+	  for (j0=0; j0<=fan; j0++){
+
+	    jg0 = natn[Gc_AN][j0];
+	    Mj_AN0 = F_G2M[jg0];
+
+	    po2 = 0;
+	    if (Original_Mc_AN==Mj_AN0){
+	      po2 = 1;
+	      q_AN = j0;
+	    }
+
+	    if (po2==1){
+
+	      Gq_AN = natn[Gc_AN][q_AN];
+	      Mq_AN = F_G2M[Gq_AN];
+	      Qwan = WhatSpecies[Gq_AN];
+	      jan = Spe_Total_CNO[Qwan];
+	      kl = RMI1[Mc_AN][h_AN][q_AN];
+
+ 	      dHNL(0,Mc_AN,h_AN,q_AN,DS_NL,Hx0,Hy0,Hz0);
+
+	      /* contribution of force = Trace(CDM0*dH) */
+	      /* spin non-polarization */
+
+	      if (SpinP_switch==0){
+
+                if (q_AN==h_AN) pref = 2.0;
+                else            pref = 4.0; 
+
+		for (i=0; i<ian; i++){
+		  for (j=0; j<jan; j++){
+
+		    dEx += pref*CDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].r;
+		    dEy += pref*CDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].r;
+		    dEz += pref*CDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].r;
+		  }
+		}
+	      }
+
+	      /* collinear spin polarized or non-colliear without SO and LDA+U */
+
+	      else if (SpinP_switch==1 || (SpinP_switch==3 && SO_switch==0 && Hub_U_switch==0
+		   && Constraint_NCS_switch==0 && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0)){ 
+
+		if (q_AN==h_AN) pref = 1.0;
+		else            pref = 2.0; 
+
+		for (i=0; i<Spe_Total_CNO[Hwan]; i++){
+		  for (j=0; j<Spe_Total_CNO[Qwan]; j++){
+
+		    dEx += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].r
+			         + CDM0[1][Mh_AN][kl][i][j]*Hx0[1][i][j].r);
+		    dEy += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].r
+				 + CDM0[1][Mh_AN][kl][i][j]*Hy0[1][i][j].r);
+		    dEz += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].r
+				 + CDM0[1][Mh_AN][kl][i][j]*Hz0[1][i][j].r);
+		  }
+		}
+	      }
+
+	      /* spin non-collinear with spin-orbit coupling or with LDA+U */
+
+	      else if ( SpinP_switch==3 && (SO_switch==1 || (Hub_U_switch==1 && F_U_flag==1) 
+                     || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)){
+
+                if (q_AN==h_AN){
+
+		  for (i=0; i<Spe_Total_CNO[Hwan]; i++){
+		    for (j=0; j<Spe_Total_CNO[Qwan]; j++){
+
+		      dEx +=
+			  CDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].r
+			- iDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].i
+			+ CDM0[1][Mh_AN][kl][i][j]*Hx0[1][i][j].r
+			- iDM0[1][Mh_AN][kl][i][j]*Hx0[1][i][j].i
+		    + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hx0[2][i][j].r
+		    - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hx0[2][i][j].i;
+
+		      dEy += 
+			  CDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].r
+			- iDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].i
+			+ CDM0[1][Mh_AN][kl][i][j]*Hy0[1][i][j].r
+			- iDM0[1][Mh_AN][kl][i][j]*Hy0[1][i][j].i
+		    + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hy0[2][i][j].r
+		    - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hy0[2][i][j].i; 
+
+		      dEz +=  
+			  CDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].r
+			- iDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].i
+			+ CDM0[1][Mh_AN][kl][i][j]*Hz0[1][i][j].r
+			- iDM0[1][Mh_AN][kl][i][j]*Hz0[1][i][j].i
+		    + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hz0[2][i][j].r
+		    - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hz0[2][i][j].i; 
+
+		    }
+		  }
+		}
+
+                else {
+
+		  for (i=0; i<Spe_Total_CNO[Hwan]; i++){  /* Hwan */
+		    for (j=0; j<Spe_Total_CNO[Qwan]; j++){ /* Qwan  */
+
+		      dEx += 
+			  CDM0[0][Mh_AN][kl ][i][j]*Hx0[0][i][j].r
+			- iDM0[0][Mh_AN][kl ][i][j]*Hx0[0][i][j].i
+			+ CDM0[1][Mh_AN][kl ][i][j]*Hx0[1][i][j].r
+			- iDM0[1][Mh_AN][kl ][i][j]*Hx0[1][i][j].i
+		    + 2.0*CDM0[2][Mh_AN][kl ][i][j]*Hx0[2][i][j].r
+		    - 2.0*CDM0[3][Mh_AN][kl ][i][j]*Hx0[2][i][j].i;
+
+		      dEy += 
+			  CDM0[0][Mh_AN][kl ][i][j]*Hy0[0][i][j].r
+			- iDM0[0][Mh_AN][kl ][i][j]*Hy0[0][i][j].i
+			+ CDM0[1][Mh_AN][kl ][i][j]*Hy0[1][i][j].r
+			- iDM0[1][Mh_AN][kl ][i][j]*Hy0[1][i][j].i
+	 	    + 2.0*CDM0[2][Mh_AN][kl ][i][j]*Hy0[2][i][j].r
+		    - 2.0*CDM0[3][Mh_AN][kl ][i][j]*Hy0[2][i][j].i; 
+
+		      dEz +=
+			  CDM0[0][Mh_AN][kl ][i][j]*Hz0[0][i][j].r
+			- iDM0[0][Mh_AN][kl ][i][j]*Hz0[0][i][j].i
+			+ CDM0[1][Mh_AN][kl ][i][j]*Hz0[1][i][j].r
+			- iDM0[1][Mh_AN][kl ][i][j]*Hz0[1][i][j].i
+	 	    + 2.0*CDM0[2][Mh_AN][kl ][i][j]*Hz0[2][i][j].r
+		    - 2.0*CDM0[3][Mh_AN][kl ][i][j]*Hz0[2][i][j].i;
+
+		    } /* j */
+		  } /* i */
+
+		  dHNL(0,Mc_AN,q_AN,h_AN,DS_NL,Hx1,Hy1,Hz1);
+		  kl1 = RMI1[Mc_AN][q_AN][h_AN];
+
+		  for (i=0; i<Spe_Total_CNO[Qwan]; i++){ /* Qwan */
+		    for (j=0; j<Spe_Total_CNO[Hwan]; j++){ /* Hwan */
+
+		      dEx += 
+			  CDM0[0][Mq_AN][kl1][i][j]*Hx1[0][i][j].r
+			- iDM0[0][Mq_AN][kl1][i][j]*Hx1[0][i][j].i
+			+ CDM0[1][Mq_AN][kl1][i][j]*Hx1[1][i][j].r
+			- iDM0[1][Mq_AN][kl1][i][j]*Hx1[1][i][j].i
+		    + 2.0*CDM0[2][Mq_AN][kl1][i][j]*Hx1[2][i][j].r
+		    - 2.0*CDM0[3][Mq_AN][kl1][i][j]*Hx1[2][i][j].i;
+
+		      dEy += 
+			  CDM0[0][Mq_AN][kl1][i][j]*Hy1[0][i][j].r
+			- iDM0[0][Mq_AN][kl1][i][j]*Hy1[0][i][j].i
+			+ CDM0[1][Mq_AN][kl1][i][j]*Hy1[1][i][j].r
+			- iDM0[1][Mq_AN][kl1][i][j]*Hy1[1][i][j].i
+		    + 2.0*CDM0[2][Mq_AN][kl1][i][j]*Hy1[2][i][j].r
+		    - 2.0*CDM0[3][Mq_AN][kl1][i][j]*Hy1[2][i][j].i; 
+
+		      dEz +=
+			  CDM0[0][Mq_AN][kl1][i][j]*Hz1[0][i][j].r
+			- iDM0[0][Mq_AN][kl1][i][j]*Hz1[0][i][j].i
+			+ CDM0[1][Mq_AN][kl1][i][j]*Hz1[1][i][j].r
+			- iDM0[1][Mq_AN][kl1][i][j]*Hz1[1][i][j].i
+		    + 2.0*CDM0[2][Mq_AN][kl1][i][j]*Hz1[2][i][j].r
+		    - 2.0*CDM0[3][Mq_AN][kl1][i][j]*Hz1[2][i][j].i;
+
+		    } /* j */
+		  } /* i */
+
+                }
+	      }
+
+	    } /* if (po2==1) */
+	  } /* j0 */             
+
+	  /* force from #4B */
+
+	  Gxyz[Gc_AN][41] += dEx;
+	  Gxyz[Gc_AN][42] += dEy;
+	  Gxyz[Gc_AN][43] += dEz;
+
+	  /* timing */
+	  dtime(&Etime_atom);
+	  time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+	} /* Mc_AN */
+
+	  /********************************************
+            increment of F_Rcv_Num_WK[IDR] 
+	  ********************************************/
+
+	F_Rcv_Num_WK[IDR]++;
+
+      } /* if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) */
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) {
+
+	MPI_Wait(&request,&stat);
+	free(tmp_array);  /* freeing of array */
+
+	/********************************************
+             increment of F_Snd_Num_WK[IDS]
+	********************************************/
+
+	F_Snd_Num_WK[IDS]++;
+      } 
+
+    } /* ID */
+
+    /*****************************************************
+      check whether all the communications have finished
+    *****************************************************/
+
+    po = 0;
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) po += F_Snd_Num[IDS]-F_Snd_Num_WK[IDS];
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ) po += F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR];
+    }
+
+  } while (po!=0);
+
+  for (i=0; i<3; i++){
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(Hx0[i][j]);
+    }
+    free(Hx0[i]);
+  }
+  free(Hx0);
+
+  for (i=0; i<3; i++){
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(Hy0[i][j]);
+    }
+    free(Hy0[i]);
+  }
+  free(Hy0);
+
+  for (i=0; i<3; i++){
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(Hz0[i][j]);
+    }
+    free(Hz0[i]);
+  }
+  free(Hz0);
+
+  for (i=0; i<3; i++){
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(Hx1[i][j]);
+    }
+    free(Hx1[i]);
+  }
+  free(Hx1);
+
+  for (i=0; i<3; i++){
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(Hy1[i][j]);
+    }
+    free(Hy1[i]);
+  }
+  free(Hy1);
+
+  for (i=0; i<3; i++){
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(Hz1[i][j]);
+    }
+    free(Hz1[i]);
+  }
+  free(Hz1);
+
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part1 of force_NL=%18.5f\n",etime-stime);fflush(stdout);
+  } 
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+
+    if (2<=level_stdout){
+      printf("<Force>  force(HNL1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+	     myid,Mc_AN,Gc_AN,Gxyz[Gc_AN][41],Gxyz[Gc_AN][42],Gxyz[Gc_AN][43]);fflush(stdout);
+    }
+  }
+
+  /*******************************************************
+   *******************************************************
+     THE FIRST CASE:
+     multiplying overlap integrals WITHOUT COMMUNICATION
+
+     In case of I=i or I=j 
+     for d [ \sum_k <i|k>ek<k|j> ]/dRI  
+   *******************************************************
+   *******************************************************/
+
+  dtime(&stime);
+
+#pragma omp parallel shared(time_per_atom,Gxyz,CDM0,SpinP_switch,SO_switch,Hub_U_switch,F_U_flag,Constraint_NCS_switch,Zeeman_NCS_switch,Zeeman_NCO_switch,DS_NL,RMI1,FNAN,Spe_Total_CNO,WhatSpecies,F_G2M,natn,M2G,Matomnum,List_YOUSO) private(Hx0,Hy0,Hz0,Hx1,Hy1,Hz1,OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,dEx,dEy,dEz,Gc_AN,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,kl1,i,j,kk,pref)
+  {
+
+    /* allocation of array */
+
+    Hx0 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+    for (i=0; i<3; i++){
+      Hx0[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hx0[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+      }
+    }
+
+    Hy0 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+    for (i=0; i<3; i++){
+      Hy0[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hy0[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+      }
+    }
+
+    Hz0 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+    for (i=0; i<3; i++){
+      Hz0[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hz0[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+      }
+    }
+
+    Hx1 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+    for (i=0; i<3; i++){
+      Hx1[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hx1[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+      }
+    }
+
+    Hy1 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+    for (i=0; i<3; i++){
+      Hy1[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hy1[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+      }
+    }
+
+    Hz1 = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+    for (i=0; i<3; i++){
+      Hz1[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hz1[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+      }
+    }
+
+    /* get info. on OpenMP */ 
+
+    OMPID = omp_get_thread_num();
+    Nthrds = omp_get_num_threads();
+    Nprocs = omp_get_num_procs();
+
+    for (Mc_AN=(OMPID*Matomnum/Nthrds+1); Mc_AN<((OMPID+1)*Matomnum/Nthrds+1); Mc_AN++){
+
+      dtime(&Stime_atom);
+
+      dEx = 0.0; 
+      dEy = 0.0; 
+      dEz = 0.0; 
+
+      Gc_AN = M2G[Mc_AN];
+      h_AN = 0;
+      Gh_AN = natn[Gc_AN][h_AN];
+      Mh_AN = F_G2M[Gh_AN];
+      Hwan = WhatSpecies[Gh_AN];
+      ian = Spe_Total_CNO[Hwan];
+
+      for (q_AN=0; q_AN<=FNAN[Gc_AN]; q_AN++){
+
+	Gq_AN = natn[Gc_AN][q_AN];
+	Mq_AN = F_G2M[Gq_AN];
+
+	if (Mq_AN<=Matomnum){
+
+	  Qwan = WhatSpecies[Gq_AN];
+	  jan = Spe_Total_CNO[Qwan];
+	  kl = RMI1[Mc_AN][h_AN][q_AN];
+
+          dHNL(0,Mc_AN,h_AN,q_AN,DS_NL,Hx0,Hy0,Hz0);
+
+	  if (SpinP_switch==0){
+
+            if (q_AN==h_AN) pref = 2.0;
+            else            pref = 4.0; 
+
+	    for (i=0; i<ian; i++){
+	      for (j=0; j<jan; j++){
+
+		dEx += pref*CDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].r;
+		dEy += pref*CDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].r;
+		dEz += pref*CDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].r;
+	      }
+	    }
+	  }
+
+          /* collinear spin polarized or non-colliear without SO and LDA+U */
+
+	  else if (SpinP_switch==1 || (SpinP_switch==3 && SO_switch==0 && Hub_U_switch==0
+	        && Constraint_NCS_switch==0 && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0)){ 
+
+	    if (q_AN==h_AN) pref = 1.0;
+	    else            pref = 2.0; 
+
+	    for (i=0; i<ian; i++){
+	      for (j=0; j<jan; j++){
+
+		dEx += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].r
+			     + CDM0[1][Mh_AN][kl][i][j]*Hx0[1][i][j].r);
+		dEy += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].r
+			     + CDM0[1][Mh_AN][kl][i][j]*Hy0[1][i][j].r);
+		dEz += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].r
+			     + CDM0[1][Mh_AN][kl][i][j]*Hz0[1][i][j].r);
+	      }
+	    }
+	  }
+
+	  /* spin non-collinear with spin-orbit coupling or with LDA+U */
+
+	  else if ( SpinP_switch==3 && (SO_switch==1 || (Hub_U_switch==1 && F_U_flag==1) 
+		|| Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)){
+
+            if (q_AN==h_AN){
+
+	      for (i=0; i<Spe_Total_CNO[Hwan]; i++){
+		for (j=0; j<Spe_Total_CNO[Qwan]; j++){
+
+		  dEx += 
+                      CDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].r
+		    - iDM0[0][Mh_AN][kl][i][j]*Hx0[0][i][j].i
+		    + CDM0[1][Mh_AN][kl][i][j]*Hx0[1][i][j].r
+		    - iDM0[1][Mh_AN][kl][i][j]*Hx0[1][i][j].i
+	        + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hx0[2][i][j].r
+		- 2.0*CDM0[3][Mh_AN][kl][i][j]*Hx0[2][i][j].i;
+
+		  dEy += 
+                      CDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].r
+		    - iDM0[0][Mh_AN][kl][i][j]*Hy0[0][i][j].i
+		    + CDM0[1][Mh_AN][kl][i][j]*Hy0[1][i][j].r
+		    - iDM0[1][Mh_AN][kl][i][j]*Hy0[1][i][j].i
+		+ 2.0*CDM0[2][Mh_AN][kl][i][j]*Hy0[2][i][j].r
+	        - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hy0[2][i][j].i; 
+
+		  dEz +=
+                      CDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].r
+		    - iDM0[0][Mh_AN][kl][i][j]*Hz0[0][i][j].i
+		    + CDM0[1][Mh_AN][kl][i][j]*Hz0[1][i][j].r
+		    - iDM0[1][Mh_AN][kl][i][j]*Hz0[1][i][j].i
+	        + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hz0[2][i][j].r
+		- 2.0*CDM0[3][Mh_AN][kl][i][j]*Hz0[2][i][j].i;
+
+		}
+	      }
+            }
+
+            else{
+
+              for (i=0; i<Spe_Total_CNO[Hwan]; i++){  /* Hwan */
+		for (j=0; j<Spe_Total_CNO[Qwan]; j++){ /* Qwan  */
+
+		  dEx += 
+                      CDM0[0][Mh_AN][kl ][i][j]*Hx0[0][i][j].r
+		    - iDM0[0][Mh_AN][kl ][i][j]*Hx0[0][i][j].i
+		    + CDM0[1][Mh_AN][kl ][i][j]*Hx0[1][i][j].r
+		    - iDM0[1][Mh_AN][kl ][i][j]*Hx0[1][i][j].i
+		+ 2.0*CDM0[2][Mh_AN][kl ][i][j]*Hx0[2][i][j].r
+                - 2.0*CDM0[3][Mh_AN][kl ][i][j]*Hx0[2][i][j].i;
+
+		  dEy += 
+                      CDM0[0][Mh_AN][kl ][i][j]*Hy0[0][i][j].r
+		    - iDM0[0][Mh_AN][kl ][i][j]*Hy0[0][i][j].i
+		    + CDM0[1][Mh_AN][kl ][i][j]*Hy0[1][i][j].r
+		    - iDM0[1][Mh_AN][kl ][i][j]*Hy0[1][i][j].i
+		+ 2.0*CDM0[2][Mh_AN][kl ][i][j]*Hy0[2][i][j].r
+                - 2.0*CDM0[3][Mh_AN][kl ][i][j]*Hy0[2][i][j].i; 
+
+		  dEz +=
+                      CDM0[0][Mh_AN][kl ][i][j]*Hz0[0][i][j].r
+		    - iDM0[0][Mh_AN][kl ][i][j]*Hz0[0][i][j].i
+		    + CDM0[1][Mh_AN][kl ][i][j]*Hz0[1][i][j].r
+		    - iDM0[1][Mh_AN][kl ][i][j]*Hz0[1][i][j].i
+	        + 2.0*CDM0[2][Mh_AN][kl ][i][j]*Hz0[2][i][j].r
+                - 2.0*CDM0[3][Mh_AN][kl ][i][j]*Hz0[2][i][j].i;
+
+		} /* j */
+	      } /* i */
+
+              dHNL(0,Mc_AN,q_AN,h_AN,DS_NL,Hx1,Hy1,Hz1);
+       	      kl1 = RMI1[Mc_AN][q_AN][h_AN];
+
+	      for (i=0; i<Spe_Total_CNO[Qwan]; i++){ /* Qwan */
+		for (j=0; j<Spe_Total_CNO[Hwan]; j++){ /* Hwan */
+
+		  dEx += 
+		      CDM0[0][Mq_AN][kl1][i][j]*Hx1[0][i][j].r
+		    - iDM0[0][Mq_AN][kl1][i][j]*Hx1[0][i][j].i
+		    + CDM0[1][Mq_AN][kl1][i][j]*Hx1[1][i][j].r
+		    - iDM0[1][Mq_AN][kl1][i][j]*Hx1[1][i][j].i
+		+ 2.0*CDM0[2][Mq_AN][kl1][i][j]*Hx1[2][i][j].r
+		- 2.0*CDM0[3][Mq_AN][kl1][i][j]*Hx1[2][i][j].i;
+
+		  dEy += 
+                      CDM0[0][Mq_AN][kl1][i][j]*Hy1[0][i][j].r
+		    - iDM0[0][Mq_AN][kl1][i][j]*Hy1[0][i][j].i
+		    + CDM0[1][Mq_AN][kl1][i][j]*Hy1[1][i][j].r
+		    - iDM0[1][Mq_AN][kl1][i][j]*Hy1[1][i][j].i
+	        + 2.0*CDM0[2][Mq_AN][kl1][i][j]*Hy1[2][i][j].r
+	        - 2.0*CDM0[3][Mq_AN][kl1][i][j]*Hy1[2][i][j].i; 
+
+		  dEz +=
+                      CDM0[0][Mq_AN][kl1][i][j]*Hz1[0][i][j].r
+		    - iDM0[0][Mq_AN][kl1][i][j]*Hz1[0][i][j].i
+		    + CDM0[1][Mq_AN][kl1][i][j]*Hz1[1][i][j].r
+		    - iDM0[1][Mq_AN][kl1][i][j]*Hz1[1][i][j].i
+	        + 2.0*CDM0[2][Mq_AN][kl1][i][j]*Hz1[2][i][j].r
+		- 2.0*CDM0[3][Mq_AN][kl1][i][j]*Hz1[2][i][j].i;
+
+		} /* j */
+	      } /* i */
+
+	    } 
+	  }
+	}
+      }
+
+      /* force from #4B */
+
+      Gxyz[Gc_AN][41] += dEx;
+      Gxyz[Gc_AN][42] += dEy;
+      Gxyz[Gc_AN][43] += dEz;
+
+      /* timing */
+      dtime(&Etime_atom);
+      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+    } /* Mc_AN */
+
+    /* freeing of array */
+
+    for (i=0; i<3; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	free(Hx0[i][j]);
+      }
+      free(Hx0[i]);
+    }
+    free(Hx0);
+
+    for (i=0; i<3; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	free(Hy0[i][j]);
+      }
+      free(Hy0[i]);
+    }
+    free(Hy0);
+
+    for (i=0; i<3; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	free(Hz0[i][j]);
+      }
+      free(Hz0[i]);
+    }
+    free(Hz0);
+
+    for (i=0; i<3; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	free(Hx1[i][j]);
+      }
+      free(Hx1[i]);
+    }
+    free(Hx1);
+
+    for (i=0; i<3; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	free(Hy1[i][j]);
+      }
+      free(Hy1[i]);
+    }
+    free(Hy1);
+
+    for (i=0; i<3; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	free(Hz1[i][j]);
+      }
+      free(Hz1[i]);
+    }
+    free(Hz1);
+
+  } /* #pragma omp parallel */
+
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part2 of force_NL=%18.5f\n",etime-stime);fflush(stdout);
+  } 
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+
+    if (2<=level_stdout){
+      printf("<Force>  force(HNL2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+	     myid,Mc_AN,Gc_AN,Gxyz[Gc_AN][41],Gxyz[Gc_AN][42],Gxyz[Gc_AN][43]);fflush(stdout);
+    }
+  }
+
+  /*************************************************************
+     THE SECOND CASE:
+     In case of I=k with I!=i and I!=j
+     d [ \sum_k <i|k>ek<k|j> ]/dRI  
+  *************************************************************/
+
+  /************************************************************ 
+     MPI communication of DS_NL whose basis part is not located 
+     on own site but projector part is located on own site. 
+  ************************************************************/
+
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&stime);
+
+  for (ID=0; ID<numprocs; ID++) Indicator[ID] = 0;
+
+  for (Mc_AN=1; Mc_AN<=Max_Matomnum; Mc_AN++){
+
+    if (Mc_AN<=Matomnum)  Gc_AN = M2G[Mc_AN];
+    else                  Gc_AN = 0;
+
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      i = Indicator[IDS]; 
+      po = 0;
+
+      Gh_AN = Pro_Snd_GAtom[IDS][i]; 
+
+      if (Gh_AN!=0){
+
+	/* find the range with the same global atomic number */
+
+	do {
+
+	  i++;
+	  if (Gh_AN!=Pro_Snd_GAtom[IDS][i]) po = 1;
+	} while(po==0);
+
+	i--;
+	SA_num = i - Indicator[IDS] + 1;
+
+	/* find the data size to send the block data */
+
+	size1 = 0;
+	for (q=Indicator[IDS]; q<=(Indicator[IDS]+SA_num-1); q++){
+
+	  Sc_AN = Pro_Snd_MAtom[IDS][q]; 
+	  GSc_AN = F_M2G[Sc_AN];
+	  Sc_wan = WhatSpecies[GSc_AN];
+	  tno1 = Spe_Total_CNO[Sc_wan];
+
+	  Sh_AN = Pro_Snd_LAtom[IDS][q]; 
+	  GSh_AN = natn[GSc_AN][Sh_AN];
+	  Sh_wan = WhatSpecies[GSh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Sh_wan];
+          smul = (VPS_j_dependency[Sh_wan]+1);
+
+	  size1 += smul*4*tno1*tno2;
+	  size1 += 3;
+	}
+
+      } /* if (Gh_AN!=0) */
+
+      else {
+	SA_num = 0;
+	size1 = 0;
+      }
+        
+      S_array[IDS][0] = Gh_AN;
+      S_array[IDS][1] = SA_num;
+      S_array[IDS][2] = size1;
+
+      if (ID!=0){
+	MPI_Isend(&S_array[IDS][0], 3, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+	MPI_Recv( &R_array[IDR][0], 3, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+	MPI_Wait(&request,&stat);
+      }
+      else {
+	R_array[myid][0] = S_array[myid][0];
+	R_array[myid][1] = S_array[myid][1];
+	R_array[myid][2] = S_array[myid][2];
+      }
+
+      if (R_array[IDR][0]==Gc_AN) R_comm_flag = 1;
+      else                        R_comm_flag = 0;
+
+      if (ID!=0){
+	MPI_Isend(&R_comm_flag, 1, MPI_INT, IDR, tag, mpi_comm_level1, &request);
+	MPI_Recv( &S_comm_flag, 1, MPI_INT, IDS, tag, mpi_comm_level1, &stat);
+	MPI_Wait(&request,&stat);
+      }
+      else{
+	S_comm_flag = R_comm_flag;
+      }
+
+      /*****************************************
+                       send the data
+      *****************************************/
+        
+      /* if (S_comm_flag==1) then, send data to IDS */
+         
+      if (S_comm_flag==1){
+
+	/* allocate tmp_array */
+
+	tmp_array = (double*)malloc(sizeof(double)*size1);
+
+	/* multidimentional array to vector array */
+
+	num = 0;
+
+	for (q=Indicator[IDS]; q<=(Indicator[IDS]+SA_num-1); q++){
+
+	  Sc_AN = Pro_Snd_MAtom[IDS][q]; 
+	  GSc_AN = F_M2G[Sc_AN];
+	  Sc_wan = WhatSpecies[GSc_AN];
+	  tno1 = Spe_Total_CNO[Sc_wan];
+
+	  Sh_AN = Pro_Snd_LAtom[IDS][q]; 
+	  GSh_AN = natn[GSc_AN][Sh_AN];
+	  Sh_wan = WhatSpecies[GSh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Sh_wan];
+	  Sh_AN2 = Pro_Snd_LAtom2[IDS][q]; 
+
+	  tmp_array[num] = (double)Sc_AN;  num++;
+	  tmp_array[num] = (double)Sh_AN;  num++; 
+	  tmp_array[num] = (double)Sh_AN2; num++; 
+
+	  for (so=0; so<=VPS_j_dependency[Sh_wan]; so++){
+	    for (kk=0; kk<=3; kk++){
+	      for (i=0; i<tno1; i++){
+		for (j=0; j<tno2; j++){
+		  tmp_array[num] = DS_NL[so][kk][Sc_AN][Sh_AN][i][j];
+		  num++;
+		}
+	      }
+	    }
+	  }
+	}
+
+	if (ID!=0){
+	  MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+	}
+
+	/* update Indicator[IDS] */
+
+	Indicator[IDS] += SA_num;
+
+      } /* if (S_comm_flag==1) */ 
+
+        /*****************************************
+                     receive the data
+	*****************************************/
+
+        /* if (R_comm_flag==1) then, receive the data from IDR */
+
+      if (R_comm_flag==1){
+
+	size2 = R_array[IDR][2]; 
+	tmp_array2 = (double*)malloc(sizeof(double)*size2);
+
+	if (ID!=0){
+	  MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
+	}
+	else{
+	  for (i=0; i<size2; i++) tmp_array2[i] = tmp_array[i];
+	}
+
+	/* store */
+
+	num = 0;
+
+	for (n=0; n<R_array[IDR][1]; n++){
+            
+	  Sc_AN  = (int)tmp_array2[num]; num++;
+	  Sh_AN  = (int)tmp_array2[num]; num++;
+	  Sh_AN2 = (int)tmp_array2[num]; num++;
+
+	  GSc_AN = natn[Gc_AN][Sh_AN2]; 
+	  Sc_wan = WhatSpecies[GSc_AN]; 
+	  tno1 = Spe_Total_CNO[Sc_wan];
+
+	  GSh_AN = natn[GSc_AN][Sh_AN];
+	  Sh_wan = WhatSpecies[GSh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Sh_wan];
+
+	  for (so=0; so<=VPS_j_dependency[Sh_wan]; so++){
+	    for (kk=0; kk<=3; kk++){
+	      for (i=0; i<tno1; i++){
+		for (j=0; j<tno2; j++){
+		  DS_NL[so][kk][Matomnum+1][Sh_AN2][i][j] = tmp_array2[num];
+		  num++;
+		}
+	      }
+	    }
+	  }
+	}
+      
+	/* free tmp_array2 */
+	free(tmp_array2);
+ 
+      } /* if (R_comm_flag==1) */
+
+      if (S_comm_flag==1){
+	if (ID!=0) MPI_Wait(&request,&stat);
+	free(tmp_array);  /* freeing of array */
+      }
+      
+    } /* ID */
+
+    if (Mc_AN<=Matomnum){ 
+
+      /* get Nthrds0 */  
+#pragma omp parallel shared(Nthrds0)
+      {
+	Nthrds0 = omp_get_num_threads();
+      }
+
+      /* allocation of arrays */
+      dEx_threads = (double*)malloc(sizeof(double)*Nthrds0);
+      dEy_threads = (double*)malloc(sizeof(double)*Nthrds0);
+      dEz_threads = (double*)malloc(sizeof(double)*Nthrds0);
+
+      for (Nloop=0; Nloop<Nthrds0; Nloop++){
+	dEx_threads[Nloop] = 0.0;
+	dEy_threads[Nloop] = 0.0;
+	dEz_threads[Nloop] = 0.0;
+      }
+
+      /* one-dimensionalize the h_AN and q_AN loops */ 
+
+      OneD2h_AN = (int*)malloc(sizeof(int)*(FNAN[Gc_AN]+1)*(FNAN[Gc_AN]+2));
+      OneD2q_AN = (int*)malloc(sizeof(int)*(FNAN[Gc_AN]+1)*(FNAN[Gc_AN]+2));
+
+      ODNloop = 0;
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	if ( SpinP_switch==3 && (SO_switch==1 || (Hub_U_switch==1 && F_U_flag==1)
+	 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) )
+	  start_q_AN = 0;
+	else
+	  start_q_AN = h_AN;
+
+	for (q_AN=start_q_AN; q_AN<=FNAN[Gc_AN]; q_AN++){
+
+	  kl = RMI1[Mc_AN][h_AN][q_AN];
+
+	  if (0<=kl){
+	    OneD2h_AN[ODNloop] = h_AN;
+	    OneD2q_AN[ODNloop] = q_AN; 
+	    ODNloop++;      
+	  }
+	}
+      }
+
+#pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,SO_switch,Hub_U_switch,Constraint_NCS_switch,Zeeman_NCS_switch,Zeeman_NCO_switch,DS_NL,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO) private(OMPID,Nthrds,Nprocs,Hx,Hy,Hz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref)
+      {
+          
+	/* allocation of arrays */
+
+	Hx = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+	for (i=0; i<3; i++){
+	  Hx[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    Hx[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+	  }
+	}
+
+	Hy = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+	for (i=0; i<3; i++){
+	  Hy[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    Hy[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+	  }
+	}
+
+	Hz = (dcomplex***)malloc(sizeof(dcomplex**)*3);
+	for (i=0; i<3; i++){
+	  Hz[i] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    Hz[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]);
+	  }
+	}
+
+	/* get info. on OpenMP */ 
+          
+	OMPID = omp_get_thread_num();
+	Nthrds = omp_get_num_threads();
+	Nprocs = omp_get_num_procs();
+
+	for (Nloop=OMPID*ODNloop/Nthrds; Nloop<(OMPID+1)*ODNloop/Nthrds; Nloop++){
+
+	  /* get h_AN and q_AN */
+
+	  h_AN = OneD2h_AN[Nloop];
+	  q_AN = OneD2q_AN[Nloop];
+
+	  /* set informations on h_AN */
+
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Mh_AN = F_G2M[Gh_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  ian = Spe_Total_CNO[Hwan];
+
+	  /* set informations on q_AN */
+
+	  Gq_AN = natn[Gc_AN][q_AN];
+	  Mq_AN = F_G2M[Gq_AN];
+	  Qwan = WhatSpecies[Gq_AN];
+	  jan = Spe_Total_CNO[Qwan];
+	  kl = RMI1[Mc_AN][h_AN][q_AN];
+
+	  if (0<=kl){
+
+            dHNL(1,Mc_AN,h_AN,q_AN,DS_NL,Hx,Hy,Hz);
+
+	    /* contribution of force = Trace(CDM0*dH) */
+
+	    /* spin non-polarization */
+
+	    if (SpinP_switch==0){
+
+              if (q_AN==h_AN) pref = 2.0;
+              else            pref = 4.0; 
+
+	      for (i=0; i<ian; i++){
+		for (j=0; j<jan; j++){
+
+		  dEx_threads[OMPID] += pref*CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r;
+		  dEy_threads[OMPID] += pref*CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r;
+		  dEz_threads[OMPID] += pref*CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r;
+		}
+	      }
+	    }
+
+            /* collinear spin polarized or non-colliear without SO and LDA+U */
+
+	    else if (SpinP_switch==1 || (SpinP_switch==3 && SO_switch==0 && Hub_U_switch==0
+	          && Constraint_NCS_switch==0 && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0)){ 
+
+	      if (q_AN==h_AN) pref = 1.0;
+	      else            pref = 2.0; 
+
+	      for (i=0; i<ian; i++){
+		for (j=0; j<jan; j++){
+
+		  dEx_threads[OMPID] += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r
+					      + CDM0[1][Mh_AN][kl][i][j]*Hx[1][i][j].r);
+		  dEy_threads[OMPID] += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r
+					      + CDM0[1][Mh_AN][kl][i][j]*Hy[1][i][j].r);
+		  dEz_threads[OMPID] += pref*(  CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r
+					      + CDM0[1][Mh_AN][kl][i][j]*Hz[1][i][j].r);
+
+		}
+	      }
+	    }
+
+	    /* spin non-collinear with spin-orbit coupling or with LDA+U */
+
+	    else if ( SpinP_switch==3 && (SO_switch==1 || (Hub_U_switch==1 && F_U_flag==1) 
+ 		   || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1)){
+
+	      /*
+	      if (q_AN==h_AN) pref = 1.0;
+	      else            pref = 2.0; 
+	      */
+
+	      pref = 1.0; 
+
+	      for (i=0; i<ian; i++){
+	        for (j=0; j<jan; j++){
+
+		  dEx_threads[OMPID] += 
+	        pref*(CDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].r
+		    - iDM0[0][Mh_AN][kl][i][j]*Hx[0][i][j].i
+		    + CDM0[1][Mh_AN][kl][i][j]*Hx[1][i][j].r
+		    - iDM0[1][Mh_AN][kl][i][j]*Hx[1][i][j].i
+ 	        + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hx[2][i][j].r
+	        - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hx[2][i][j].i);
+
+		  dEy_threads[OMPID] += 
+		pref*(CDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].r
+	            - iDM0[0][Mh_AN][kl][i][j]*Hy[0][i][j].i
+		    + CDM0[1][Mh_AN][kl][i][j]*Hy[1][i][j].r
+		    - iDM0[1][Mh_AN][kl][i][j]*Hy[1][i][j].i
+	        + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hy[2][i][j].r
+	        - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hy[2][i][j].i); 
+
+		  dEz_threads[OMPID] +=
+		pref*(CDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].r
+		    - iDM0[0][Mh_AN][kl][i][j]*Hz[0][i][j].i
+		    + CDM0[1][Mh_AN][kl][i][j]*Hz[1][i][j].r
+		    - iDM0[1][Mh_AN][kl][i][j]*Hz[1][i][j].i
+	        + 2.0*CDM0[2][Mh_AN][kl][i][j]*Hz[2][i][j].r
+	        - 2.0*CDM0[3][Mh_AN][kl][i][j]*Hz[2][i][j].i); 
+
+		}
+	      }
+	    }
+
+	  } /* if (0<=kl) */
+	} /* Nloop */
+
+        /* freeing of arrays */
+
+	for (i=0; i<3; i++){
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    free(Hx[i][j]);
+	  }
+	  free(Hx[i]);
+	}
+	free(Hx);
+
+	for (i=0; i<3; i++){
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    free(Hy[i][j]);
+	  }
+	  free(Hy[i]);
+	}
+	free(Hy);
+
+	for (i=0; i<3; i++){
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    free(Hz[i][j]);
+	  }
+	  free(Hz[i]);
+	}
+	free(Hz);
+
+      } /* #pragma omp parallel */
+
+      /* sum of dEx_threads */
+
+      dEx = 0.0;
+      dEy = 0.0;
+      dEz = 0.0;
+
+      for (Nloop=0; Nloop<Nthrds0; Nloop++){
+	dEx += dEx_threads[Nloop];
+	dEy += dEy_threads[Nloop];
+	dEz += dEz_threads[Nloop];
+      }
+
+      /* force from #4B */
+
+      Gxyz[Gc_AN][41] += dEx;
+      Gxyz[Gc_AN][42] += dEy;
+      Gxyz[Gc_AN][43] += dEz;
+
+      if (2<=level_stdout){
+        printf("<Force>  force(HNL3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+	       myid,Mc_AN,Gc_AN,dEx,dEy,dEz);fflush(stdout);
+      }
+
+      /* freeing of array */
+      free(OneD2q_AN);
+      free(OneD2h_AN);
+      free(dEx_threads);
+      free(dEy_threads);
+      free(dEz_threads);
+
+    } /* if (Mc_AN<=Matomnum) */
+
+  } /* Mc_AN */
+
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part3 of force_NL=%18.5f\n",etime-stime);fflush(stdout);
+  } 
+
+  /********************************************************
+    adding Gxyz[Gc_AN][41,42,43] to Gxyz[Gc_AN][17,18,19]
+  ********************************************************/
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+
+    if (2<=level_stdout){
+      printf("<Force>  force(HNL) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+	     myid,Mc_AN,Gc_AN,Gxyz[Gc_AN][41],Gxyz[Gc_AN][42],Gxyz[Gc_AN][43]);fflush(stdout);
+    }
+
+    Gxyz[Gc_AN][17] += Gxyz[Gc_AN][41];
+    Gxyz[Gc_AN][18] += Gxyz[Gc_AN][42];
+    Gxyz[Gc_AN][19] += Gxyz[Gc_AN][43];
+  }
+
+  /***********************************
+            freeing of arrays 
+  ************************************/
+
+  free(Indicator);
+
+  for (ID=0; ID<numprocs; ID++){
+    free(S_array[ID]);
+  }
+  free(S_array);
+
+  for (ID=0; ID<numprocs; ID++){
+    free(R_array[ID]);
+  }
+  free(R_array);
+
+  free(Snd_DS_NL_Size);
+  free(Rcv_DS_NL_Size);
+}
+
+
+
+
 
 void Force4B(double *****CDM0)
 {
@@ -2648,7 +4537,7 @@ void Force4B(double *****CDM0)
   double rcutA,rcutB,rcut;
   double dEx,dEy,dEz,ene;
   double Stime_atom, Etime_atom;
-  double **HVNAx;
+  double **HVNAx,**HVNAy,**HVNAz;
   int *VNA_List;
   int *VNA_List2;
   int *Snd_DS_VNA_Size,*Rcv_DS_VNA_Size;  
@@ -2660,6 +4549,8 @@ void Force4B(double *****CDM0)
   int OMPID,Nthrds,Nthrds0,Nprocs,Nloop,ODNloop;
   int *OneD2h_AN,*OneD2q_AN;
   double *dEx_threads;
+  double *dEy_threads;
+  double *dEz_threads;
   double stime,etime;
   double stime1,etime1;
 
@@ -2719,7 +4610,9 @@ void Force4B(double *****CDM0)
     Cont_Matrix3(HVNA2[2],CntHVNA2[2]);
     Cont_Matrix3(HVNA2[3],CntHVNA2[3]);
 
-    MPI_CntHVNA2();
+    Cont_Matrix4(HVNA3[1],CntHVNA3[1]);
+    Cont_Matrix4(HVNA3[2],CntHVNA3[2]);
+    Cont_Matrix4(HVNA3[3],CntHVNA3[3]);
   }
 
   /*************************************************************
@@ -2777,27 +4670,22 @@ void Force4B(double *****CDM0)
   }
 
   /*****************************************************
-    a loop for k
+     (1) pre-multiplying DS_VNA[kk] with ene
+     (2) copy DS_VNA[kk] or CntDS_VNA[kk] into DS_VNA[kk]
   *****************************************************/
 
-  for (kk=1; kk<=3; kk++){
+  dtime(&stime);
 
-    /*****************************************************
-     (1) pre-multiplying DS_VNA[kk] with ene
-     (2) copy DS_VNA[kk] or CntDS_VNA[kk] into DS_VNA[1]
-    *****************************************************/
+#pragma omp parallel shared(CntDS_VNA,DS_VNA,Cnt_switch,VNA_proj_ene,VNA_List2,VNA_List,Num_RVNA,natn,FNAN,Spe_Total_CNO,WhatSpecies,F_M2G,Matomnum) private(kk,OMPID,Nthrds,Nprocs,Gc_AN,Cwan,tno0,Mc_AN,h_AN,Gh_AN,Hwan,i,l,l1,LL,Mul1,ene,l2,l3)
+  {
 
-     dtime(&stime);
+    /* get info. on OpenMP */ 
 
-#pragma omp parallel shared(kk,CntDS_VNA,DS_VNA,Cnt_switch,VNA_proj_ene,VNA_List2,VNA_List,Num_RVNA,natn,FNAN,Spe_Total_CNO,WhatSpecies,F_M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Gc_AN,Cwan,tno0,Mc_AN,h_AN,Gh_AN,Hwan,i,l,l1,LL,Mul1,ene,l2,l3)
-    {
+    OMPID = omp_get_thread_num();
+    Nthrds = omp_get_num_threads();
+    Nprocs = omp_get_num_procs();
 
-      /* get info. on OpenMP */ 
-
-      OMPID = omp_get_thread_num();
-      Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-
+    for (kk=1; kk<=3; kk++){
       for (Mc_AN=(OMPID*Matomnum/Nthrds+1); Mc_AN<((OMPID+1)*Matomnum/Nthrds+1); Mc_AN++){
 
 	Gc_AN = F_M2G[Mc_AN];
@@ -2822,14 +4710,14 @@ void Force4B(double *****CDM0)
 
 	      if (Cnt_switch==0){
 		for (l3=0; l3<=l2; l3++){
-		  DS_VNA[1][Mc_AN][h_AN][i][l] = ene*DS_VNA[kk][Mc_AN][h_AN][i][l];
+		  DS_VNA[kk][Mc_AN][h_AN][i][l] = ene*DS_VNA[kk][Mc_AN][h_AN][i][l];
 		  l++;
 		}
 	      }
  
 	      else{
 		for (l3=0; l3<=l2; l3++){
-		  DS_VNA[1][Mc_AN][h_AN][i][l] = ene*CntDS_VNA[kk][Mc_AN][h_AN][i][l];
+		  DS_VNA[kk][Mc_AN][h_AN][i][l] = ene*CntDS_VNA[kk][Mc_AN][h_AN][i][l];
 		  l++;
 		}
 	      }
@@ -2838,397 +4726,845 @@ void Force4B(double *****CDM0)
 
 	} /* h_AN */
       } /* Mc_AN */
+    } /* kk */
 
-    } /* #pragma omp parallel */
+  } /* #pragma omp parallel */
 
-    dtime(&etime);
-    if(myid==0 && measure_time){
-      printf("Time for part2 of force#4=%18.5f\n",etime-stime);fflush(stdout);
-    } 
-    
-    /*****************************************}********************** 
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part2 of force#4=%18.5f\n",etime-stime);fflush(stdout);
+  } 
+
+  /*****************************************}********************** 
       THE FIRST CASE:
       In case of I=i or I=j 
       for d [ \sum_k <i|k>ek<k|j> ]/dRI  
-    ****************************************************************/
+  ****************************************************************/
 
-    /*******************************************************
-     *******************************************************
-       multiplying overlap integrals WITH COMMUNICATION
-    *******************************************************
-    *******************************************************/
+  /*******************************************************
+   *******************************************************
+      multiplying overlap integrals WITH COMMUNICATION
+   *******************************************************
+   *******************************************************/
 
-    MPI_Barrier(mpi_comm_level1);
-    dtime(&stime);
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&stime);
+
+  for (ID=0; ID<numprocs; ID++){
+    F_Snd_Num_WK[ID] = 0;
+    F_Rcv_Num_WK[ID] = 0;
+  }
+
+  do {
+
+    /***********************************
+             set the size of data
+    ************************************/
 
     for (ID=0; ID<numprocs; ID++){
-      F_Snd_Num_WK[ID] = 0;
-      F_Rcv_Num_WK[ID] = 0;
-    }
 
-    do {
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
 
-      /***********************************
-             set the size of data
-      ************************************/
+      /* find the data size to send the block data */
 
-      for (ID=0; ID<numprocs; ID++){
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
 
-	IDS = (myid + ID) % numprocs;
-	IDR = (myid - ID + numprocs) % numprocs;
+	size1 = 0;
+	n = F_Snd_Num_WK[IDS];
 
-	/* find the data size to send the block data */
-
-	if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
-
-	  size1 = 0;
-	  n = F_Snd_Num_WK[IDS];
-
-	  Mc_AN = Snd_MAN[IDS][n];
-	  Gc_AN = Snd_GAN[IDS][n];
-	  Cwan = WhatSpecies[Gc_AN]; 
-	  tno1 = Spe_Total_NO[Cwan];
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	    Gh_AN = natn[Gc_AN][h_AN];        
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
-	    size1 += tno1*tno2; 
-	  }
+	Mc_AN = Snd_MAN[IDS][n];
+	Gc_AN = Snd_GAN[IDS][n];
+	Cwan = WhatSpecies[Gc_AN]; 
+	tno1 = Spe_Total_NO[Cwan];
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];        
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
+	  size1 += tno1*tno2; 
+	}
  
-	  Snd_DS_VNA_Size[IDS] = size1;
-	  MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-	}
-	else{
-	  Snd_DS_VNA_Size[IDS] = 0;
-	}
+	Snd_DS_VNA_Size[IDS] = size1;
+	MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+      }
+      else{
+	Snd_DS_VNA_Size[IDS] = 0;
+      }
 
-	/* receiving of the size of the data */
+      /* receiving of the size of the data */
 
-	if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
-	  MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-	  Rcv_DS_VNA_Size[IDR] = size2;
-	}
-	else{
-	  Rcv_DS_VNA_Size[IDR] = 0;
-	}
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
+	MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+	Rcv_DS_VNA_Size[IDR] = size2;
+      }
+      else{
+	Rcv_DS_VNA_Size[IDR] = 0;
+      }
 
-	if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) )  MPI_Wait(&request,&stat);
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) )  MPI_Wait(&request,&stat);
 
-      } /* ID */
+    } /* ID */
 
       /***********************************
                 data transfer
       ************************************/
 
-      for (ID=0; ID<numprocs; ID++){
+    for (ID=0; ID<numprocs; ID++){
 
-	IDS = (myid + ID) % numprocs;
-	IDR = (myid - ID + numprocs) % numprocs;
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
 
-	/******************************
+      /******************************
              sending of the data 
-	******************************/
+      ******************************/
 
-	if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
 
-	  size1 = Snd_DS_VNA_Size[IDS];
+	size1 = Snd_DS_VNA_Size[IDS];
 
-	  /* allocation of the array */
+	/* allocation of the array */
 
-	  tmp_array = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size1);
+	tmp_array = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size1);
 
-	  /* multidimentional array to the vector array */
+	/* multidimentional array to the vector array */
 
-	  num = 0;
-	  n = F_Snd_Num_WK[IDS];
+	num = 0;
+	n = F_Snd_Num_WK[IDS];
 
-	  Mc_AN = Snd_MAN[IDS][n];
-	  Gc_AN = Snd_GAN[IDS][n];
-	  Cwan = WhatSpecies[Gc_AN]; 
-	  tno1 = Spe_Total_NO[Cwan];
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	    Gh_AN = natn[Gc_AN][h_AN];        
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
+	Mc_AN = Snd_MAN[IDS][n];
+	Gc_AN = Snd_GAN[IDS][n];
+	Cwan = WhatSpecies[Gc_AN]; 
+	tno1 = Spe_Total_NO[Cwan];
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];        
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
 
-	    for (i=0; i<tno1; i++){
-	      for (j=0; j<tno2; j++){
-		tmp_array[num] = DS_VNA[0][Mc_AN][h_AN][i][j];
-		num++;
-	      } 
+	  for (i=0; i<tno1; i++){
+	    for (j=0; j<tno2; j++){
+	      tmp_array[num] = DS_VNA[0][Mc_AN][h_AN][i][j];
+	      num++;
 	    } 
-	  }
-
-	  MPI_Isend(&tmp_array[0], size1, MPI_Type_DS_VNA, IDS, tag, mpi_comm_level1, &request);
+	  } 
 	}
 
-	/******************************
+	MPI_Isend(&tmp_array[0], size1, MPI_Type_DS_VNA, IDS, tag, mpi_comm_level1, &request);
+      }
+
+      /******************************
           receiving of the block data
-	******************************/
+      ******************************/
 
-	if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
         
-	  size2 = Rcv_DS_VNA_Size[IDR];
-	  tmp_array2 = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size2);
-	  MPI_Recv(&tmp_array2[0], size2, MPI_Type_DS_VNA, IDR, tag, mpi_comm_level1, &stat);
+	size2 = Rcv_DS_VNA_Size[IDR];
+	tmp_array2 = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size2);
+	MPI_Recv(&tmp_array2[0], size2, MPI_Type_DS_VNA, IDR, tag, mpi_comm_level1, &stat);
 
-	  /* store */
+	/* store */
 
-	  num = 0;
-	  n = F_Rcv_Num_WK[IDR];
-	  Original_Mc_AN = F_TopMAN[IDR] + n;
-	  Gc_AN = Rcv_GAN[IDR][n];
-	  Cwan = WhatSpecies[Gc_AN];
-	  tno1 = Spe_Total_NO[Cwan];
+	num = 0;
+	n = F_Rcv_Num_WK[IDR];
+	Original_Mc_AN = F_TopMAN[IDR] + n;
+	Gc_AN = Rcv_GAN[IDR][n];
+	Cwan = WhatSpecies[Gc_AN];
+	tno1 = Spe_Total_NO[Cwan];
 
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
 
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
 
-	    for (i=0; i<tno1; i++){
-	      for (j=0; j<tno2; j++){
-		DS_VNA[0][Matomnum+1][h_AN][i][j] = tmp_array2[num];
-		num++;
-	      }
+	  for (i=0; i<tno1; i++){
+	    for (j=0; j<tno2; j++){
+	      DS_VNA[0][Matomnum+1][h_AN][i][j] = tmp_array2[num];
+	      num++;
 	    }
 	  }
+	}
 
-	  /* free tmp_array2 */
-	  free(tmp_array2);
+	/* free tmp_array2 */
+	free(tmp_array2);
 
-	  /*****************************************
+	/*****************************************
                multiplying overlap integrals
-	  *****************************************/
+	*****************************************/
 
-#pragma omp parallel shared(List_YOUSO,time_per_atom,Gxyz,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,kk,Cnt_switch,RMI1,Original_Mc_AN,IDR,Rcv_GAN,F_Rcv_Num_WK,Spe_Total_CNO,F_G2M,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Stime_atom,Etime_atom,dEx,Gc_AN,Mc_AN,Cwan,fan,h_AN,Gh_AN,Mh_AN,Hwan,ian,n,jg,j0,jg0,Mj_AN0,po2,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,HVNAx,i,j)
-	  {
+#pragma omp parallel shared(List_YOUSO,time_per_atom,Gxyz,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Original_Mc_AN,IDR,Rcv_GAN,F_Rcv_Num_WK,Spe_Total_CNO,F_G2M,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Stime_atom,Etime_atom,dEx,dEy,dEz,Gc_AN,Mc_AN,Cwan,fan,h_AN,Gh_AN,Mh_AN,Hwan,ian,n,jg,j0,jg0,Mj_AN0,po2,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,HVNAx,HVNAy,HVNAz,i,j)
+	{
 
-	    /* allocation of array */
+	  /* allocation of array */
 
-	    HVNAx = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
-	    for (j=0; j<List_YOUSO[7]; j++){
-	      HVNAx[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
-	    }
+	  HVNAx = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    HVNAx[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	  }
 
-	    /* get info. on OpenMP */ 
+	  HVNAy = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    HVNAy[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	  }
 
-	    OMPID = omp_get_thread_num();
-	    Nthrds = omp_get_num_threads();
-	    Nprocs = omp_get_num_procs();
+	  HVNAz = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    HVNAz[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	  }
 
-	    for (Mc_AN=(OMPID*Matomnum/Nthrds+1); Mc_AN<((OMPID+1)*Matomnum/Nthrds+1); Mc_AN++){
+	  /* get info. on OpenMP */ 
 
-	      dtime(&Stime_atom);
+	  OMPID = omp_get_thread_num();
+	  Nthrds = omp_get_num_threads();
+	  Nprocs = omp_get_num_procs();
 
-	      dEx = 0.0; 
+	  for (Mc_AN=(OMPID*Matomnum/Nthrds+1); Mc_AN<((OMPID+1)*Matomnum/Nthrds+1); Mc_AN++){
 
-	      Gc_AN = M2G[Mc_AN];
-	      Cwan = WhatSpecies[Gc_AN];
-	      fan = FNAN[Gc_AN];
+	    dtime(&Stime_atom);
 
-	      h_AN = 0;
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Mh_AN = F_G2M[Gh_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      ian = Spe_Total_CNO[Hwan];
+	    dEx = 0.0; 
+	    dEy = 0.0; 
+	    dEz = 0.0; 
 
-	      n = F_Rcv_Num_WK[IDR];
-	      jg = Rcv_GAN[IDR][n];
+	    Gc_AN = M2G[Mc_AN];
+	    Cwan = WhatSpecies[Gc_AN];
+	    fan = FNAN[Gc_AN];
 
-	      for (j0=0; j0<=fan; j0++){
+	    h_AN = 0;
+	    Gh_AN = natn[Gc_AN][h_AN];
+	    Mh_AN = F_G2M[Gh_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+	    ian = Spe_Total_CNO[Hwan];
 
-		jg0 = natn[Gc_AN][j0];
-		Mj_AN0 = F_G2M[jg0];
+	    n = F_Rcv_Num_WK[IDR];
+	    jg = Rcv_GAN[IDR][n];
 
-		po2 = 0;
-		if (Original_Mc_AN==Mj_AN0){
-		  po2 = 1;
-		  q_AN = j0;
+	    for (j0=0; j0<=fan; j0++){
+
+	      jg0 = natn[Gc_AN][j0];
+	      Mj_AN0 = F_G2M[jg0];
+
+	      po2 = 0;
+	      if (Original_Mc_AN==Mj_AN0){
+		po2 = 1;
+		q_AN = j0;
+	      }
+
+	      if (po2==1){
+
+		Gq_AN = natn[Gc_AN][q_AN];
+		Mq_AN = F_G2M[Gq_AN];
+		Qwan = WhatSpecies[Gq_AN];
+		jan = Spe_Total_CNO[Qwan];
+		kl = RMI1[Mc_AN][h_AN][q_AN];
+
+		if (Cnt_switch==0) {
+		  dHVNA(0,Mc_AN,h_AN,q_AN,DS_VNA,HVNA2,HVNA3,HVNAx,HVNAy,HVNAz);
+		}
+		else { 
+		  dHVNA(0,Mc_AN,h_AN,q_AN,DS_VNA,CntHVNA2,CntHVNA3,HVNAx,HVNAy,HVNAz);
 		}
 
-		if (po2==1){
+		/* contribution of force = Trace(CDM0*dH) */
+		/* spin non-polarization */
 
-		  Gq_AN = natn[Gc_AN][q_AN];
-		  Mq_AN = F_G2M[Gq_AN];
-		  Qwan = WhatSpecies[Gq_AN];
-		  jan = Spe_Total_CNO[Qwan];
-		  kl = RMI1[Mc_AN][h_AN][q_AN];
+		if (SpinP_switch==0){
 
-		  if (Cnt_switch==0) {
-		    dHVNA(kk,0,Mc_AN,h_AN,q_AN,DS_VNA,HVNA2,HVNAx);
-		  }
-		  else { 
-		    dHVNA(kk,0,Mc_AN,h_AN,q_AN,DS_VNA,CntHVNA2,HVNAx);
-		  }
+		  for (i=0; i<ian; i++){
+		    for (j=0; j<jan; j++){
+		      if (q_AN==h_AN){
 
-		  /* contribution of force = Trace(CDM0*dH) */
-		  /* spin non-polarization */
-
-		  if (SpinP_switch==0){
-
-		    for (i=0; i<ian; i++){
-		      for (j=0; j<jan; j++){
-			if (q_AN==h_AN){
-			  dEx += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
-			}
-			else{
-			  dEx += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
-			}
+			dEx += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+			dEy += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAy[i][j];
+			dEz += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAz[i][j];
+		      }
+		      else{
+			dEx += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+			dEy += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAy[i][j];
+			dEz += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAz[i][j];
 		      }
 		    }
 		  }
+		}
 
-		  /* else */
+		/* else */
 
-		  else{
+		else{
 
-		    for (i=0; i<ian; i++){
-		      for (j=0; j<jan; j++){
-			if (q_AN==h_AN){
-			  dEx += (  CDM0[0][Mh_AN][kl][i][j]
-				  + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
-			}
-			else{
-			  dEx += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
-				      + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
-			} 
+		  for (i=0; i<ian; i++){
+		    for (j=0; j<jan; j++){
+		      if (q_AN==h_AN){
+			dEx += (  CDM0[0][Mh_AN][kl][i][j]
+			        + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+			dEy += (  CDM0[0][Mh_AN][kl][i][j]
+			        + CDM0[1][Mh_AN][kl][i][j] )*HVNAy[i][j];
+			dEz += (  CDM0[0][Mh_AN][kl][i][j]
+				+ CDM0[1][Mh_AN][kl][i][j] )*HVNAz[i][j];
 		      }
+		      else{
+			dEx += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
+				    + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+			dEy += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
+				    + CDM0[1][Mh_AN][kl][i][j] )*HVNAy[i][j];
+			dEz += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
+				    + CDM0[1][Mh_AN][kl][i][j] )*HVNAz[i][j];
+		      } 
 		    }
 		  }
+		}
 
-		} /* if (po2==1) */
-	      } /* j0 */             
+	      } /* if (po2==1) */
+	    } /* j0 */             
 
 	      /* force from #4B */
 
-	      Gxyz[Gc_AN][40+kk] += dEx;
+	    Gxyz[Gc_AN][41] += dEx;
+	    Gxyz[Gc_AN][42] += dEy;
+	    Gxyz[Gc_AN][43] += dEz;
 
-	      /* timing */
-	      dtime(&Etime_atom);
-	      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+	    /* timing */
+	    dtime(&Etime_atom);
+	    time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
 
-	    } /* Mc_AN */
+	  } /* Mc_AN */
 
 	    /* freeing of array */
 
-	    for (j=0; j<List_YOUSO[7]; j++){
-	      free(HVNAx[j]);
-	    }
-	    free(HVNAx);
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    free(HVNAx[j]);
+	  }
+	  free(HVNAx);
 
-	  } /* #pragma omp parallel */
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    free(HVNAy[j]);
+	  }
+	  free(HVNAy);
+
+	  for (j=0; j<List_YOUSO[7]; j++){
+	    free(HVNAz[j]);
+	  }
+	  free(HVNAz);
+
+	} /* #pragma omp parallel */
 
 	  /********************************************
             increment of F_Rcv_Num_WK[IDR] 
 	  ********************************************/
 
-	  F_Rcv_Num_WK[IDR]++;
+	F_Rcv_Num_WK[IDR]++;
 
-	} /* if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) */
+      } /* if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) */
 
-	if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) {
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) {
 
-	  MPI_Wait(&request,&stat);
-	  free(tmp_array);  /* freeing of array */
+	MPI_Wait(&request,&stat);
+	free(tmp_array);  /* freeing of array */
 
-	  /********************************************
+	/********************************************
              increment of F_Snd_Num_WK[IDS]
-	  ********************************************/
+	********************************************/
 
-	  F_Snd_Num_WK[IDS]++;
-	} 
+	F_Snd_Num_WK[IDS]++;
+      } 
 
-      } /* ID */
+    } /* ID */
 
       /*****************************************************
         check whether all the communications have finished
       *****************************************************/
 
-      po = 0;
-      for (ID=0; ID<numprocs; ID++){
+    po = 0;
+    for (ID=0; ID<numprocs; ID++){
 
-	IDS = (myid + ID) % numprocs;
-	IDR = (myid - ID + numprocs) % numprocs;
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
 
-	if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) po += F_Snd_Num[IDS]-F_Snd_Num_WK[IDS];
-	if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ) po += F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR];
-      }
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) po += F_Snd_Num[IDS]-F_Snd_Num_WK[IDS];
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ) po += F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR];
+    }
 
-    } while (po!=0);
+  } while (po!=0);
 
-    dtime(&etime);
-    if(myid==0 && measure_time){
-      printf("Time for part3 of force#4=%18.5f\n",etime-stime);fflush(stdout);
-    } 
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part3 of force#4=%18.5f\n",etime-stime);fflush(stdout);
+  } 
 
-    /*******************************************************
-     *******************************************************
+  /*******************************************************
+   *******************************************************
       THE FIRST CASE:
       multiplying overlap integrals WITHOUT COMMUNICATION
-    *******************************************************
-    *******************************************************/
+   *******************************************************
+   *******************************************************/
 
-    dtime(&stime);
+  dtime(&stime);
 
-#pragma omp parallel shared(time_per_atom,Gxyz,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,FNAN,Spe_Total_CNO,WhatSpecies,F_G2M,natn,M2G,Matomnum,List_YOUSO) private(HVNAx,OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,dEx,Gc_AN,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,i,j)
-    {
+#pragma omp parallel shared(time_per_atom,Gxyz,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,FNAN,Spe_Total_CNO,WhatSpecies,F_G2M,natn,M2G,Matomnum,List_YOUSO) private(HVNAx,HVNAy,HVNAz,OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,dEx,dEy,dEz,Gc_AN,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,i,j,kk)
+  {
 
-      /* allocation of array */
+    /* allocation of array */
 
-      HVNAx = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
-      for (j=0; j<List_YOUSO[7]; j++){
-	HVNAx[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+    HVNAx = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      HVNAx[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+    }
+
+    HVNAy = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      HVNAy[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+    }
+
+    HVNAz = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+    for (j=0; j<List_YOUSO[7]; j++){
+      HVNAz[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+    }
+
+    /* get info. on OpenMP */ 
+
+    OMPID = omp_get_thread_num();
+    Nthrds = omp_get_num_threads();
+    Nprocs = omp_get_num_procs();
+
+    for (Mc_AN=(OMPID*Matomnum/Nthrds+1); Mc_AN<((OMPID+1)*Matomnum/Nthrds+1); Mc_AN++){
+
+      dtime(&Stime_atom);
+
+      dEx = 0.0; 
+      dEy = 0.0; 
+      dEz = 0.0; 
+
+      Gc_AN = M2G[Mc_AN];
+      h_AN = 0;
+      Gh_AN = natn[Gc_AN][h_AN];
+      Mh_AN = F_G2M[Gh_AN];
+      Hwan = WhatSpecies[Gh_AN];
+      ian = Spe_Total_CNO[Hwan];
+
+      for (q_AN=h_AN; q_AN<=FNAN[Gc_AN]; q_AN++){
+
+	Gq_AN = natn[Gc_AN][q_AN];
+	Mq_AN = F_G2M[Gq_AN];
+
+	if (Mq_AN<=Matomnum){
+
+	  Qwan = WhatSpecies[Gq_AN];
+	  jan = Spe_Total_CNO[Qwan];
+	  kl = RMI1[Mc_AN][h_AN][q_AN];
+
+	  if (Cnt_switch==0) {
+	    dHVNA(0,Mc_AN,h_AN,q_AN,DS_VNA,HVNA2,HVNA3,HVNAx,HVNAy,HVNAz);
+	  }
+	  else { 
+	    dHVNA(0,Mc_AN,h_AN,q_AN,DS_VNA,CntHVNA2,CntHVNA3,HVNAx,HVNAy,HVNAz);
+	  }
+
+	  if (SpinP_switch==0){
+
+	    for (i=0; i<ian; i++){
+	      for (j=0; j<jan; j++){
+		if (q_AN==h_AN){
+		  dEx += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+		  dEy += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAy[i][j];
+		  dEz += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAz[i][j];
+		}
+		else{
+		  dEx += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+		  dEy += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAy[i][j];
+		  dEz += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAz[i][j];
+		}
+
+	      }
+	    }
+	  }
+
+	  /* else */
+
+	  else{
+
+	    for (i=0; i<ian; i++){
+	      for (j=0; j<jan; j++){
+		if (q_AN==h_AN){
+		  dEx += (  CDM0[0][Mh_AN][kl][i][j]
+			  + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+		  dEy += (  CDM0[0][Mh_AN][kl][i][j]
+			  + CDM0[1][Mh_AN][kl][i][j] )*HVNAy[i][j];
+		  dEz += (  CDM0[0][Mh_AN][kl][i][j]
+			  + CDM0[1][Mh_AN][kl][i][j] )*HVNAz[i][j];
+		}
+		else{
+		  dEx += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
+			      + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+		  dEy += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
+			      + CDM0[1][Mh_AN][kl][i][j] )*HVNAy[i][j];
+		  dEz += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
+			      + CDM0[1][Mh_AN][kl][i][j] )*HVNAz[i][j];
+		}
+	      }
+	    }
+	  }
+	}
       }
 
-      /* get info. on OpenMP */ 
+      /* force from #4B */
 
-      OMPID = omp_get_thread_num();
-      Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
+      Gxyz[Gc_AN][41] += dEx;
+      Gxyz[Gc_AN][42] += dEy;
+      Gxyz[Gc_AN][43] += dEz;
 
-      for (Mc_AN=(OMPID*Matomnum/Nthrds+1); Mc_AN<((OMPID+1)*Matomnum/Nthrds+1); Mc_AN++){
+      /* timing */
+      dtime(&Etime_atom);
+      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
 
-	dtime(&Stime_atom);
+    } /* Mc_AN */
 
-	dEx = 0.0; 
+      /* freeing of array */
 
-	Gc_AN = M2G[Mc_AN];
-	h_AN = 0;
-	Gh_AN = natn[Gc_AN][h_AN];
-	Mh_AN = F_G2M[Gh_AN];
-	Hwan = WhatSpecies[Gh_AN];
-	ian = Spe_Total_CNO[Hwan];
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(HVNAx[j]);
+    }
+    free(HVNAx);
 
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(HVNAy[j]);
+    }
+    free(HVNAy);
+
+    for (j=0; j<List_YOUSO[7]; j++){
+      free(HVNAz[j]);
+    }
+    free(HVNAz);
+
+  } /* #pragma omp parallel */
+
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part4 of force#4=%18.5f\n",etime-stime);fflush(stdout);
+  } 
+         
+  /*************************************************************
+     THE SECOND CASE:
+     In case of I=k with I!=i and I!=j
+     d [ \sum_k <i|k>ek<k|j> ]/dRI  
+  *************************************************************/
+
+  /************************************************************ 
+     MPI communication of DS_VNA whose basis part is not located 
+     on own site but projector part is located on own site. 
+  ************************************************************/
+
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&stime);
+
+  for (ID=0; ID<numprocs; ID++) Indicator[ID] = 0;
+
+  for (Mc_AN=1; Mc_AN<=Max_Matomnum; Mc_AN++){
+
+    dtime(&Stime_atom);
+
+    dtime(&stime1);
+
+    if (Mc_AN<=Matomnum)  Gc_AN = M2G[Mc_AN];
+    else                  Gc_AN = 0;
+
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      i = Indicator[IDS]; 
+      po = 0;
+
+      Gh_AN = Pro_Snd_GAtom[IDS][i]; 
+
+      if (Gh_AN!=0){
+
+	/* find the range with the same global atomic number */
+
+	do {
+
+	  i++;
+	  if (Gh_AN!=Pro_Snd_GAtom[IDS][i]) po = 1;
+	} while(po==0);
+
+	i--;
+	SA_num = i - Indicator[IDS] + 1;
+
+	/* find the data size to send the block data */
+
+	size1 = 0;
+	for (q=Indicator[IDS]; q<=(Indicator[IDS]+SA_num-1); q++){
+
+	  Sc_AN = Pro_Snd_MAtom[IDS][q]; 
+	  GSc_AN = F_M2G[Sc_AN];
+	  Sc_wan = WhatSpecies[GSc_AN];
+	  tno1 = Spe_Total_CNO[Sc_wan];
+	  tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
+	  size1 += 4*tno1*tno2;
+	  size1 += 3;
+	}
+
+      } /* if (Gh_AN!=0) */
+
+      else {
+	SA_num = 0;
+	size1 = 0;
+      }
+        
+      S_array[IDS][0] = Gh_AN;
+      S_array[IDS][1] = SA_num;
+      S_array[IDS][2] = size1;
+
+      if (ID!=0){
+	MPI_Isend(&S_array[IDS][0], 3, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+	MPI_Recv( &R_array[IDR][0], 3, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+	MPI_Wait(&request,&stat);
+      }
+      else {
+	R_array[myid][0] = S_array[myid][0];
+	R_array[myid][1] = S_array[myid][1];
+	R_array[myid][2] = S_array[myid][2];
+      }
+
+      if (R_array[IDR][0]==Gc_AN) R_comm_flag = 1;
+      else                        R_comm_flag = 0;
+
+      if (ID!=0){
+	MPI_Isend(&R_comm_flag, 1, MPI_INT, IDR, tag, mpi_comm_level1, &request);
+	MPI_Recv( &S_comm_flag, 1, MPI_INT, IDS, tag, mpi_comm_level1, &stat);
+	MPI_Wait(&request,&stat);
+      }
+      else{
+	S_comm_flag = R_comm_flag;
+      }
+
+      /*****************************************
+                       send the data
+      *****************************************/
+        
+      /* if (S_comm_flag==1) then, send data to IDS */
+         
+      if (S_comm_flag==1){
+
+	/* allocate tmp_array */
+
+	tmp_array = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size1);
+
+	/* multidimentional array to vector array */
+
+	num = 0;
+
+	for (q=Indicator[IDS]; q<=(Indicator[IDS]+SA_num-1); q++){
+
+	  Sc_AN = Pro_Snd_MAtom[IDS][q]; 
+	  GSc_AN = F_M2G[Sc_AN];
+	  Sc_wan = WhatSpecies[GSc_AN];
+	  tno1 = Spe_Total_CNO[Sc_wan];
+
+	  Sh_AN = Pro_Snd_LAtom[IDS][q]; 
+	  GSh_AN = natn[GSc_AN][Sh_AN];
+	  Sh_wan = WhatSpecies[GSh_AN];
+	  tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
+
+	  Sh_AN2 = Pro_Snd_LAtom2[IDS][q]; 
+
+	  tmp_array[num] = (Type_DS_VNA)Sc_AN;  num++;
+	  tmp_array[num] = (Type_DS_VNA)Sh_AN;  num++; 
+	  tmp_array[num] = (Type_DS_VNA)Sh_AN2; num++; 
+
+	  for (kk=0; kk<=3; kk++){
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+		tmp_array[num] = DS_VNA[kk][Sc_AN][Sh_AN][i][j];
+		num++;
+	      }
+	    }
+	  }
+	}
+
+	if (ID!=0){
+	  MPI_Isend(&tmp_array[0], size1, MPI_Type_DS_VNA, IDS, tag, mpi_comm_level1, &request);
+	}
+
+	/* update Indicator[IDS] */
+
+	Indicator[IDS] += SA_num;
+
+      } /* if (S_comm_flag==1) */ 
+
+        /*****************************************
+                     receive the data
+	*****************************************/
+
+        /* if (R_comm_flag==1) then, receive the data from IDR */
+
+      if (R_comm_flag==1){
+
+	size2 = R_array[IDR][2]; 
+	tmp_array2 = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size2);
+
+	if (ID!=0){
+	  MPI_Recv(&tmp_array2[0], size2, MPI_Type_DS_VNA, IDR, tag, mpi_comm_level1, &stat);
+	}
+	else{
+	  for (i=0; i<size2; i++) tmp_array2[i] = tmp_array[i];
+	}
+
+	/* store */
+
+	num = 0;
+
+	for (n=0; n<R_array[IDR][1]; n++){
+            
+	  Sc_AN  = (int)tmp_array2[num]; num++;
+	  Sh_AN  = (int)tmp_array2[num]; num++;
+	  Sh_AN2 = (int)tmp_array2[num]; num++;
+
+	  GSc_AN = natn[Gc_AN][Sh_AN2]; 
+	  Sc_wan = WhatSpecies[GSc_AN]; 
+
+	  tno1 = Spe_Total_CNO[Sc_wan];
+	  tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
+
+	  for (kk=0; kk<=3; kk++){
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+		DS_VNA[kk][Matomnum+1][Sh_AN2][i][j] = tmp_array2[num];
+		num++;
+	      }
+	    }
+	  }
+	}         
+
+	/* free tmp_array2 */
+	free(tmp_array2);
+ 
+      } /* if (R_comm_flag==1) */
+
+      if (S_comm_flag==1){
+	if (ID!=0) MPI_Wait(&request,&stat);
+	free(tmp_array);  /* freeing of array */
+      }
+      
+    } /* ID */
+
+    dtime(&etime1);
+    if(myid==0 && measure_time){
+      printf("Time for part5A of force#4=%18.5f\n",etime1-stime1);fflush(stdout);
+    } 
+
+    dtime(&stime1);
+
+    if (Mc_AN<=Matomnum){ 
+
+      /* get Nthrds0 */  
+#pragma omp parallel shared(Nthrds0)
+      {
+	Nthrds0 = omp_get_num_threads();
+      }
+
+      /* allocation of arrays */
+      dEx_threads = (double*)malloc(sizeof(double)*Nthrds0);
+      dEy_threads = (double*)malloc(sizeof(double)*Nthrds0);
+      dEz_threads = (double*)malloc(sizeof(double)*Nthrds0);
+
+      for (Nloop=0; Nloop<Nthrds0; Nloop++){
+	dEx_threads[Nloop] = 0.0;
+	dEy_threads[Nloop] = 0.0;
+	dEz_threads[Nloop] = 0.0;
+      }
+
+      /* one-dimensionalize the h_AN and q_AN loops */ 
+
+      OneD2h_AN = (int*)malloc(sizeof(int)*(FNAN[Gc_AN]+1)*(FNAN[Gc_AN]+2)/2);
+      OneD2q_AN = (int*)malloc(sizeof(int)*(FNAN[Gc_AN]+1)*(FNAN[Gc_AN]+2)/2);
+
+      ODNloop = 0;
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
 	for (q_AN=h_AN; q_AN<=FNAN[Gc_AN]; q_AN++){
+
+	  kl = RMI1[Mc_AN][h_AN][q_AN];
+
+	  if (0<=kl){
+	    OneD2h_AN[ODNloop] = h_AN;
+	    OneD2q_AN[ODNloop] = q_AN; 
+	    ODNloop++;      
+	  }
+	}
+      }
+
+#pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO) private(OMPID,Nthrds,Nprocs,HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop)
+      {
+          
+	/* allocation of arrays */
+           
+	HVNAx = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+	for (j=0; j<List_YOUSO[7]; j++){
+	  HVNAx[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	}
+
+	HVNAy = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+	for (j=0; j<List_YOUSO[7]; j++){
+	  HVNAy[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	}
+
+	HVNAz = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
+	for (j=0; j<List_YOUSO[7]; j++){
+	  HVNAz[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
+	}
+
+	/* get info. on OpenMP */ 
+          
+	OMPID = omp_get_thread_num();
+	Nthrds = omp_get_num_threads();
+	Nprocs = omp_get_num_procs();
+
+	for (Nloop=OMPID*ODNloop/Nthrds; Nloop<(OMPID+1)*ODNloop/Nthrds; Nloop++){
+
+	  /* get h_AN and q_AN */
+
+	  h_AN = OneD2h_AN[Nloop];
+	  q_AN = OneD2q_AN[Nloop];
+
+	  /* set informations on h_AN */
+
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Mh_AN = F_G2M[Gh_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  ian = Spe_Total_CNO[Hwan];
+
+	  /* set informations on q_AN */
 
 	  Gq_AN = natn[Gc_AN][q_AN];
 	  Mq_AN = F_G2M[Gq_AN];
+	  Qwan = WhatSpecies[Gq_AN];
+	  jan = Spe_Total_CNO[Qwan];
+	  kl = RMI1[Mc_AN][h_AN][q_AN];
 
-	  if (Mq_AN<=Matomnum){
+	  if (0<=kl){
 
-	    Qwan = WhatSpecies[Gq_AN];
-	    jan = Spe_Total_CNO[Qwan];
-	    kl = RMI1[Mc_AN][h_AN][q_AN];
+	    if (Cnt_switch==0)
+	      dHVNA(1,Mc_AN,h_AN,q_AN,DS_VNA,HVNA2,HVNA3,HVNAx,HVNAy,HVNAz);
+	    else 
+	      dHVNA(1,Mc_AN,h_AN,q_AN,DS_VNA,CntHVNA2,CntHVNA3,HVNAx,HVNAy,HVNAz);
 
-	    if (Cnt_switch==0) {
-	      dHVNA(kk,0,Mc_AN,h_AN,q_AN,DS_VNA,HVNA2,HVNAx);
-	    }
-	    else { 
-	      dHVNA(kk,0,Mc_AN,h_AN,q_AN,DS_VNA,CntHVNA2,HVNAx);
-	    }
+	    /* contribution of force = Trace(CDM0*dH) */
+
+	    /* spin non-polarization */
 
 	    if (SpinP_switch==0){
 
 	      for (i=0; i<ian; i++){
 		for (j=0; j<jan; j++){
 		  if (q_AN==h_AN){
-		    dEx += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+		    dEx_threads[OMPID] += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+		    dEy_threads[OMPID] += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAy[i][j];
+		    dEz_threads[OMPID] += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAz[i][j];
 		  }
 		  else{
-		    dEx += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+		    dEx_threads[OMPID] += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
+		    dEy_threads[OMPID] += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAy[i][j];
+		    dEz_threads[OMPID] += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAz[i][j];
 		  }
+
 		}
 	      }
 	    }
@@ -3240,428 +5576,90 @@ void Force4B(double *****CDM0)
 	      for (i=0; i<ian; i++){
 		for (j=0; j<jan; j++){
 		  if (q_AN==h_AN){
-		    dEx += (  CDM0[0][Mh_AN][kl][i][j]
-			    + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+		    dEx_threads[OMPID] += (   CDM0[0][Mh_AN][kl][i][j]
+				            + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+		    dEy_threads[OMPID] += (   CDM0[0][Mh_AN][kl][i][j]
+				            + CDM0[1][Mh_AN][kl][i][j] )*HVNAy[i][j];
+		    dEz_threads[OMPID] += (   CDM0[0][Mh_AN][kl][i][j]
+				            + CDM0[1][Mh_AN][kl][i][j] )*HVNAz[i][j];
 		  }
 		  else{
-		    dEx += 2.0*(  CDM0[0][Mh_AN][kl][i][j]
-			        + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+		    dEx_threads[OMPID] += 2.0*(   CDM0[0][Mh_AN][kl][i][j]
+				                + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
+		    dEy_threads[OMPID] += 2.0*(   CDM0[0][Mh_AN][kl][i][j]
+				                + CDM0[1][Mh_AN][kl][i][j] )*HVNAy[i][j];
+		    dEz_threads[OMPID] += 2.0*(   CDM0[0][Mh_AN][kl][i][j]
+				                + CDM0[1][Mh_AN][kl][i][j] )*HVNAz[i][j];
 		  } 
 		}
 	      }
 	    }
-	  }
+
+	  } /* if (0<=kl) */
+
+	} /* Nloop */
+
+	  /* freeing of arrays */
+
+	for (j=0; j<List_YOUSO[7]; j++){
+	  free(HVNAx[j]);
 	}
+	free(HVNAx);
 
-	/* force from #4B */
-
-	Gxyz[Gc_AN][40+kk] += dEx;
-
-	/* timing */
-	dtime(&Etime_atom);
-	time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-
-      } /* Mc_AN */
-
-      /* freeing of array */
-
-      for (j=0; j<List_YOUSO[7]; j++){
-	free(HVNAx[j]);
-      }
-      free(HVNAx);
-
-    } /* #pragma omp parallel */
-
-    dtime(&etime);
-    if(myid==0 && measure_time){
-      printf("Time for part4 of force#4=%18.5f\n",etime-stime);fflush(stdout);
-    } 
-         
-    /*************************************************************
-     THE SECOND CASE:
-     In case of I=k with I!=i and I!=j
-     d [ \sum_k <i|k>ek<k|j> ]/dRI  
-    *************************************************************/
-
-    /************************************************************ 
-     MPI communication of DS_VNA whose basis part is not located 
-     on own site but projector part is located on own site. 
-    ************************************************************/
-
-    MPI_Barrier(mpi_comm_level1);
-    dtime(&stime);
-
-    for (ID=0; ID<numprocs; ID++) Indicator[ID] = 0;
-
-    for (Mc_AN=1; Mc_AN<=Max_Matomnum; Mc_AN++){
-
-      dtime(&Stime_atom);
-
-      dtime(&stime1);
-
-      if (Mc_AN<=Matomnum){ 
-        Gc_AN = M2G[Mc_AN];
-        Cwan = WhatSpecies[Gc_AN];
-      }
-
-      for (ID=0; ID<numprocs; ID++){
-
-	IDS = (myid + ID) % numprocs;
-	IDR = (myid - ID + numprocs) % numprocs;
-
-        i = Indicator[IDS]; 
-        po = 0;
-
-        Gh_AN = Pro_Snd_GAtom[IDS][i]; 
-
-        if (Gh_AN!=0){
-
-          /* find the range with the same global atomic number */
-
-	  do {
-
-            i++;
-            if (Gh_AN!=Pro_Snd_GAtom[IDS][i]) po = 1;
-          } while(po==0);
-
-          i--;
-          SA_num = i - Indicator[IDS] + 1;
-
-          /* find the data size to send the block data */
-
-   	  size1 = 0;
-          for (q=Indicator[IDS]; q<=(Indicator[IDS]+SA_num-1); q++){
-            Sc_AN = Pro_Snd_MAtom[IDS][q]; 
-            GSc_AN = F_M2G[Sc_AN];
-            Sc_wan = WhatSpecies[GSc_AN];
-            tno1 = Spe_Total_CNO[Sc_wan];
-	    tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
-            size1 += 2*tno1*tno2;
-            size1 += 3;
-          }
-
-	} /* if (Gh_AN!=0) */
-
-        else {
-          SA_num = 0;
-          size1 = 0;
+	for (j=0; j<List_YOUSO[7]; j++){
+	  free(HVNAy[j]);
 	}
-        
-        S_array[IDS][0] = Gh_AN;
-        S_array[IDS][1] = SA_num;
-        S_array[IDS][2] = size1;
+	free(HVNAy);
 
-        if (ID!=0){
-          MPI_Isend(&S_array[IDS][0], 3, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-          MPI_Recv( &R_array[IDR][0], 3, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-          MPI_Wait(&request,&stat);
+	for (j=0; j<List_YOUSO[7]; j++){
+	  free(HVNAz[j]);
 	}
-        else {
-	  R_array[myid][0] = S_array[myid][0];
-	  R_array[myid][1] = S_array[myid][1];
-	  R_array[myid][2] = S_array[myid][2];
-        }
+	free(HVNAz);
 
-        if (R_array[IDR][0]==Gc_AN) R_comm_flag = 1;
-        else                        R_comm_flag = 0;
-
-        if (ID!=0){
-          MPI_Isend(&R_comm_flag, 1, MPI_INT, IDR, tag, mpi_comm_level1, &request);
-          MPI_Recv( &S_comm_flag, 1, MPI_INT, IDS, tag, mpi_comm_level1, &stat);
-          MPI_Wait(&request,&stat);
-	}
-        else{
-          S_comm_flag = R_comm_flag;
-        }
-
-        /*****************************************
-                       send the data
-	*****************************************/
-        
-        /* if (S_comm_flag==1) then, send data to IDS */
-         
-        if (S_comm_flag==1){
-
-  	  /* allocate tmp_array */
-
-  	  tmp_array = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size1);
-
-  	  /* multidimentional array to vector array */
-
-   	  num = 0;
-
-          for (q=Indicator[IDS]; q<=(Indicator[IDS]+SA_num-1); q++){
-
-            Sc_AN = Pro_Snd_MAtom[IDS][q]; 
-            GSc_AN = F_M2G[Sc_AN];
-            Sc_wan = WhatSpecies[GSc_AN];
-            tno1 = Spe_Total_CNO[Sc_wan];
-
-            Sh_AN = Pro_Snd_LAtom[IDS][q]; 
-   	    GSh_AN = natn[GSc_AN][Sh_AN];
-  	    Sh_wan = WhatSpecies[GSh_AN];
-	    tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
-
-            Sh_AN2 = Pro_Snd_LAtom2[IDS][q]; 
-
-            tmp_array[num] = (Type_DS_VNA)Sc_AN;  num++;
-            tmp_array[num] = (Type_DS_VNA)Sh_AN;  num++; 
-            tmp_array[num] = (Type_DS_VNA)Sh_AN2; num++; 
-
- 	    for (i=0; i<tno1; i++){
-	      for (j=0; j<tno2; j++){
-                tmp_array[num] = DS_VNA[0][Sc_AN][Sh_AN][i][j];
- 		num++;
-	      }
-	    }
-
- 	    for (i=0; i<tno1; i++){
-	      for (j=0; j<tno2; j++){
-                tmp_array[num] = DS_VNA[1][Sc_AN][Sh_AN][i][j];
- 		num++;
-	      }
-	    }
-         
-          }
-
-          if (ID!=0){
-            MPI_Isend(&tmp_array[0], size1, MPI_Type_DS_VNA, IDS, tag, mpi_comm_level1, &request);
-	  }
-
-          /* update Indicator[IDS] */
-
-          Indicator[IDS] += SA_num;
-
-        } /* if (S_comm_flag==1) */ 
-
-        /*****************************************
-                     receive the data
-	*****************************************/
-
-        /* if (R_comm_flag==1) then, receive the data from IDR */
-
-        if (R_comm_flag==1){
-
-  	  size2 = R_array[IDR][2]; 
-  	  tmp_array2 = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA)*size2);
-
-          if (ID!=0){
-    	    MPI_Recv(&tmp_array2[0], size2, MPI_Type_DS_VNA, IDR, tag, mpi_comm_level1, &stat);
-	  }
-          else{
-            for (i=0; i<size2; i++) tmp_array2[i] = tmp_array[i];
-          }
-
-   	  /* store */
-
-          num = 0;
-
-          for (n=0; n<R_array[IDR][1]; n++){
-            
-            Sc_AN  = (int)tmp_array2[num]; num++;
-            Sh_AN  = (int)tmp_array2[num]; num++;
-            Sh_AN2 = (int)tmp_array2[num]; num++;
-
-            GSc_AN = natn[Gc_AN][Sh_AN2]; 
-            Sc_wan = WhatSpecies[GSc_AN]; 
-
-            tno1 = Spe_Total_CNO[Sc_wan];
-	    tno2 = (List_YOUSO[35]+1)*(List_YOUSO[35]+1)*List_YOUSO[34];
-
-	    for (i=0; i<tno1; i++){
-	      for (j=0; j<tno2; j++){
-                DS_VNA[0][Matomnum+1][Sh_AN2][i][j] = tmp_array2[num];
-                num++;
-	      }
-	    }
-
-	    for (i=0; i<tno1; i++){
-	      for (j=0; j<tno2; j++){
-                DS_VNA[1][Matomnum+1][Sh_AN2][i][j] = tmp_array2[num];
-                num++;
-	      }
-	    }
-          }         
-
-	  /* free tmp_array2 */
-	  free(tmp_array2);
- 
-	} /* if (R_comm_flag==1) */
-
-        if (S_comm_flag==1){
-          if (ID!=0) MPI_Wait(&request,&stat);
-	  free(tmp_array);  /* freeing of array */
-	}
-      
-      } /* ID */
-
-      dtime(&etime1);
-      if(myid==0 && measure_time){
-	printf("Time for part5A of force#4=%18.5f\n",etime1-stime1);fflush(stdout);
-      } 
-
-      dtime(&stime1);
-
-      if (Mc_AN<=Matomnum){ 
-
-	/* get Nthrds0 */  
-#pragma omp parallel shared(Nthrds0)
-	{
-	  Nthrds0 = omp_get_num_threads();
-	}
-
-	/* allocation of array */
-	dEx_threads = (double*)malloc(sizeof(double)*Nthrds0);
-	for (Nloop=0; Nloop<Nthrds0; Nloop++) dEx_threads[Nloop] = 0.0;
-
-	/* one-dimensionalize the h_AN and q_AN loops */ 
-
-	OneD2h_AN = (int*)malloc(sizeof(int)*(FNAN[Gc_AN]+1)*(FNAN[Gc_AN]+2)/2);
-	OneD2q_AN = (int*)malloc(sizeof(int)*(FNAN[Gc_AN]+1)*(FNAN[Gc_AN]+2)/2);
-
-	ODNloop = 0;
-	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	  for (q_AN=h_AN; q_AN<=FNAN[Gc_AN]; q_AN++){
-
-	    kl = RMI1[Mc_AN][h_AN][q_AN];
-
-	    if (0<=kl){
-  	      OneD2h_AN[ODNloop] = h_AN;
-	      OneD2q_AN[ODNloop] = q_AN; 
-	      ODNloop++;      
-	    }
-	  }
-	}
-
-#pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,kk,dEx_threads,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO) private(OMPID,Nthrds,Nprocs,HVNAx,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop)
-	{
-          
-	  /* allocation of array */
-           
-	  HVNAx = (double**)malloc(sizeof(double*)*List_YOUSO[7]);
-	  for (j=0; j<List_YOUSO[7]; j++){
-	    HVNAx[j] = (double*)malloc(sizeof(double)*List_YOUSO[7]);
-	  }
-
-	  /* get info. on OpenMP */ 
-          
-	  OMPID = omp_get_thread_num();
-	  Nthrds = omp_get_num_threads();
-	  Nprocs = omp_get_num_procs();
-
-	  for (Nloop=OMPID*ODNloop/Nthrds; Nloop<(OMPID+1)*ODNloop/Nthrds; Nloop++){
-
-            /* get h_AN and q_AN */
-
-            h_AN = OneD2h_AN[Nloop];
-            q_AN = OneD2q_AN[Nloop];
-
-            /* set informations on h_AN */
-
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Mh_AN = F_G2M[Gh_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    ian = Spe_Total_CNO[Hwan];
-
-            /* set informations on q_AN */
-
-	    Gq_AN = natn[Gc_AN][q_AN];
-	    Mq_AN = F_G2M[Gq_AN];
-	    Qwan = WhatSpecies[Gq_AN];
-	    jan = Spe_Total_CNO[Qwan];
-	    kl = RMI1[Mc_AN][h_AN][q_AN];
-
-	    if (0<=kl){
-
-	      if (Cnt_switch==0)
-		dHVNA(kk,1,Mc_AN,h_AN,q_AN,DS_VNA,HVNA2,HVNAx);
-	      else 
-		dHVNA(kk,1,Mc_AN,h_AN,q_AN,DS_VNA,CntHVNA2,HVNAx);
-
-	      /* contribution of force = Trace(CDM0*dH) */
-
-	      /* spin non-polarization */
-
-	      if (SpinP_switch==0){
-
-		for (i=0; i<ian; i++){
-		  for (j=0; j<jan; j++){
-		    if (q_AN==h_AN){
-		      dEx_threads[OMPID] += 2.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
-		    }
-		    else{
-		      dEx_threads[OMPID] += 4.0*CDM0[0][Mh_AN][kl][i][j]*HVNAx[i][j];
-		    }
-		  }
-		}
-	      }
-
-	      /* else */
-
-	      else{
-
-		for (i=0; i<ian; i++){
-		  for (j=0; j<jan; j++){
-		    if (q_AN==h_AN){
-		      dEx_threads[OMPID] += (   CDM0[0][Mh_AN][kl][i][j]
-				                + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
-		    }
-		    else{
-		      dEx_threads[OMPID] += 2.0*(   CDM0[0][Mh_AN][kl][i][j]
-				                    + CDM0[1][Mh_AN][kl][i][j] )*HVNAx[i][j];
-		    } 
-		  }
-		}
-	      }
-
-	    } /* if (0<=kl) */
-
-	  } /* Nloop */
-
-	  /* freeing of array */
-
-	  for (j=0; j<List_YOUSO[7]; j++){
-	    free(HVNAx[j]);
-	  }
-	  free(HVNAx);
-
-	} /* #pragma omp parallel */
+      } /* #pragma omp parallel */
 
 	/* sum of dEx_threads */
 
-	dEx = 0.0;
-	for (Nloop=0; Nloop<Nthrds0; Nloop++){
-          dEx += dEx_threads[Nloop];
-	}
+      dEx = 0.0;
+      dEy = 0.0;
+      dEz = 0.0;
 
-	/* force from #4B */
+      for (Nloop=0; Nloop<Nthrds0; Nloop++){
+	dEx += dEx_threads[Nloop];
+	dEy += dEy_threads[Nloop];
+	dEz += dEz_threads[Nloop];
+      }
 
-	Gxyz[Gc_AN][40+kk] += dEx;
+      /* force from #4B */
 
-	/* timing */
-	dtime(&Etime_atom);
-	time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+      Gxyz[Gc_AN][41] += dEx;
+      Gxyz[Gc_AN][42] += dEy;
+      Gxyz[Gc_AN][43] += dEz;
 
-	/* freeing of array */
-	free(OneD2q_AN);
-	free(OneD2h_AN);
-	free(dEx_threads);
+      /* timing */
+      dtime(&Etime_atom);
+      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
 
-      } /* if (Mc_AN<=Matomnum) */
+      /* freeing of array */
+      free(OneD2q_AN);
+      free(OneD2h_AN);
+      free(dEx_threads);
+      free(dEy_threads);
+      free(dEz_threads);
 
-      dtime(&etime1);
-      if(myid==0 && measure_time){
-	printf("Time for part5B of force#4=%18.5f\n",etime1-stime1);fflush(stdout);
-      } 
+    } /* if (Mc_AN<=Matomnum) */
 
-    } /* Mc_AN */
-
-    dtime(&etime);
+    dtime(&etime1);
     if(myid==0 && measure_time){
-      printf("Time for part5 of force#4=%18.5f\n",etime-stime);fflush(stdout);
+      printf("Time for part5B of force#4=%18.5f\n",etime1-stime1);fflush(stdout);
     } 
 
-  } /* kk */
+  } /* Mc_AN */
+
+  dtime(&etime);
+  if(myid==0 && measure_time){
+    printf("Time for part5 of force#4=%18.5f\n",etime-stime);fflush(stdout);
+  } 
 
   for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
     Gc_AN = M2G[Mc_AN];
@@ -3702,13 +5700,15 @@ void Force4B(double *****CDM0)
 
 
 
-void dHNL(int Mc_AN, int h_AN, int q_AN,
+
+void dHNL(int where_flag,
+          int Mc_AN, int h_AN, int q_AN,
           double ******DS_NL1,
           dcomplex ***Hx, dcomplex ***Hy, dcomplex ***Hz)
 {
   int i,j,k,m,n,l,kg,kan,so,deri_kind;
   int ig,ian,jg,jan,kl,kl1,kl2;
-  int wakg,l1,l2,l3,Gc_AN,Mi_AN,Mj_AN;
+  int wakg,l1,l2,l3,Gc_AN,Mi_AN,Mi_AN2,Mj_AN,Mj_AN2;
   int Rni,Rnj,somax;
   double PF[2],sumx,sumy,sumz,ene,dmp,deri_dmp;
   double tmpx,tmpy,tmpz,tmp,r;
@@ -3724,7 +5724,6 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
   ****************************************************/
 
   Gc_AN = M2G[Mc_AN];
-
   ig = natn[Gc_AN][h_AN];
   Rni = ncn[Gc_AN][h_AN];
   Mi_AN = F_G2M[ig];
@@ -3740,6 +5739,16 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
   rcut = rcuti + rcutj;
   kl = RMI1[Mc_AN][h_AN][q_AN];
   dmp = dampingF(rcut,Dis[ig][kl]);
+
+  for (so=0; so<3; so++){
+    for (i=0; i<List_YOUSO[7]; i++){
+      for (j=0; j<List_YOUSO[7]; j++){
+	Hx[so][i][j] = Complex(0.0,0.0);
+	Hy[so][i][j] = Complex(0.0,0.0);
+	Hz[so][i][j] = Complex(0.0,0.0);
+      }
+    }
+  }
 
   if (h_AN==0){
 
@@ -3758,10 +5767,11 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
                    l-dependent non-local part
       ****************************************************/
 
-      if (0<=kl && VPS_j_dependency[wakg]==0){
+      if (0<=kl && VPS_j_dependency[wakg]==0 && where_flag==0){
 
 	for (m=0; m<ian; m++){
 	  for (n=0; n<jan; n++){
+
 	    sumx = 0.0;
 	    sumy = 0.0;
 	    sumz = 0.0;
@@ -3775,52 +5785,27 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 	      else if (Spe_VPS_List[wakg][l1]==2) l2 = 4;
 	      else if (Spe_VPS_List[wakg][l1]==3) l2 = 6;
 
+              if (Mj_AN<=Matomnum) Mj_AN2 = Mj_AN;
+              else                 Mj_AN2 = Matomnum + 1; 
+
 	      for (l3=0; l3<=l2; l3++){
-		sumx += ene*DS_NL1[0][1][Mc_AN][k][m][l]*DS_NL1[0][0][Mj_AN][kl][n][l];
-		sumy += ene*DS_NL1[0][2][Mc_AN][k][m][l]*DS_NL1[0][0][Mj_AN][kl][n][l];
-		sumz += ene*DS_NL1[0][3][Mc_AN][k][m][l]*DS_NL1[0][0][Mj_AN][kl][n][l];
+		sumx += ene*DS_NL1[0][1][Mc_AN][k][m][l]*DS_NL1[0][0][Mj_AN2][kl][n][l];
+		sumy += ene*DS_NL1[0][2][Mc_AN][k][m][l]*DS_NL1[0][0][Mj_AN2][kl][n][l];
+		sumz += ene*DS_NL1[0][3][Mc_AN][k][m][l]*DS_NL1[0][0][Mj_AN2][kl][n][l];
 		l++;
 	      }
 	    }
 
-	    if (k==0){
-	      Hx[0][m][n].r = sumx;
-	      Hy[0][m][n].r = sumy;
-	      Hz[0][m][n].r = sumz;
+	    Hx[0][m][n].r += sumx;
+	    Hy[0][m][n].r += sumy;
+	    Hz[0][m][n].r += sumz;
 
-	      Hx[1][m][n].r = sumx;
-	      Hy[1][m][n].r = sumy;
-	      Hz[1][m][n].r = sumz;
+	    Hx[1][m][n].r += sumx;
+	    Hy[1][m][n].r += sumy;
+	    Hz[1][m][n].r += sumz;
 
-	      Hx[2][m][n].r = 0.0; 
-	      Hy[2][m][n].r = 0.0; 
-	      Hz[2][m][n].r = 0.0; 
-
-
-	      Hx[0][m][n].i = 0.0;
-	      Hy[0][m][n].i = 0.0;
-	      Hz[0][m][n].i = 0.0;
-
-	      Hx[1][m][n].i = 0.0;
-	      Hy[1][m][n].i = 0.0;
-	      Hz[1][m][n].i = 0.0;
-
-	      Hx[2][m][n].i = 0.0;
-	      Hy[2][m][n].i = 0.0;
-	      Hz[2][m][n].i = 0.0;
-	    }
-	    else {
-
-	      Hx[0][m][n].r += sumx;
-	      Hy[0][m][n].r += sumy;
-	      Hz[0][m][n].r += sumz;
-
-	      Hx[1][m][n].r += sumx;
-	      Hy[1][m][n].r += sumy;
-	      Hz[1][m][n].r += sumz;
-	    }
-	  }
-	}
+	  } /* n */
+	} /* m */
 
       } /* if */
 
@@ -3828,7 +5813,7 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
                    j-dependent non-local part
       ****************************************************/
 
-      else if ( 0<=kl && VPS_j_dependency[wakg]==1 ){
+      else if ( 0<=kl && VPS_j_dependency[wakg]==1 && where_flag==0 ){
 
 	for (m=0; m<ian; m++){
 	  for (n=0; n<jan; n++){
@@ -3844,6 +5829,9 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 	    sumx2 = Complex(0.0,0.0);
 	    sumy2 = Complex(0.0,0.0);
 	    sumz2 = Complex(0.0,0.0);
+
+            if (Mj_AN<=Matomnum) Mj_AN2 = Mj_AN;
+            else                 Mj_AN2 = Matomnum + 1; 
 
 	    l = 0;
 	    for (l1=1; l1<=Spe_Num_RVPS[wakg]; l1++){
@@ -3866,8 +5854,8 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
                       PFp, PFm,
                       ene_p,ene_m,
                       l2, &l,
-                      Mc_AN,k, m,
-                      Mj_AN,kl,n,
+                      Mc_AN ,k, m,
+                      Mj_AN2,kl,n,
                       DS_NL1);
 	    }
 
@@ -3894,69 +5882,37 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 			PFp, PFm,
 			ene_p,ene_m,
 			l2, &l,
-			Mj_AN,kl,n,
-			Mc_AN,k, m,
+			Mj_AN2, kl, n,
+			Mc_AN,  k,  m,
 			DS_NL1);
 
 	      }
 	    }
 
+	    Hx[0][m][n].r += sumx0.r;     /* up-up */
+	    Hy[0][m][n].r += sumy0.r;     /* up-up */
+	    Hz[0][m][n].r += sumz0.r;     /* up-up */
 
-	    if (k==0){
+	    Hx[1][m][n].r += sumx1.r;     /* dn-dn */
+	    Hy[1][m][n].r += sumy1.r;     /* dn-dn */
+	    Hz[1][m][n].r += sumz1.r;     /* dn-dn */
 
-	      Hx[0][m][n].r = sumx0.r;     /* up-up */
-	      Hy[0][m][n].r = sumy0.r;     /* up-up */
-	      Hz[0][m][n].r = sumz0.r;     /* up-up */
+	    Hx[2][m][n].r += sumx2.r;     /* up-dn */
+	    Hy[2][m][n].r += sumy2.r;     /* up-dn */
+	    Hz[2][m][n].r += sumz2.r;     /* up-dn */
 
-	      Hx[1][m][n].r = sumx1.r;     /* dn-dn */
-	      Hy[1][m][n].r = sumy1.r;     /* dn-dn */
-	      Hz[1][m][n].r = sumz1.r;     /* dn-dn */
+	    Hx[0][m][n].i += sumx0.i;     /* up-up */
+	    Hy[0][m][n].i += sumy0.i;     /* up-up */
+	    Hz[0][m][n].i += sumz0.i;     /* up-up */
 
-	      Hx[2][m][n].r = sumx2.r;     /* up-dn */
-	      Hy[2][m][n].r = sumy2.r;     /* up-dn */
-	      Hz[2][m][n].r = sumz2.r;     /* up-dn */
+	    Hx[1][m][n].i += sumx1.i;     /* dn-dn */
+	    Hy[1][m][n].i += sumy1.i;     /* dn-dn */
+	    Hz[1][m][n].i += sumz1.i;     /* dn-dn */
 
-	      Hx[0][m][n].i = sumx0.i;     /* up-up */
-	      Hy[0][m][n].i = sumy0.i;     /* up-up */
-	      Hz[0][m][n].i = sumz0.i;     /* up-up */
+	    Hx[2][m][n].i += sumx2.i;     /* up-dn */
+	    Hy[2][m][n].i += sumy2.i;     /* up-dn */
+	    Hz[2][m][n].i += sumz2.i;     /* up-dn */
 
-	      Hx[1][m][n].i = sumx1.i;     /* dn-dn */
-	      Hy[1][m][n].i = sumy1.i;     /* dn-dn */
-	      Hz[1][m][n].i = sumz1.i;     /* dn-dn */
-
-	      Hx[2][m][n].i = sumx2.i;     /* up-dn */
-	      Hy[2][m][n].i = sumy2.i;     /* up-dn */
-	      Hz[2][m][n].i = sumz2.i;     /* up-dn */
-
-	    }
-
-	    else {
-
-	      Hx[0][m][n].r += sumx0.r;     /* up-up */
-	      Hy[0][m][n].r += sumy0.r;     /* up-up */
-	      Hz[0][m][n].r += sumz0.r;     /* up-up */
-
-	      Hx[1][m][n].r += sumx1.r;     /* dn-dn */
-	      Hy[1][m][n].r += sumy1.r;     /* dn-dn */
-	      Hz[1][m][n].r += sumz1.r;     /* dn-dn */
-
-	      Hx[2][m][n].r += sumx2.r;     /* up-dn */
-	      Hy[2][m][n].r += sumy2.r;     /* up-dn */
-	      Hz[2][m][n].r += sumz2.r;     /* up-dn */
-
-	      Hx[0][m][n].i += sumx0.i;     /* up-up */
-	      Hy[0][m][n].i += sumy0.i;     /* up-up */
-	      Hz[0][m][n].i += sumz0.i;     /* up-up */
-
-	      Hx[1][m][n].i += sumx1.i;     /* dn-dn */
-	      Hy[1][m][n].i += sumy1.i;     /* dn-dn */
-	      Hz[1][m][n].i += sumz1.i;     /* dn-dn */
-
-	      Hx[2][m][n].i += sumx2.i;     /* up-dn */
-	      Hy[2][m][n].i += sumy2.i;     /* up-dn */
-	      Hz[2][m][n].i += sumz2.i;     /* up-dn */
-
-	    }
 	  }
 	}
       }
@@ -3967,7 +5923,7 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
                            H*ep*dH 
     ****************************************************/
 
-    /* l-dependent non-local part */
+    /* h_AN==0 && q_AN==0 */
 
     if (q_AN==0 && VPS_j_dependency[wakg]==0){
 
@@ -3993,10 +5949,9 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
           Hz[1][n][m].r = tmpz;
         }
       }
-
     }
 
-    else {
+    else if (where_flag==1){
 
       kg = natn[Gc_AN][0];
       wakg = WhatSpecies[kg];
@@ -4011,9 +5966,19 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 
 	for (m=0; m<ian; m++){
 	  for (n=0; n<jan; n++){
+
 	    sumx = 0.0;
 	    sumy = 0.0;
 	    sumz = 0.0;
+
+            if (Mj_AN<=Matomnum){
+              Mj_AN2 = Mj_AN;
+ 	      kl2 = RMI1[Mc_AN][q_AN][0];
+	    }
+            else{
+              Mj_AN2 = Matomnum + 1; 
+	      kl2 = RMI1[Mc_AN][0][q_AN];
+	    }
 
 	    l = 0;
 	    for (l1=1; l1<=Spe_Num_RVPS[wakg]; l1++){
@@ -4024,12 +5989,11 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 	      else if (Spe_VPS_List[wakg][l1]==2) l2 = 4;
 	      else if (Spe_VPS_List[wakg][l1]==3) l2 = 6;
 
-
 	      for (l3=0; l3<=l2; l3++){
 
-		sumx -= ene*DS_NL1[0][0][Mc_AN][0][m][l]*DS_NL1[0][1][Mj_AN][kl][n][l];
-		sumy -= ene*DS_NL1[0][0][Mc_AN][0][m][l]*DS_NL1[0][2][Mj_AN][kl][n][l];
-		sumz -= ene*DS_NL1[0][0][Mc_AN][0][m][l]*DS_NL1[0][3][Mj_AN][kl][n][l];
+		sumx -= ene*DS_NL1[0][0][Mc_AN][0][m][l]*DS_NL1[0][1][Mj_AN2][kl2][n][l];
+		sumy -= ene*DS_NL1[0][0][Mc_AN][0][m][l]*DS_NL1[0][2][Mj_AN2][kl2][n][l];
+		sumz -= ene*DS_NL1[0][0][Mc_AN][0][m][l]*DS_NL1[0][3][Mj_AN2][kl2][n][l];
 		l++;
 	      }
 	    }
@@ -4066,6 +6030,15 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 	    sumy2 = Complex(0.0,0.0);
 	    sumz2 = Complex(0.0,0.0);
 
+            if (Mj_AN<=Matomnum){
+              Mj_AN2 = Mj_AN;
+ 	      kl2 = RMI1[Mc_AN][q_AN][0];
+	    }
+            else{
+              Mj_AN2 = Matomnum + 1; 
+	      kl2 = RMI1[Mc_AN][0][q_AN];
+	    }
+
 	    l = 0;
 	    for (l1=1; l1<=Spe_Num_RVPS[wakg]; l1++){
 
@@ -4089,8 +6062,8 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
                       PFp, PFm,
                       -ene_p,-ene_m,
                       l2, &l,
-                      Mj_AN,kl,n,
-                      Mc_AN,0, m,
+                      Mj_AN2,kl2,n,
+                      Mc_AN, 0,  m,
                       DS_NL1);
 	    }
 
@@ -4126,6 +6099,112 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 
   } /* if (h_AN==0) */
 
+
+  else if (where_flag==0){
+
+    /****************************************************
+       H*ep*dH
+
+       if (h_AN!=0 && where_flag==0)
+       This happens 
+       only if 
+       ( SpinP_switch==3
+         &&
+         (SO_switch==1 || (Hub_U_switch==1 && F_U_flag==1) 
+  	   || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1
+           || Zeeman_NCO_switch==1)
+         && 
+         q_AN==0
+       )
+    ****************************************************/
+
+    for (k=0; k<=FNAN[Gc_AN]; k++){
+
+      kg = natn[Gc_AN][k];
+      wakg = WhatSpecies[kg];
+      kan = Spe_Total_VPS_Pro[wakg];
+      kl = RMI1[Mc_AN][h_AN][k];
+
+      if (Mi_AN<=Matomnum) Mi_AN2 = Mi_AN;
+      else                 Mi_AN2 = Matomnum + 1; 
+
+      if (0<=kl && VPS_j_dependency[wakg]==1){
+
+	for (m=0; m<ian; m++){
+	  for (n=0; n<jan; n++){
+
+	    sumx0 = Complex(0.0,0.0);
+	    sumy0 = Complex(0.0,0.0);
+	    sumz0 = Complex(0.0,0.0);
+
+	    sumx1 = Complex(0.0,0.0);
+	    sumy1 = Complex(0.0,0.0);
+	    sumz1 = Complex(0.0,0.0);
+
+	    sumx2 = Complex(0.0,0.0);
+	    sumy2 = Complex(0.0,0.0);
+	    sumz2 = Complex(0.0,0.0);
+
+	    l = 0;
+	    for (l1=1; l1<=Spe_Num_RVPS[wakg]; l1++){
+
+	      ene_p = Spe_VNLE[0][wakg][l1-1];
+	      ene_m = Spe_VNLE[1][wakg][l1-1];
+
+	      if      (Spe_VPS_List[wakg][l1]==0) { l2=0; PFp=1.0;     PFm=0.0;     }  
+	      else if (Spe_VPS_List[wakg][l1]==1) { l2=2; PFp=2.0/3.0; PFm=1.0/3.0; }
+	      else if (Spe_VPS_List[wakg][l1]==2) { l2=4; PFp=3.0/5.0; PFm=2.0/5.0; }
+	      else if (Spe_VPS_List[wakg][l1]==3) { l2=6; PFp=4.0/7.0; PFm=3.0/7.0; }
+
+	      dHNL_SO(&sumx0.r,&sumy0.r,&sumz0.r,
+                      &sumx1.r,&sumy1.r,&sumz1.r,
+                      &sumx2.r,&sumy2.r,&sumz2.r,
+                      &sumx0.i,&sumy0.i,&sumz0.i,
+                      &sumx1.i,&sumy1.i,&sumz1.i,
+                      &sumx2.i,&sumy2.i,&sumz2.i,
+                      -1.0,
+                      PFp, PFm,
+                      ene_p, ene_m,
+                      l2, &l,
+                      Mj_AN,  k,  n,
+                      Mi_AN2, kl, m,
+                      DS_NL1);
+	    }
+
+	    Hx[0][m][n].r += sumx0.r;     /* up-up */
+	    Hy[0][m][n].r += sumy0.r;     /* up-up */
+	    Hz[0][m][n].r += sumz0.r;     /* up-up */
+
+	    Hx[1][m][n].r += sumx1.r;     /* dn-dn */
+	    Hy[1][m][n].r += sumy1.r;     /* dn-dn */
+	    Hz[1][m][n].r += sumz1.r;     /* dn-dn */
+
+	    Hx[2][m][n].r += sumx2.r;     /* up-dn */
+	    Hy[2][m][n].r += sumy2.r;     /* up-dn */
+	    Hz[2][m][n].r += sumz2.r;     /* up-dn */
+
+	    Hx[0][m][n].i += sumx0.i;     /* up-up */
+	    Hy[0][m][n].i += sumy0.i;     /* up-up */
+	    Hz[0][m][n].i += sumz0.i;     /* up-up */
+
+	    Hx[1][m][n].i += sumx1.i;     /* dn-dn */
+	    Hy[1][m][n].i += sumy1.i;     /* dn-dn */
+	    Hz[1][m][n].i += sumz1.i;     /* dn-dn */
+
+	    Hx[2][m][n].i += sumx2.i;     /* up-dn */
+	    Hy[2][m][n].i += sumy2.i;     /* up-dn */
+	    Hz[2][m][n].i += sumz2.i;     /* up-dn */
+
+	  }
+	}
+      }
+
+    }     
+
+  }
+
+  /* if (h_AN!=0 && where_flag==1) */
+
   else {
 
     /****************************************************
@@ -4135,8 +6214,8 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
     kg = natn[Gc_AN][0];
     wakg = WhatSpecies[kg];
     kan = Spe_Total_VPS_Pro[wakg];
-    kl1 = RMI1[Mc_AN][h_AN][0];
-    kl2 = RMI1[Mc_AN][q_AN][0];
+    kl1 = RMI1[Mc_AN][0][h_AN];
+    kl2 = RMI1[Mc_AN][0][q_AN];
 
     /****************************************************
                    l-dependent non-local part
@@ -4146,6 +6225,7 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 
       for (m=0; m<ian; m++){
 	for (n=0; n<jan; n++){
+
 	  sumx = 0.0;
 	  sumy = 0.0;
 	  sumz = 0.0;
@@ -4160,9 +6240,9 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 	    else if (Spe_VPS_List[wakg][l1]==3) l2 = 6;
 
 	    for (l3=0; l3<=l2; l3++){
-	      sumx -= ene*DS_NL1[0][1][Mi_AN][kl1][m][l]*DS_NL1[0][0][Mj_AN][kl2][n][l];
-	      sumy -= ene*DS_NL1[0][2][Mi_AN][kl1][m][l]*DS_NL1[0][0][Mj_AN][kl2][n][l];
-	      sumz -= ene*DS_NL1[0][3][Mi_AN][kl1][m][l]*DS_NL1[0][0][Mj_AN][kl2][n][l];
+	      sumx -= ene*DS_NL1[0][1][Matomnum+1][kl1][m][l]*DS_NL1[0][0][Matomnum+1][kl2][n][l];
+	      sumy -= ene*DS_NL1[0][2][Matomnum+1][kl1][m][l]*DS_NL1[0][0][Matomnum+1][kl2][n][l];
+	      sumz -= ene*DS_NL1[0][3][Matomnum+1][kl1][m][l]*DS_NL1[0][0][Matomnum+1][kl2][n][l];
 	      l++;
 	    }
 	  }
@@ -4239,8 +6319,8 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 		    PFp, PFm,
 		    -ene_p,-ene_m,
 		    l2, &l,
-		    Mi_AN,kl1,m,
-		    Mj_AN,kl2,n,
+		    Matomnum+1, kl1,m,
+		    Matomnum+1, kl2,n,
 		    DS_NL1);
 	  }
 
@@ -4276,144 +6356,13 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
                            H*ep*dH
     ****************************************************/
 
-    if (q_AN==0){
-
-      for (k=0; k<=FNAN[Gc_AN]; k++){
-        kg = natn[Gc_AN][k];
-        wakg = WhatSpecies[kg];
-        kan = Spe_Total_VPS_Pro[wakg];
-        kl1 = RMI1[Mc_AN][h_AN][k];
-        kl2 = RMI1[Mc_AN][q_AN][k];
-
-        /****************************************************
-                       l-dependent non-local part
-        ****************************************************/
-
-        if (0<=kl1 && VPS_j_dependency[wakg]==0){
-
-	  for (m=0; m<ian; m++){
-	    for (n=0; n<jan; n++){
-	      sumx = 0.0;
-	      sumy = 0.0;
-	      sumz = 0.0;
-
-	      l = 0;
-	      for (l1=1; l1<=Spe_Num_RVPS[wakg]; l1++){
-
-		ene = Spe_VNLE[0][wakg][l1-1];
-		if      (Spe_VPS_List[wakg][l1]==0) l2 = 0;
-		else if (Spe_VPS_List[wakg][l1]==1) l2 = 2;
-		else if (Spe_VPS_List[wakg][l1]==2) l2 = 4;
-		else if (Spe_VPS_List[wakg][l1]==3) l2 = 6;
-           
-		for (l3=0; l3<=l2; l3++){
-		  sumx += ene*DS_NL1[0][0][Mi_AN][kl1][m][l]*DS_NL1[0][1][Mj_AN][kl2][n][l];
-		  sumy += ene*DS_NL1[0][0][Mi_AN][kl1][m][l]*DS_NL1[0][2][Mj_AN][kl2][n][l];
-		  sumz += ene*DS_NL1[0][0][Mi_AN][kl1][m][l]*DS_NL1[0][3][Mj_AN][kl2][n][l];
-		  l++;
-		}
-	      }
-
-	      Hx[0][m][n].r += sumx;
-	      Hy[0][m][n].r += sumy;
-	      Hz[0][m][n].r += sumz;
-
-	      Hx[1][m][n].r += sumx;
-	      Hy[1][m][n].r += sumy;
-	      Hz[1][m][n].r += sumz;
-
-	    }
-	  }
-	}
-
-        /****************************************************
-                      j-dependent non-local part
-        ****************************************************/
-
-        else if ( 0<=kl1 && VPS_j_dependency[wakg]==1 ){
-
-	  for (m=0; m<ian; m++){
-	    for (n=0; n<jan; n++){
-
-	      sumx0 = Complex(0.0,0.0);
-	      sumy0 = Complex(0.0,0.0);
-	      sumz0 = Complex(0.0,0.0);
-
-	      sumx1 = Complex(0.0,0.0);
-	      sumy1 = Complex(0.0,0.0);
-	      sumz1 = Complex(0.0,0.0);
-
-  	      sumx2 = Complex(0.0,0.0);
-	      sumy2 = Complex(0.0,0.0);
-	      sumz2 = Complex(0.0,0.0);
-
-	      l = 0;
-	      for (l1=1; l1<=Spe_Num_RVPS[wakg]; l1++){
-
-		ene_p = Spe_VNLE[0][wakg][l1-1];
-		ene_m = Spe_VNLE[1][wakg][l1-1];
-
-		if      (Spe_VPS_List[wakg][l1]==0) { l2=0; PFp=1.0;     PFm=0.0;     }  
-		else if (Spe_VPS_List[wakg][l1]==1) { l2=2; PFp=2.0/3.0; PFm=1.0/3.0; }
-		else if (Spe_VPS_List[wakg][l1]==2) { l2=4; PFp=3.0/5.0; PFm=2.0/5.0; }
-		else if (Spe_VPS_List[wakg][l1]==3) { l2=6; PFp=4.0/7.0; PFm=3.0/7.0; }
-           
-		/* 3 */
-
-		dHNL_SO(&sumx0.r,&sumy0.r,&sumz0.r,
-			&sumx1.r,&sumy1.r,&sumz1.r,
-                        &sumx2.r,&sumy2.r,&sumz2.r,
-			&sumx0.i,&sumy0.i,&sumz0.i,
-			&sumx1.i,&sumy1.i,&sumz1.i,
-                        &sumx2.i,&sumy2.i,&sumz2.i,
-                        -1.0,
-			PFp, PFm,
-			ene_p,ene_m,
-			l2, &l,
-			Mj_AN,kl2,n,
-			Mi_AN,kl1,m,
-			DS_NL1);
-
-	      }
-
-	      Hx[0][m][n].r += sumx0.r;     /* up-up */
-	      Hy[0][m][n].r += sumy0.r;     /* up-up */
-	      Hz[0][m][n].r += sumz0.r;     /* up-up */
-
-	      Hx[1][m][n].r += sumx1.r;     /* dn-dn */
-	      Hy[1][m][n].r += sumy1.r;     /* dn-dn */
-	      Hz[1][m][n].r += sumz1.r;     /* dn-dn */
-
-	      Hx[2][m][n].r += sumx2.r;     /* up-dn */
-	      Hy[2][m][n].r += sumy2.r;     /* up-dn */
-	      Hz[2][m][n].r += sumz2.r;     /* up-dn */
-
-	      Hx[0][m][n].i += sumx0.i;     /* up-up */
-	      Hy[0][m][n].i += sumy0.i;     /* up-up */
-	      Hz[0][m][n].i += sumz0.i;     /* up-up */
-
-	      Hx[1][m][n].i += sumx1.i;     /* dn-dn */
-	      Hy[1][m][n].i += sumy1.i;     /* dn-dn */
-	      Hz[1][m][n].i += sumz1.i;     /* dn-dn */
-
-	      Hx[2][m][n].i += sumx2.i;     /* up-dn */
-	      Hy[2][m][n].i += sumy2.i;     /* up-dn */
-	      Hz[2][m][n].i += sumz2.i;     /* up-dn */
-
-	    }
-	  }
-
-	}
-      }
-    } /* if (q_AN==0) */
-
-    else {
+    if (q_AN!=0) {
 
       kg = natn[Gc_AN][0];
       wakg = WhatSpecies[kg];
       kan = Spe_Total_VPS_Pro[wakg];
-      kl1 = RMI1[Mc_AN][h_AN][0];
-      kl2 = RMI1[Mc_AN][q_AN][0];
+      kl1 = RMI1[Mc_AN][0][h_AN];
+      kl2 = RMI1[Mc_AN][0][q_AN];
 
       /****************************************************
                      l-dependent non-local part
@@ -4438,9 +6387,9 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 	      else if (Spe_VPS_List[wakg][l1]==3) l2 = 6;
 
 	      for (l3=0; l3<=l2; l3++){
-		sumx -= ene*DS_NL1[0][0][Mi_AN][kl1][m][l]*DS_NL1[0][1][Mj_AN][kl2][n][l];
-		sumy -= ene*DS_NL1[0][0][Mi_AN][kl1][m][l]*DS_NL1[0][2][Mj_AN][kl2][n][l];
-		sumz -= ene*DS_NL1[0][0][Mi_AN][kl1][m][l]*DS_NL1[0][3][Mj_AN][kl2][n][l];
+		sumx -= ene*DS_NL1[0][0][Matomnum+1][kl1][m][l]*DS_NL1[0][1][Matomnum+1][kl2][n][l];
+		sumy -= ene*DS_NL1[0][0][Matomnum+1][kl1][m][l]*DS_NL1[0][2][Matomnum+1][kl2][n][l];
+		sumz -= ene*DS_NL1[0][0][Matomnum+1][kl1][m][l]*DS_NL1[0][3][Matomnum+1][kl2][n][l];
 		l++;
 	      }
 	    }
@@ -4500,8 +6449,8 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 		      PFp, PFm,
 		      -ene_p,-ene_m,
 		      l2, &l,
-		      Mj_AN,kl2,n,
-		      Mi_AN,kl1,m,
+		      Matomnum+1, kl2,n,
+		      Matomnum+1, kl1,m,
 		      DS_NL1);
 	    }
 
@@ -4534,6 +6483,7 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
       }
 
     }
+
   } /* else */
 
   /****************************************************
@@ -4691,13 +6641,14 @@ void dHNL(int Mc_AN, int h_AN, int q_AN,
 
 
 
-void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
-           Type_DS_VNA *****DS_VNA1, double *****TmpHVNA2,
-           double **Hx)
+void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
+           Type_DS_VNA *****DS_VNA1, 
+           double *****TmpHVNA2, double *****TmpHVNA3, 
+           double **Hx, double **Hy, double **Hz)
 {
   int i,j,k,m,n,l,kg,kan,so,deri_kind;
   int ig,ian,jg,jan,kl,kl1,kl2,Rni,Rnj;
-  int wakg,l1,l2,l3,Gc_AN,Mi_AN,Mj_AN,num_projectors;
+  int wakg,l1,l2,l3,Gc_AN,Mi_AN,Mj_AN,Mj_AN2,num_projectors;
   double sumx,sumy,sumz,ene,rcuti,rcutj,rcut;
   double tmpx,tmpy,tmpz,dmp,deri_dmp,tmp;
   double dx,dy,dz,x0,y0,z0,x1,y1,z1,r;
@@ -4734,6 +6685,8 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
   for (m=0; m<ian; m++){
     for (n=0; n<jan; n++){
       Hx[m][n] = 0.0;
+      Hy[m][n] = 0.0;
+      Hz[m][n] = 0.0;
     }
   }
 
@@ -4745,16 +6698,12 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 
   if (h_AN==0 && q_AN==0 && where_flag==0){
 
-    for (m=0; m<ian; m++){
-      for (n=0; n<jan; n++){
-	Hx[m][n] = 0.0;
-      }
-    }
-
     for (k=1; k<=FNAN[Gc_AN]; k++){
       for (m=0; m<ian; m++){
         for (n=0; n<jan; n++){
-	  Hx[m][n] += TmpHVNA2[kk][Mc_AN][k][m][n];
+	  Hx[m][n] += TmpHVNA2[1][Mc_AN][k][m][n];
+	  Hy[m][n] += TmpHVNA2[2][Mc_AN][k][m][n];
+	  Hz[m][n] += TmpHVNA2[3][Mc_AN][k][m][n];
         }
       }      
     }
@@ -4772,13 +6721,10 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 
     for (m=0; m<ian; m++){
       for (n=0; n<jan; n++){
-	Hx[m][n] = 0.0;
-      }
-    }
 
-    for (m=0; m<ian; m++){
-      for (n=0; n<jan; n++){
-	Hx[m][n] = -TmpHVNA2[kk][Mi_AN][kl][m][n];
+	Hx[m][n] = -TmpHVNA3[1][Mc_AN][h_AN][m][n];
+	Hy[m][n] = -TmpHVNA3[2][Mc_AN][h_AN][m][n];
+	Hz[m][n] = -TmpHVNA3[3][Mc_AN][h_AN][m][n];
       }
     } 
   }
@@ -4808,27 +6754,28 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 
 	if (0<=kl && where_flag==0){
 
+          if (Mj_AN<=Matomnum) Mj_AN2 = Mj_AN;
+          else                 Mj_AN2 = Matomnum+1; 
+
 	  for (m=0; m<ian; m++){
 	    for (n=0; n<jan; n++){
 
 	      sumx = 0.0;
+	      sumy = 0.0;
+	      sumz = 0.0;
 
-              if (Mj_AN<=Matomnum){
- 	        for (l=0; l<num_projectors; l++){
-	  	  sumx += DS_VNA1[1][Mc_AN][k][m][l]*DS_VNA1[0][Mj_AN][kl][n][l];
-	        }
-	      }
-              else{
- 	        for (l=0; l<num_projectors; l++){
-		  sumx += DS_VNA1[1][Mc_AN][k][m][l]*DS_VNA1[0][Matomnum+1][kl][n][l];
-	        }
+	      for (l=0; l<num_projectors; l++){
+		sumx += DS_VNA1[1][Mc_AN][k][m][l]*DS_VNA1[0][Mj_AN2][kl][n][l];
+		sumy += DS_VNA1[2][Mc_AN][k][m][l]*DS_VNA1[0][Mj_AN2][kl][n][l];
+		sumz += DS_VNA1[3][Mc_AN][k][m][l]*DS_VNA1[0][Mj_AN2][kl][n][l];
 	      }
 
-	      if (k==0)	Hx[m][n]  = sumx;
-	      else 	Hx[m][n] += sumx;
+	      Hx[m][n] += sumx;
+	      Hy[m][n] += sumy;
+	      Hz[m][n] += sumz;
 
-	    }
-	  }
+	    } /* n */
+	  } /* m */
 
 	} /* if */
 
@@ -4840,8 +6787,6 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 
       /* non-local part */
 
-      /* ???? */
-
       if (q_AN==0){
 
 	for (m=0; m<ian; m++){
@@ -4850,6 +6795,14 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
             tmpx = Hx[m][n] + Hx[n][m];
 	    Hx[m][n] = tmpx;
 	    Hx[n][m] = tmpx;
+
+            tmpy = Hy[m][n] + Hy[n][m];
+	    Hy[m][n] = tmpy;
+	    Hy[n][m] = tmpy;
+
+            tmpz = Hz[m][n] + Hz[n][m];
+	    Hz[m][n] = tmpz;
+	    Hz[n][m] = tmpz;
 	  }
 	}
 
@@ -4868,25 +6821,27 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 	  for (n=0; n<jan; n++){
 
 	    sumx = 0.0;
+	    sumy = 0.0;
+	    sumz = 0.0;
 
             if (Mj_AN<=Matomnum){
-
+              Mj_AN2 = Mj_AN;
  	      kl = RMI1[Mc_AN][q_AN][0];
-
-	      for (l=0; l<num_projectors; l++){
-	        sumx -= DS_VNA1[0][Mc_AN][0][m][l]*DS_VNA1[1][Mj_AN][kl][n][l];
-	      }
 	    }
             else{
-
+              Mj_AN2 = Matomnum+1; 
 	      kl = RMI1[Mc_AN][0][q_AN];
+            }
 
- 	      for (l=0; l<num_projectors; l++){
-	        sumx -= DS_VNA1[0][Mc_AN][0][m][l]*DS_VNA1[1][Matomnum+1][kl][n][l];
-	      }
+	    for (l=0; l<num_projectors; l++){
+	      sumx -= DS_VNA1[0][Mc_AN][0][m][l]*DS_VNA1[1][Mj_AN2][kl][n][l];
+	      sumy -= DS_VNA1[0][Mc_AN][0][m][l]*DS_VNA1[2][Mj_AN2][kl][n][l];
+	      sumz -= DS_VNA1[0][Mc_AN][0][m][l]*DS_VNA1[3][Mj_AN2][kl][n][l];
 	    }
 
 	    Hx[m][n] += sumx;
+	    Hy[m][n] += sumy;
+	    Hz[m][n] += sumz;
 
 	  }
 	}
@@ -4914,12 +6869,18 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 	for (n=0; n<jan; n++){
 
 	  sumx = 0.0;
+	  sumy = 0.0;
+	  sumz = 0.0;
 
           for (l=0; l<num_projectors; l++){
 	    sumx -= DS_VNA1[1][Matomnum+1][kl1][m][l]*DS_VNA1[0][Matomnum+1][kl2][n][l];
+	    sumy -= DS_VNA1[2][Matomnum+1][kl1][m][l]*DS_VNA1[0][Matomnum+1][kl2][n][l];
+	    sumz -= DS_VNA1[3][Matomnum+1][kl1][m][l]*DS_VNA1[0][Matomnum+1][kl2][n][l];
 	  }
 
 	  Hx[m][n] = sumx;
+	  Hy[m][n] = sumy;
+	  Hz[m][n] = sumz;
 	}
       }
 
@@ -4927,40 +6888,7 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 			   H*ep*dH
       ****************************************************/
 
-      /* ????  */
-      if (q_AN==0){
-
-	for (k=0; k<=FNAN[Gc_AN]; k++){
-
-	  kg = natn[Gc_AN][k];
-	  wakg = WhatSpecies[kg];
-	  kl1 = RMI1[Mc_AN][h_AN][k];
-	  kl2 = RMI1[Mc_AN][q_AN][k];
-
-	  /****************************************************
-			       non-local part
-	  ****************************************************/
-
-	  if (0<=kl1){
-
-	    for (m=0; m<ian; m++){
-	      for (n=0; n<jan; n++){
-
-		sumx = 0.0;
-
-		for (l=0; l<num_projectors; l++){
-		  sumx += DS_VNA1[0][Mi_AN][kl1][m][l]*DS_VNA1[1][Mj_AN][kl2][n][l];
-		}
-
-		Hx[m][n] += sumx;
-	      }
-	    }
-	  }
-
-	}
-      } /* if (q_AN==0) */
-
-      else {
+      if (q_AN!=0){
 
 	kg = natn[Gc_AN][0];
 	wakg = WhatSpecies[kg];
@@ -4975,12 +6903,18 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 	  for (n=0; n<jan; n++){
 
 	    sumx = 0.0;
+	    sumy = 0.0;
+	    sumz = 0.0;
 
 	    for (l=0; l<num_projectors; l++){
 	      sumx -= DS_VNA1[0][Matomnum+1][kl1][m][l]*DS_VNA1[1][Matomnum+1][kl2][n][l];
+	      sumy -= DS_VNA1[0][Matomnum+1][kl1][m][l]*DS_VNA1[2][Matomnum+1][kl2][n][l];
+	      sumz -= DS_VNA1[0][Matomnum+1][kl1][m][l]*DS_VNA1[3][Matomnum+1][kl2][n][l];
 	    }
 
 	    Hx[m][n] += sumx;
+	    Hy[m][n] += sumy;
+	    Hz[m][n] += sumz;
 
 	  }
 	}
@@ -4998,6 +6932,8 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
   for (m=0; m<ian; m++){
     for (n=0; n<jan; n++){
       Hx[m][n] = dmp*Hx[m][n];
+      Hy[m][n] = dmp*Hy[m][n];
+      Hz[m][n] = dmp*Hz[m][n];
     }
   }
 
@@ -5019,24 +6955,36 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
       tmp = deri_dmp/dmp;
     }
 
-    x0 = Gxyz[ig][kk] + atv[Rni][kk];
-    x1 = Gxyz[jg][kk] + atv[Rnj][kk];
+    x0 = Gxyz[ig][1] + atv[Rni][1];
+    x1 = Gxyz[jg][1] + atv[Rnj][1];
+
+    y0 = Gxyz[ig][2] + atv[Rni][2];
+    y1 = Gxyz[jg][2] + atv[Rnj][2];
+
+    z0 = Gxyz[ig][3] + atv[Rni][3];
+    z1 = Gxyz[jg][3] + atv[Rnj][3];
 
     /* for empty atoms or finite elemens basis */
     if (r<1.0e-10) r = 1.0e-10;
 
     if ( h_AN==0 ){
       dx = tmp*(x0-x1)/r;
+      dy = tmp*(y0-y1)/r;
+      dz = tmp*(z0-z1)/r;
     }
 
     else if ( q_AN==0 ){
       dx = tmp*(x1-x0)/r;
+      dy = tmp*(y1-y0)/r;
+      dz = tmp*(z1-z0)/r;
     }
 
     if (h_AN==0){ 
       for (m=0; m<ian; m++){
         for (n=0; n<jan; n++){
 	  Hx[m][n] += HVNA[Mc_AN][kl][m][n]*dx;
+	  Hy[m][n] += HVNA[Mc_AN][kl][m][n]*dy;
+	  Hz[m][n] += HVNA[Mc_AN][kl][m][n]*dz;
         }
       }
     }
@@ -5045,6 +6993,8 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
       for (m=0; m<ian; m++){
         for (n=0; n<jan; n++){
 	  Hx[m][n] += HVNA[Mc_AN][kl][n][m]*dx;
+	  Hy[m][n] += HVNA[Mc_AN][kl][n][m]*dy;
+	  Hz[m][n] += HVNA[Mc_AN][kl][n][m]*dz;
         }
       }
     }
@@ -5055,370 +7005,10 @@ void dHVNA(int kk, int where_flag, int Mc_AN, int h_AN, int q_AN,
 
 
 
-void MPI_CntDS_NL()
-{
- 
-  int i,j,k,tno1,tno2,n,so;
-  int Mc_AN,Gc_AN,num,size1,size2;
-  int h_AN,Gh_AN,Cwan,Hwan;
-  double *tmp_array;
-  double *tmp_array2;
-  int numprocs,myid,tag=999,ID,IDS,IDR;
 
-  MPI_Status stat;
-  MPI_Request request;
 
-  /* MPI */
-  MPI_Comm_size(mpi_comm_level1,&numprocs);
-  MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  /****************************************************
-   MPI: 
 
-    CntDS_NL
-  ****************************************************/
-
-  /***********************************
-             set data size
-  ************************************/
-
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-
-      /* find data size to send block data */
-      if (F_Snd_Num[IDS]!=0){
-
-        size1 = 0;
-
-        for (so=0; so<(SO_switch+1); so++){
-	  for (k=0; k<=3; k++){
-	    for (n=0; n<F_Snd_Num[IDS]; n++){
-	      Mc_AN = Snd_MAN[IDS][n];
-	      Gc_AN = Snd_GAN[IDS][n];
-	      Cwan = WhatSpecies[Gc_AN]; 
-	      tno1 = Spe_Total_CNO[Cwan];
-	      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-		Gh_AN = natn[Gc_AN][h_AN];        
-		Hwan = WhatSpecies[Gh_AN];
-		tno2 = Spe_Total_VPS_Pro[Hwan];
-		for (i=0; i<tno1; i++){
-		  for (j=0; j<tno2; j++){
-		    size1++; 
-		  } 
-		} 
-	      }
-	    }
-	  }
-	}
- 
-        Snd_DS_NL_Size[IDS] = size1;
-        MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      }
-      else{
-        Snd_DS_NL_Size[IDS] = 0;
-      }
-
-      /* receiving of size of data */
-
-      if (F_Rcv_Num[IDR]!=0){
-        MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-        Rcv_DS_NL_Size[IDR] = size2;
-      }
-      else{
-        Rcv_DS_NL_Size[IDR] = 0;
-      }
-
-      if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
-
-    }
-  }
-
-  /***********************************
-             data transfer
-  ************************************/
-
-  tag = 999;
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-
-      /*****************************
-              sending of data 
-      *****************************/
-
-      if (F_Snd_Num[IDS]!=0){
-
-        size1 = Snd_DS_NL_Size[IDS];
-
-        /* allocation of array */
-
-        tmp_array = (double*)malloc(sizeof(double)*size1);
-
-        /* multidimentional array to vector array */
-
-        num = 0;
-
-        for (so=0; so<(SO_switch+1); so++){
-	  for (k=0; k<=3; k++){
-	    for (n=0; n<F_Snd_Num[IDS]; n++){
-	      Mc_AN = Snd_MAN[IDS][n];
-	      Gc_AN = Snd_GAN[IDS][n];
-	      Cwan = WhatSpecies[Gc_AN]; 
-	      tno1 = Spe_Total_CNO[Cwan];
-	      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-		Gh_AN = natn[Gc_AN][h_AN];        
-		Hwan = WhatSpecies[Gh_AN];
-		tno2 = Spe_Total_VPS_Pro[Hwan];
-		for (i=0; i<tno1; i++){
-		  for (j=0; j<tno2; j++){
-		    tmp_array[num] = CntDS_NL[so][k][Mc_AN][h_AN][i][j];
-		    num++;
-		  } 
-		} 
-	      }
-	    }
-	  }
-	}
-
-        MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-
-      }
-
-      /*****************************
-         receiving of block data
-      *****************************/
-
-      if (F_Rcv_Num[IDR]!=0){
-        
-        size2 = Rcv_DS_NL_Size[IDR];
-        
-        /* allocation of array */
-        tmp_array2 = (double*)malloc(sizeof(double)*size2);
-        
-        MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-        
-        num = 0;
-
-        for (so=0; so<(SO_switch+1); so++){
-	  for (k=0; k<=3; k++){
-	    Mc_AN = F_TopMAN[IDR] - 1;
-	    for (n=0; n<F_Rcv_Num[IDR]; n++){
-	      Mc_AN++;
-	      Gc_AN = Rcv_GAN[IDR][n];
-	      Cwan = WhatSpecies[Gc_AN]; 
-	      tno1 = Spe_Total_CNO[Cwan];
-
-	      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-		Gh_AN = natn[Gc_AN][h_AN];        
-		Hwan = WhatSpecies[Gh_AN];
-		tno2 = Spe_Total_VPS_Pro[Hwan];
-		for (i=0; i<tno1; i++){
-		  for (j=0; j<tno2; j++){
-		    CntDS_NL[so][k][Mc_AN][h_AN][i][j] = tmp_array2[num];
-		    num++;
-		  }
-		}
-	      }
-	    }        
-	  }
-	}
-
-        /* freeing of array */
-        free(tmp_array2);
-
-      }
-
-      if (F_Snd_Num[IDS]!=0){
-        MPI_Wait(&request,&stat);
-        free(tmp_array);  /* freeing of array */
-      } 
-    }
-  }
-}
-
-
-
-
-void MPI_CntHVNA2()
-{
-  int i,j,k,tno1,tno2,n;
-  int Mc_AN,Gc_AN,num,size1,size2;
-  int h_AN,Gh_AN,Cwan,Hwan;
-  double *tmp_array;
-  double *tmp_array2;
-  int numprocs,myid,tag=999,ID,IDS,IDR;
-  int *Snd_CntHVNA2_Size,*Rcv_CntHVNA2_Size;  
-
-  MPI_Status stat;
-  MPI_Request request;
-
-  /* MPI */
-  MPI_Comm_size(mpi_comm_level1,&numprocs);
-  MPI_Comm_rank(mpi_comm_level1,&myid);
-
-  Snd_CntHVNA2_Size = (int*)malloc(sizeof(int)*Num_Procs);
-  Rcv_CntHVNA2_Size = (int*)malloc(sizeof(int)*Num_Procs);
-
-  /****************************************************
-    MPI:
-
-     CntHVNA2
-  ****************************************************/
-
-  /***********************************
-             set data size
-  ************************************/
-
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-
-      /* find data size to send block data */
-      if (F_Snd_Num[IDS]!=0){
-
-        size1 = 0;
-        for (k=0; k<=3; k++){
-          for (n=0; n<F_Snd_Num[IDS]; n++){
-            Mc_AN = Snd_MAN[IDS][n];
-            Gc_AN = Snd_GAN[IDS][n];
-            Cwan = WhatSpecies[Gc_AN]; 
-            tno1 = Spe_Total_CNO[Cwan];
-            size1 += tno1*tno1*(FNAN[Gc_AN]+1);
-          }
-	}
- 
-        Snd_CntHVNA2_Size[IDS] = size1;
-        MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      }
-      else{
-        Snd_CntHVNA2_Size[IDS] = 0;
-      }
-
-      /* receiving of size of data */
-
-      if (F_Rcv_Num[IDR]!=0){
-        MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-        Rcv_CntHVNA2_Size[IDR] = size2;
-      }
-      else{
-        Rcv_CntHVNA2_Size[IDR] = 0;
-      }
-
-      if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
-
-    }
-  }
-
-  /***********************************
-             data transfer
-  ************************************/
-
-  tag = 999;
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-
-      /*****************************
-              sending of data 
-      *****************************/
-
-      if (F_Snd_Num[IDS]!=0){
-
-        size1 = Snd_CntHVNA2_Size[IDS];
-
-        /* allocation of array */
-
-        tmp_array = (double*)malloc(sizeof(double)*size1);
-
-        /* multidimentional array to vector array */
-
-        num = 0;
-        for (k=0; k<=3; k++){
-          for (n=0; n<F_Snd_Num[IDS]; n++){
-            Mc_AN = Snd_MAN[IDS][n];
-            Gc_AN = Snd_GAN[IDS][n];
-            Cwan = WhatSpecies[Gc_AN]; 
-            tno1 = Spe_Total_CNO[Cwan];
-
-            for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-              tno2 = tno1;
-	      for (i=0; i<tno1; i++){
-		for (j=0; j<tno2; j++){
-		  tmp_array[num] = CntHVNA2[k][Mc_AN][h_AN][i][j];
-		  num++;
-		} 
-	      } 
-	    }
-          }
-	}
-
-        MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-
-      }
-
-      /*****************************
-         receiving of block data
-      *****************************/
-
-      if (F_Rcv_Num[IDR]!=0){
-        
-        size2 = Rcv_CntHVNA2_Size[IDR];
-        
-        /* allocation of array */
-        tmp_array2 = (double*)malloc(sizeof(double)*size2);
-        
-        MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-        
-        num = 0;
-        for (k=0; k<=3; k++){
-          Mc_AN = F_TopMAN[IDR] - 1;
-          for (n=0; n<F_Rcv_Num[IDR]; n++){
-            Mc_AN++;
-            Gc_AN = Rcv_GAN[IDR][n];
-            Cwan = WhatSpecies[Gc_AN]; 
-            tno1 = Spe_Total_CNO[Cwan];
-            for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-              tno2 = tno1;
-	      for (i=0; i<tno1; i++){
-		for (j=0; j<tno2; j++){
-		  CntHVNA2[k][Mc_AN][h_AN][i][j] = tmp_array2[num];
-		  num++;
-		}
-	      }
-	    }
-	  }        
-	}
-
-        /* freeing of array */
-        free(tmp_array2);
-
-      }
-
-      if (F_Snd_Num[IDS]!=0){
-        MPI_Wait(&request,&stat);
-        free(tmp_array);  /* freeing of array */
-      } 
-    }
-  }
-
-  free(Snd_CntHVNA2_Size);
-  free(Rcv_CntHVNA2_Size);
-}
 
 
 
@@ -5450,7 +7040,6 @@ void dHNL_SO(
 	     int Mc_AN, int k,  int m,
 	     int Mj_AN, int kl, int n,
 	     double ******DS_NL1)
-
 {
 
   int l3,i;

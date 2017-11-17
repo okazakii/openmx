@@ -16,18 +16,14 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+#include <omp.h>
+
 
 static void Band_DFT_MO_Col(
                       int nkpoint, double **kpoint,
                       int SpinP_switch, 
                       double *****nh,
-                      double *****ImNL,
                       double ****CntOLP);
 
 static void Band_DFT_MO_NonCol(
@@ -45,7 +41,7 @@ void Band_DFT_MO( int nkpoint, double **kpoint,
                   double ****CntOLP)
 {
   if (SpinP_switch==0 || SpinP_switch==1){
-    Band_DFT_MO_Col( nkpoint, kpoint, SpinP_switch, nh, ImNL, CntOLP);
+    Band_DFT_MO_Col( nkpoint, kpoint, SpinP_switch, nh, CntOLP);
   }
   else if (SpinP_switch==3){
     Band_DFT_MO_NonCol( nkpoint, kpoint, SpinP_switch, nh, ImNL, CntOLP);
@@ -58,27 +54,25 @@ static void Band_DFT_MO_Col(
                       int nkpoint, double **kpoint,
                       int SpinP_switch, 
                       double *****nh,
-                      double *****ImNL,
                       double ****CntOLP)
 {
   int i,j,k,l,n,wan;
-  int *MP;
-  int i1,j1,po,spin,n1;
+  int *MP,*order_GA,*My_NZeros,*SP_NZeros,*SP_Atoms;
+  int i1,j1,po,spin,n1,size_H1;
   int num2,RnB,l1,l2,l3,kloop;
   int ct_AN,h_AN,wanA,tnoA,wanB,tnoB;
   int GA_AN,Anum,nhomos,nlumos;
-  int ii,ij,ik;
+  int ii,ij,ik,Rn,AN;
   int num0,num1,mul,m,wan1,Gc_AN;
   int LB_AN,GB_AN,Bnum;
-  double time0;
+  double time0,tmp,av_num;
   double snum_i,snum_j,snum_k,k1,k2,k3,sum,sumi,Num_State,FermiF;
   double x,Dnum,Dnum2,AcP,ChemP_MAX,ChemP_MIN,EV_cut0;
   double **ko,*M1,***EIGEN;
   double *koS;
+  double *S1,**H1;
   dcomplex ***H,**S,***C;
   dcomplex Ctmp1,Ctmp2;
-  double ****Dummy_ImNL;
-  double ***Ctmp;
   double u2,v2,uv,vu;
   double dum,sumE,kRn,si,co;
   double Resum,ResumE,Redum,Redum2,Imdum;
@@ -91,7 +85,11 @@ static void Band_DFT_MO_Col(
   char file_EV[YOUSO10];
   FILE *fp_EV;
   char buf[fp_bsize];          /* setvbuf */
-  int numprocs,myid;
+  int numprocs,myid,ID;
+  int *is1,*ie1;
+  MPI_Status *stat_send;
+  MPI_Request *request_send;
+  MPI_Request *request_recv;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -103,19 +101,14 @@ static void Band_DFT_MO_Col(
   dtime(&TStime);
 
   /****************************************************
-   Allocation
-
-   int       MP[List_YOUSO[1]]
-   double    ko[List_YOUSO[23]][n+1]
-   double    koS[n+1];
-   double    EIGEN[List_YOUSO[33]][List_YOUSO[23]][n+1]
-   dcomplex  H[List_YOUSO[23]][n+1][n+1]
-   dcomplex  S[n+1][n+1]
-   double    M1[n+1]
-   dcomplex  C[List_YOUSO[23]][n+1][n+1]
+                  allocation of arrays
   ****************************************************/
 
   MP = (int*)malloc(sizeof(int)*List_YOUSO[1]);
+  order_GA = (int*)malloc(sizeof(int)*(List_YOUSO[1]+1));
+  My_NZeros = (int*)malloc(sizeof(int)*numprocs);
+  SP_NZeros = (int*)malloc(sizeof(int)*numprocs);
+  SP_Atoms = (int*)malloc(sizeof(int)*numprocs);
   
   n = 0;
   for (i=1; i<=atomnum; i++){
@@ -151,7 +144,6 @@ static void Band_DFT_MO_Col(
     S[i] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
   }
 
-
   M1 = (double*)malloc(sizeof(double)*(n+1));
 
   C = (dcomplex***)malloc(sizeof(dcomplex**)*List_YOUSO[23]);
@@ -162,20 +154,62 @@ static void Band_DFT_MO_Col(
     }
   }
 
-  Ctmp = (double***)malloc(sizeof(double**)*List_YOUSO[23]);
-  for (i=0; i<List_YOUSO[23]; i++){
-    Ctmp[i] = (double**)malloc(sizeof(double*)*(n+1));
-    for (j=0; j<n+1; j++){
-      Ctmp[i][j] = (double*)malloc(sizeof(double)*(n+1));
+  /*****************************************************
+        allocation of arrays for parallelization 
+  *****************************************************/
+
+  stat_send = malloc(sizeof(MPI_Status)*numprocs);
+  request_send = malloc(sizeof(MPI_Request)*numprocs);
+  request_recv = malloc(sizeof(MPI_Request)*numprocs);
+
+  is1 = (int*)malloc(sizeof(int)*numprocs);
+  ie1 = (int*)malloc(sizeof(int)*numprocs);
+
+  if ( numprocs<=n ){
+
+    av_num = (double)n/(double)numprocs;
+
+    for (ID=0; ID<numprocs; ID++){
+      is1[ID] = (int)(av_num*(double)ID) + 1; 
+      ie1[ID] = (int)(av_num*(double)(ID+1)); 
+    }
+
+    is1[0] = 1;
+    ie1[numprocs-1] = n; 
+
+  }
+
+  else{
+
+    for (ID=0; ID<n; ID++){
+      is1[ID] = ID + 1; 
+      ie1[ID] = ID + 1;
+    }
+    for (ID=n; ID<numprocs; ID++){
+      is1[ID] =  1;
+      ie1[ID] = -2;
     }
   }
 
-  /* no spin-orbit coupling */
-  if (SO_switch==0){
-    Dummy_ImNL = (double****)malloc(sizeof(double***)*1);
-    Dummy_ImNL[0] = (double***)malloc(sizeof(double**)*1);
-    Dummy_ImNL[0][0] = (double**)malloc(sizeof(double*)*1);
-    Dummy_ImNL[0][0][0] = (double*)malloc(sizeof(double)*1);
+  /* find size_H1 */
+  size_H1 = Get_OneD_HS_Col(0, CntOLP, &tmp, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+
+  /* allocation of S1 and H1 */
+  S1 = (double*)malloc(sizeof(double)*size_H1);
+  H1 = (double**)malloc(sizeof(double*)*(SpinP_switch+1));
+  for (spin=0; spin<(SpinP_switch+1); spin++){
+    H1[spin] = (double*)malloc(sizeof(double)*size_H1);
+  }
+
+  /* Get S1 */
+  size_H1 = Get_OneD_HS_Col(1, CntOLP, S1, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+
+  if (SpinP_switch==0){ 
+    size_H1 = Get_OneD_HS_Col(1, nh[0], H1[0],  MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+  }
+  else {
+    size_H1 = Get_OneD_HS_Col(1, nh[0], H1[0],  MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+    size_H1 = Get_OneD_HS_Col(1, nh[1], H1[1],  MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
   }
 
   dtime(&SiloopTime);
@@ -192,273 +226,300 @@ static void Band_DFT_MO_Col(
     k2 = kpoint[kloop][2];
     k3 = kpoint[kloop][3];
 
-    Overlap_Band(Host_ID,CntOLP,S,MP,k1,k2,k3);
+    /* make S */
 
-    if (myid==Host_ID){
+    for (i1=1; i1<=n; i1++){
+      for (j1=1; j1<=n; j1++){
+	S[i1][j1] = Complex(0.0,0.0);
+      } 
+    } 
 
-      n = S[0][0].r;
-      EigenBand_lapack(S,ko[0],n,1);
+    k = 0;
+    for (AN=1; AN<=atomnum; AN++){
+      GA_AN = order_GA[AN];
+      wanA = WhatSpecies[GA_AN];
+      tnoA = Spe_Total_CNO[wanA];
+      Anum = MP[GA_AN];
 
-      if (3<=level_stdout){
-        printf("  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",
-	       kloop,k1,k2,k3);
-        for (i1=1; i1<=n; i1++){
-	  printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,ko[0][i1]);
-        }
+      for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
+	GB_AN = natn[GA_AN][LB_AN];
+	Rn = ncn[GA_AN][LB_AN];
+	wanB = WhatSpecies[GB_AN];
+	tnoB = Spe_Total_CNO[wanB];
+	Bnum = MP[GB_AN];
+
+	l1 = atv_ijk[Rn][1];
+	l2 = atv_ijk[Rn][2];
+	l3 = atv_ijk[Rn][3];
+	kRn = k1*(double)l1 + k2*(double)l2 + k3*(double)l3;
+
+	si = sin(2.0*PI*kRn);
+	co = cos(2.0*PI*kRn);
+
+	for (i=0; i<tnoA; i++){
+	  for (j=0; j<tnoB; j++){
+
+	    S[Anum+i][Bnum+j].r += S1[k]*co;
+	    S[Anum+i][Bnum+j].i += S1[k]*si;
+
+	    k++;
+	  }
+	}
       }
+    }
 
-      /* minus eigenvalues to 1.0e-14 */
+    /* diagonalization of S */
+    Eigen_PHH(mpi_comm_level1,S,koS,n,n,1);
 
-      for (l=1; l<=n; l++){
-        if (ko[0][l]<0.0) ko[0][l] = 1.0e-14;
-        koS[l] = ko[0][l];
+    if (3<=level_stdout){
+      printf("  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",kloop,k1,k2,k3);
+      for (i1=1; i1<=n; i1++){
+	printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,koS[i1]);
       }
+    }
 
-      /* calculate S*1/sqrt(ko) */
+    /* minus eigenvalues to 1.0e-14 */
 
-      for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(ko[0][l]);
+    for (l=1; l<=n; l++){
+      if (koS[l]<0.0) koS[l] = 1.0e-14;
+    }
 
-      /* S * M1  */
+    /* calculate S*1/sqrt(koS) */
+
+    for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(koS[l]);
+
+    /* S * M1  */
+
+    for (i1=1; i1<=n; i1++){
+      for (j1=1; j1<=n; j1++){
+	S[i1][j1].r = S[i1][j1].r*M1[j1];
+	S[i1][j1].i = S[i1][j1].i*M1[j1];
+      } 
+    } 
+
+    /* loop for spin */
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+
+      /* make H */
 
       for (i1=1; i1<=n; i1++){
 	for (j1=1; j1<=n; j1++){
-	  S[i1][j1].r = S[i1][j1].r*M1[j1];
-	  S[i1][j1].i = S[i1][j1].i*M1[j1];
+	  H[spin][i1][j1] = Complex(0.0,0.0);
 	} 
       } 
 
-    } /* if (myid==Host_ID) */
+      k = 0;
+      for (AN=1; AN<=atomnum; AN++){
+	GA_AN = order_GA[AN];
+	wanA = WhatSpecies[GA_AN];
+	tnoA = Spe_Total_CNO[wanA];
+	Anum = MP[GA_AN];
 
-    for (spin=0; spin<=SpinP_switch; spin++){
+	for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
+	  GB_AN = natn[GA_AN][LB_AN];
+	  Rn = ncn[GA_AN][LB_AN];
+	  wanB = WhatSpecies[GB_AN];
+	  tnoB = Spe_Total_CNO[wanB];
+	  Bnum = MP[GB_AN];
 
-      if (SO_switch==0)
-        Hamiltonian_Band(Host_ID, nh[spin], H[spin],MP,k1,k2,k3);
-      else if (SO_switch==1)
-        Hamiltonian_Band(Host_ID, nh[spin], H[spin],MP,k1,k2,k3);
+	  l1 = atv_ijk[Rn][1];
+	  l2 = atv_ijk[Rn][2];
+	  l3 = atv_ijk[Rn][3];
+	  kRn = k1*(double)l1 + k2*(double)l2 + k3*(double)l3;
 
-      if (myid==Host_ID){
+	  si = sin(2.0*PI*kRn);
+	  co = cos(2.0*PI*kRn);
 
-        /* transpose S */
+	  for (i=0; i<tnoA; i++){
 
-	for (i1=1; i1<=n; i1++){
-	  for (j1=i1+1; j1<=n; j1++){
-	    Ctmp1 = S[i1][j1];
-	    Ctmp2 = S[j1][i1];
-	    S[i1][j1] = Ctmp2;
-	    S[j1][i1] = Ctmp1;
-	  }
-	}
+	    for (j=0; j<tnoB; j++){
 
-        /****************************************************
-                        M1 * U^t * H * U * M1
-        ****************************************************/
+	      H[spin][Anum+i][Bnum+j].r += H1[spin][k]*co;
+	      H[spin][Anum+i][Bnum+j].i += H1[spin][k]*si;
 
-        /* H * U * M1 */
- 
-        for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
+	      k++;
 
-	    sum  = 0.0;
-            sumi = 0.0;
-
-	    for (l=1; l<=n; l++){
-	      sum  += H[spin][i1][l].r*S[j1][l].r - H[spin][i1][l].i*S[j1][l].i;
-  	      sumi += H[spin][i1][l].r*S[j1][l].i + H[spin][i1][l].i*S[j1][l].r;
 	    }
-
-  	    C[spin][j1][i1].r = sum;
-	    C[spin][j1][i1].i = sumi;
-	  }
-        }     
-
-        /* M1 * U^+ H * U * M1 */
-
-        for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-
-	    sum  = 0.0;
-            sumi = 0.0;
-
-	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*C[spin][j1][l].r + S[i1][l].i*C[spin][j1][l].i;
-	      sumi +=  S[i1][l].r*C[spin][j1][l].i - S[i1][l].i*C[spin][j1][l].r;
-	    }
-
-            H[spin][i1][j1].r = sum;
-            H[spin][i1][j1].i = sumi;
-	  }
-        }     
-
-        /* H to C */
-
-        for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-            C[spin][i1][j1] = H[spin][i1][j1];
-	  }
-        }
-
-	/* penalty for ill-conditioning states */
-
-	EV_cut0 = Threshold_OLP_Eigen;
-
-	for (i1=1; i1<=n; i1++){
-
-	  if (koS[i1]<EV_cut0){
-	    C[spin][i1][i1].r += pow((koS[i1]/EV_cut0),-2.0) - 1.0;
-	  }
- 
-	  /* cutoff the interaction between the ill-conditioned state */
- 
-	  if (1.0e+3<C[spin][i1][i1].r){
-	    for (j1=1; j1<=n; j1++){
-	      C[spin][i1][j1] = Complex(0.0,0.0);
-	      C[spin][j1][i1] = Complex(0.0,0.0);
-	    }
-	    C[spin][i1][i1].r = 1.0e+4;
 	  }
 	}
+      }
 
-        n1 = n;
-        EigenBand_lapack(C[spin],ko[spin],n1,1);
+      /* first transpose of S */
 
-        for (i1=1; i1<=n1; i1++){
-          EIGEN[kloop][spin][i1] = ko[spin][i1];
-        }
+      for (i1=1; i1<=n; i1++){
+	for (j1=i1+1; j1<=n; j1++){
+	  Ctmp1 = S[i1][j1];
+	  Ctmp2 = S[j1][i1];
+	  S[i1][j1] = Ctmp2;
+	  S[j1][i1] = Ctmp1;
+	}
+      }
 
-        /****************************************************
-            transformation to the original eigen vectors.
-                  NOTE JRCAT-244p and JAIST-2122p 
-        ****************************************************/
+      /****************************************************
+                      M1 * U^t * H * U * M1
+      ****************************************************/
 
-	/* transpose */
-	for (i1=1; i1<=n; i1++){
-	  for (j1=i1+1; j1<=n; j1++){
-	    Ctmp1 = S[i1][j1];
-	    Ctmp2 = S[j1][i1];
-	    S[i1][j1] = Ctmp2;
-	    S[j1][i1] = Ctmp1;
+      /* H * U * M1 */
+
+#pragma omp parallel for shared(spin,n,myid,is1,ie1,S,H,C)  
+
+      for (j1=is1[myid]; j1<=ie1[myid]; j1++){
+
+	for (i1=1; i1<=(n-1); i1+=2){
+
+	  double sum0  = 0.0, sum1  = 0.0;
+	  double sumi0 = 0.0, sumi1 = 0.0;
+
+	  for (l=1; l<=n; l++){
+	    sum0  += H[spin][i1+0][l].r*S[j1][l].r - H[spin][i1+0][l].i*S[j1][l].i;
+	    sum1  += H[spin][i1+1][l].r*S[j1][l].r - H[spin][i1+1][l].i*S[j1][l].i;
+
+	    sumi0 += H[spin][i1+0][l].r*S[j1][l].i + H[spin][i1+0][l].i*S[j1][l].r;
+	    sumi1 += H[spin][i1+1][l].r*S[j1][l].i + H[spin][i1+1][l].i*S[j1][l].r;
 	  }
+
+	  C[spin][j1][i1+0].r = sum0;
+	  C[spin][j1][i1+1].r = sum1;
+
+	  C[spin][j1][i1+0].i = sumi0;
+	  C[spin][j1][i1+1].i = sumi1;
 	}
 
-	/* transpose */
-	for (i1=1; i1<=n; i1++){
-	  for (j1=i1+1; j1<=n; j1++){
-	    Ctmp1 = C[spin][i1][j1];
-	    Ctmp2 = C[spin][j1][i1];
-	    C[spin][i1][j1] = Ctmp2;
-	    C[spin][j1][i1] = Ctmp1;
+	for (; i1<=n; i1++){
+
+	  double sum  = 0.0;
+	  double sumi = 0.0;
+
+	  for (l=1; l<=n; l++){
+	    sum  += H[spin][i1][l].r*S[j1][l].r - H[spin][i1][l].i*S[j1][l].i;
+	    sumi += H[spin][i1][l].r*S[j1][l].i + H[spin][i1][l].i*S[j1][l].r;
 	  }
+
+	  C[spin][j1][i1].r = sum;
+	  C[spin][j1][i1].i = sumi;
 	}
 
-        /* shift */
+      } /* i1 */ 
+
+      /* M1 * U^+ H * U * M1 */
+
+
+#pragma omp parallel for shared(spin,n,is1,ie1,myid,S,H,C)  
+
+      for (i1=1; i1<=n; i1++){
+        for (j1=is1[myid]; j1<=ie1[myid]; j1++){
+  
+	  double sum  = 0.0;
+	  double sumi = 0.0;
+
+	  for (l=1; l<=n; l++){
+	    sum  +=  S[i1][l].r*C[spin][j1][l].r + S[i1][l].i*C[spin][j1][l].i;
+	    sumi +=  S[i1][l].r*C[spin][j1][l].i - S[i1][l].i*C[spin][j1][l].r;
+	  }
+
+	  H[spin][j1][i1].r = sum;
+	  H[spin][j1][i1].i = sumi;
+
+	}
+      } 
+
+      /* broadcast H */
+
+      BroadCast_ComplexMatrix(mpi_comm_level1,H[spin],n,is1,ie1,myid,numprocs,
+                              stat_send,request_send,request_recv);
+
+      /* H to C */
+
+      for (i1=1; i1<=n; i1++){
 	for (j1=1; j1<=n; j1++){
-	  for (l=n; 1<=l; l--){
-   	    C[spin][j1][l] = C[spin][j1][l];
-	  }
+	  C[spin][i1][j1] = H[spin][i1][j1];
 	}
+      }
 
+      /* diagonalization of C */
+      Eigen_PHH(mpi_comm_level1,C[spin],ko[spin],n,n,0);
+
+      for (i1=1; i1<=n; i1++){
+        EIGEN[kloop][spin][i1] = ko[spin][i1];
+      }
+
+      /****************************************************
+          transformation to the original eigenvectors.
+                 NOTE JRCAT-244p and JAIST-2122p 
+      ****************************************************/
+
+      /*  The H matrix is distributed by row */
+
+      for (i1=1; i1<=n; i1++){
+	for (j1=is1[myid]; j1<=ie1[myid]; j1++){
+	  H[spin][j1][i1] = C[spin][i1][j1];
+	}
+      }
+
+      /* second transpose of S */
+
+      for (i1=1; i1<=n; i1++){
+	for (j1=i1+1; j1<=n; j1++){
+	  Ctmp1 = S[i1][j1];
+	  Ctmp2 = S[j1][i1];
+	  S[i1][j1] = Ctmp2;
+	  S[j1][i1] = Ctmp1;
+	}
+      }
+
+      /* C is distributed by row in each processor */
+
+#pragma omp parallel for shared(spin,n,is1,ie1,myid,S,H,C)  
+
+      for (j1=is1[myid]; j1<=ie1[myid]; j1++){
         for (i1=1; i1<=n; i1++){
-          for (j1=1; j1<=n; j1++){
-            H[spin][i1][j1].r = 0.0;
-            H[spin][i1][j1].i = 0.0;
-          }
-        }
 
-        for (i1=1; i1<=n; i1++){
-  	  for (j1=1; j1<=n1; j1++){
-	    sum  = 0.0;
-            sumi = 0.0;
-	    for (l=1; l<=n; l++){
-              sum  +=  S[i1][l].r*C[spin][j1][l].r - S[i1][l].i*C[spin][j1][l].i;
-              sumi +=  S[i1][l].r*C[spin][j1][l].i + S[i1][l].i*C[spin][j1][l].r;
-  	    } 
-	    H[spin][i1][j1].r = sum;
-	    H[spin][i1][j1].i = sumi;
+	  sum  = 0.0;
+	  sumi = 0.0;
+	  for (l=1; l<=n; l++){
+	    sum  += S[i1][l].r*H[spin][j1][l].r - S[i1][l].i*H[spin][j1][l].i;
+	    sumi += S[i1][l].r*H[spin][j1][l].i + S[i1][l].i*H[spin][j1][l].r;
 	  }
-        }
 
-        /* find HOMO from eigenvalues */
-
-        for (i1=1; i1<=n1; i1++){
-          x = (ko[spin][i1] - ChemP)*Beta;
-          if (x<=-x_cut) x = -x_cut;
-          if (x_cut<=x)  x = x_cut;
-          if (SpinP_switch==0) FermiF = 2.0/(1.0 + exp(x));
-          else                 FermiF = 1.0/(1.0 + exp(x));
-          if      (SpinP_switch==0 && 1.0<FermiF) Bulk_HOMO[kloop][spin] = i1;
-          else if (SpinP_switch==1 && 0.5<FermiF) Bulk_HOMO[kloop][spin] = i1;
-        }      
-
-        if (SpinP_switch==0 && 2<=level_stdout){
-          printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO = %2d\n",
-                  k1,k2,k3,Bulk_HOMO[kloop][0]);
-        }
-        else if (SpinP_switch==1 && 2<=level_stdout){
-          printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO for up-spin   = %2d\n",
-                  k1,k2,k3,Bulk_HOMO[kloop][0]);
-          printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO for down-spin = %2d\n",
-                  k1,k2,k3,Bulk_HOMO[kloop][1]);
-        }
-
-      } /* if (myid==Host_ID) */
-    }   /* spin */
-
-    /****************************************************
-     MPI:
-
-     n1
-     Bulk_HOMO
-     H
-    ****************************************************/
-
-    MPI_Bcast(&n1, 1, MPI_INT, Host_ID, mpi_comm_level1);
-    MPI_Bcast(&Bulk_HOMO[kloop][0], 2, MPI_INT, Host_ID, mpi_comm_level1);
-
-    /* H[][][].r to C */
-    for (spin=0; spin<=SpinP_switch; spin++){
-      for (i1=1; i1<=n; i1++){
-        for (j1=1; j1<=n; j1++){
-          Ctmp[spin][i1][j1] = H[spin][i1][j1].r; 
+	  C[spin][j1][i1].r = sum;
+	  C[spin][j1][i1].i = sumi;
 	}
       }
-    }     
 
-    for (spin=0; spin<=SpinP_switch; spin++){
-      for (i1=1; i1<=n; i1++){
-         MPI_Bcast(&Ctmp[spin][i1][0], n+1, MPI_DOUBLE, Host_ID, mpi_comm_level1);
-      }
-    }  
+      /* broadcast C:
+       C is distributed by row in each processor
+      */
 
-    for (spin=0; spin<=SpinP_switch; spin++){
-      for (i1=1; i1<=n; i1++){
-        for (j1=1; j1<=n; j1++){
-          C[spin][i1][j1].r = Ctmp[spin][i1][j1]; 
-	}
-      }
-    }     
+      BroadCast_ComplexMatrix(mpi_comm_level1,C[spin],n,is1,ie1,myid,numprocs,
+			      stat_send,request_send,request_recv);
 
-    /* H[][][].i to C.i */
-    for (spin=0; spin<=SpinP_switch; spin++){
-      for (i1=1; i1<=n; i1++){
-        for (j1=1; j1<=n; j1++){
-          Ctmp[spin][i1][j1] = H[spin][i1][j1].i; 
-	}
-      }
-    }     
+      /* find HOMO from eigenvalues */
 
-    for (spin=0; spin<=SpinP_switch; spin++){
-      for (i1=1; i1<=n; i1++){
-         MPI_Bcast(&Ctmp[spin][i1][0], n+1, MPI_DOUBLE, Host_ID, mpi_comm_level1);
-      }
-    }  
+      Bulk_HOMO[kloop][spin] = 0; 
 
-    for (spin=0; spin<=SpinP_switch; spin++){
       for (i1=1; i1<=n; i1++){
-        for (j1=1; j1<=n; j1++){
-          C[spin][i1][j1].i = Ctmp[spin][i1][j1]; 
-	}
-      }
-    }     
+	x = (ko[spin][i1] - ChemP)*Beta;
+	if (x<=-x_cut) x = -x_cut;
+	if (x_cut<=x)  x = x_cut;
+	if (SpinP_switch==0) FermiF = 2.0/(1.0 + exp(x));
+	else                 FermiF = 1.0/(1.0 + exp(x));
+	if      (SpinP_switch==0 && 1.0<FermiF) Bulk_HOMO[kloop][spin] = i1;
+	else if (SpinP_switch==1 && 0.5<FermiF) Bulk_HOMO[kloop][spin] = i1;
+      }      
+
+    } /* spin */
+
+    if (myid==Host_ID && SpinP_switch==0 && 2<=level_stdout){
+      printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO = %2d\n",
+	     k1,k2,k3,Bulk_HOMO[kloop][0]);
+    }
+    else if (myid==Host_ID && SpinP_switch==1 && 2<=level_stdout){
+      printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO for up-spin   = %2d\n",
+	     k1,k2,k3,Bulk_HOMO[kloop][0]);
+      printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO for down-spin = %2d\n",
+	     k1,k2,k3,Bulk_HOMO[kloop][1]);
+    }
 
     /****************************************************
         LCAO coefficients are stored for calculating
@@ -470,26 +531,32 @@ static void Band_DFT_MO_Col(
 
     if (SpinP_switch==0){
       if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][0];
-      if ( (Bulk_HOMO[kloop][0]+nlumos)>n1 )  nlumos = n1 - Bulk_HOMO[kloop][0];
+      if ( (Bulk_HOMO[kloop][0]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][0];
     }
     else if (SpinP_switch==1){
       if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][0];
       if ( (Bulk_HOMO[kloop][1]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][1];
-      if ( (Bulk_HOMO[kloop][0]+nlumos)>n1 )  nlumos = n1 - Bulk_HOMO[kloop][0];
-      if ( (Bulk_HOMO[kloop][1]+nlumos)>n1 )  nlumos = n1 - Bulk_HOMO[kloop][1];
+      if ( (Bulk_HOMO[kloop][0]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][0];
+      if ( (Bulk_HOMO[kloop][1]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][1];
     }
 
     /* HOMOs */
     for (spin=0; spin<=SpinP_switch; spin++){
       for (j=0; j<nhomos; j++){
+
         j1 = Bulk_HOMO[kloop][spin] - j;
+
+        /* store eigenvalues */
+        HOMOs_Coef[kloop][spin][j][0][0].r = EIGEN[kloop][spin][j1];
+
+        /* store eigenvector */
         for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
           wanA = WhatSpecies[GA_AN];
           tnoA = Spe_Total_CNO[wanA];
           Anum = MP[GA_AN];
           for (i=0; i<tnoA; i++){
-            HOMOs_Coef[kloop][spin][j][GA_AN][i].r = C[spin][Anum+i][j1].r;
-            HOMOs_Coef[kloop][spin][j][GA_AN][i].i = C[spin][Anum+i][j1].i;
+            HOMOs_Coef[kloop][spin][j][GA_AN][i].r = C[spin][j1][Anum+i].r;
+            HOMOs_Coef[kloop][spin][j][GA_AN][i].i = C[spin][j1][Anum+i].i;
           }
         }
       }        
@@ -498,14 +565,20 @@ static void Band_DFT_MO_Col(
     /* LUMOs */
     for (spin=0; spin<=SpinP_switch; spin++){
       for (j=0; j<nlumos; j++){
+
         j1 = Bulk_HOMO[kloop][spin] + 1 + j;
+
+        /* store eigenvalue */
+        LUMOs_Coef[kloop][spin][j][0][0].r = EIGEN[kloop][spin][j1];
+
+        /* store eigenvector */
         for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
           wanA = WhatSpecies[GA_AN];
           tnoA = Spe_Total_CNO[wanA];
           Anum = MP[GA_AN];
           for (i=0; i<tnoA; i++){
-            LUMOs_Coef[kloop][spin][j][GA_AN][i].r = C[spin][Anum+i][j1].r;
-            LUMOs_Coef[kloop][spin][j][GA_AN][i].i = C[spin][Anum+i][j1].i;
+            LUMOs_Coef[kloop][spin][j][GA_AN][i].r = C[spin][j1][Anum+i].r;
+            LUMOs_Coef[kloop][spin][j][GA_AN][i].i = C[spin][j1][Anum+i].i;
           }
         }
       }
@@ -545,7 +618,7 @@ static void Band_DFT_MO_Col(
 	k3 = kpoint[kloop][3];
 
 	fprintf(fp_EV,"\n\n");
-	fprintf(fp_EV,"   # of k-point = %i\n",kloop);
+	fprintf(fp_EV,"   # of k-point = %i\n",kloop+1);
 	fprintf(fp_EV,"   k1=%10.5f k2=%10.5f k3=%10.5f\n\n",k1,k2,k3);
 	fprintf(fp_EV,"   Chemical Potential (Hartree) = %18.14f\n",ChemP);
 
@@ -659,8 +732,8 @@ static void Band_DFT_MO_Col(
 		      j1 = num0*(i-1) + j;
 
 		      if (0<i1 && j1<=n){
-			fprintf(fp_EV,"  %8.5f",C[spin][i1][j1].r);
-			fprintf(fp_EV,"  %8.5f",C[spin][i1][j1].i);
+			fprintf(fp_EV,"  %8.5f",C[spin][j1][i1].r);
+			fprintf(fp_EV,"  %8.5f",C[spin][j1][i1].i);
 		      }
 		    }
 		    fprintf(fp_EV,"\n");
@@ -689,7 +762,18 @@ static void Band_DFT_MO_Col(
                        free arrays
   ****************************************************/
 
+  free(stat_send);
+  free(request_send);
+  free(request_recv);
+
+  free(is1);
+  free(ie1);
+
   free(MP);
+  free(order_GA);
+  free(My_NZeros);
+  free(SP_NZeros);
+  free(SP_Atoms);
 
   for (i=0; i<List_YOUSO[23]; i++){
     free(ko[i]);
@@ -706,7 +790,6 @@ static void Band_DFT_MO_Col(
   }
   free(EIGEN);  
 
-
   for (i=0; i<List_YOUSO[23]; i++){
     for (j=0; j<n+1; j++){
       free(H[i][j]);
@@ -714,7 +797,6 @@ static void Band_DFT_MO_Col(
     free(H[i]);
   }
   free(H);  
-
 
   for (i=0; i<n+1; i++){
     free(S[i]);
@@ -731,21 +813,12 @@ static void Band_DFT_MO_Col(
   }
   free(C);
 
-  for (i=0; i<List_YOUSO[23]; i++){
-    for (j=0; j<n+1; j++){
-      free(Ctmp[i][j]);
-    }
-    free(Ctmp[i]);
-  }
-  free(Ctmp);
+  free(S1);
 
-  /* no spin-orbit coupling */
-  if (SO_switch==0){
-    free(Dummy_ImNL[0][0][0]);
-    free(Dummy_ImNL[0][0]);
-    free(Dummy_ImNL[0]);
-    free(Dummy_ImNL);
+  for (spin=0; spin<(SpinP_switch+1); spin++){
+    free(H1[spin]);
   }
+  free(H1);
 
   dtime(&TEtime);
 }
@@ -760,24 +833,37 @@ static void Band_DFT_MO_NonCol(
                       double *****ImNL,
                       double ****CntOLP)
 {
-  int i,j,k,l,n,wan,m,ii1,jj1,n2;
+  int i,j,k,l,n,wan,m,ii1,jj1,jj2,n2;
   int *MP;
-  int i1,j1,po,spin,n1;
-  int num2,RnB,l1,l2,l3,kloop;
+  int *order_GA;
+  int *My_NZeros;
+  int *SP_NZeros;
+  int *SP_Atoms;
+  int i1,j1,po,spin,n1,size_H1;
+  int num2,RnB,l1,l2,l3,kloop,AN,Rn;
   int ct_AN,h_AN,wanA,tnoA,wanB,tnoB;
   int GA_AN,Anum,nhomos,nlumos;
-  int ii,ij,ik;
+  int ii,ij,ik,MaxN;
   int wan1,mul,Gc_AN,num0,num1;
-  double time0;
   int LB_AN,GB_AN,Bnum;
+
+  double time0,tmp,av_num;
   double snum_i,snum_j,snum_k,k1,k2,k3,sum,sumi,Num_State,FermiF;
   double x,Dnum,Dnum2,AcP,ChemP_MAX,ChemP_MIN;
+  double *S1;
+  double *RH0;
+  double *RH1;
+  double *RH2;
+  double *RH3;
+  double *IH0;
+  double *IH1;
+  double *IH2;
   double *ko,*M1,**EIGEN;
   double *koS;
   double EV_cut0;
   dcomplex **H,**S,**C;
+  dcomplex Ctmp1,Ctmp2;
   double **Ctmp;
-  double *****Dummy_ImNL;
   double u2,v2,uv,vu;
   double dum,sumE,kRn,si,co;
   double Resum,ResumE,Redum,Redum2,Imdum;
@@ -791,7 +877,14 @@ static void Band_DFT_MO_NonCol(
   char file_EV[YOUSO10];
   FILE *fp_EV;
   char buf[fp_bsize];          /* setvbuf */
-  int numprocs,myid;
+  int numprocs,myid,ID;
+  int OMPID,Nthrds,Nprocs;
+  int *is1,*ie1;
+  int *is2,*ie2;
+  int *is12,*ie12;
+  MPI_Status *stat_send;
+  MPI_Request *request_send;
+  MPI_Request *request_recv;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -815,19 +908,15 @@ static void Band_DFT_MO_NonCol(
 
   /****************************************************
    Allocation
-
-   int       MP[List_YOUSO[1]]
-   double    ko[n2]
-   double    koS[n+1];
-   double    EIGEN[List_YOUSO[33]][n2]
-   dcomplex  H[n2][n2]
-   dcomplex  S[n2][n2]
-   double    M1[n2]
-   dcomplex  C[n2][n2]
-   double    Ctmp[n2][n2]
   ****************************************************/
 
   MP = (int*)malloc(sizeof(int)*List_YOUSO[1]);
+  order_GA = (int*)malloc(sizeof(int)*(List_YOUSO[1]+1));
+
+  My_NZeros = (int*)malloc(sizeof(int)*numprocs);
+  SP_NZeros = (int*)malloc(sizeof(int)*numprocs);
+  SP_Atoms = (int*)malloc(sizeof(int)*numprocs);
+
   ko = (double*)malloc(sizeof(double)*n2);
   koS = (double*)malloc(sizeof(double)*(n+1));
 
@@ -858,14 +947,112 @@ static void Band_DFT_MO_NonCol(
     Ctmp[j] = (double*)malloc(sizeof(double)*n2);
   }
 
-  /* non-spin-orbit coupling and non-LDA+U */
+  /*****************************************************
+        allocation of arrays for parallelization 
+  *****************************************************/
+
+  stat_send = malloc(sizeof(MPI_Status)*numprocs);
+  request_send = malloc(sizeof(MPI_Request)*numprocs);
+  request_recv = malloc(sizeof(MPI_Request)*numprocs);
+
+  is1 = (int*)malloc(sizeof(int)*numprocs);
+  ie1 = (int*)malloc(sizeof(int)*numprocs);
+
+  is12 = (int*)malloc(sizeof(int)*numprocs);
+  ie12 = (int*)malloc(sizeof(int)*numprocs);
+
+  is2 = (int*)malloc(sizeof(int)*numprocs);
+  ie2 = (int*)malloc(sizeof(int)*numprocs);
+
+  if ( numprocs<=n ){
+
+    av_num = (double)n/(double)numprocs;
+
+    for (ID=0; ID<numprocs; ID++){
+      is1[ID] = (int)(av_num*(double)ID) + 1; 
+      ie1[ID] = (int)(av_num*(double)(ID+1)); 
+    }
+
+    is1[0] = 1;
+    ie1[numprocs-1] = n; 
+
+  }
+
+  else{
+
+    for (ID=0; ID<n; ID++){
+      is1[ID] = ID + 1; 
+      ie1[ID] = ID + 1;
+    }
+    for (ID=n; ID<numprocs; ID++){
+      is1[ID] =  1;
+      ie1[ID] = -2;
+    }
+  }
+
+  for (ID=0; ID<numprocs; ID++){
+    is12[ID] = 2*is1[ID] - 1;
+    ie12[ID] = 2*ie1[ID];
+  }
+
+  /* make is2 and ie2 */ 
+
+  MaxN = 2*n;
+
+  if ( numprocs<=MaxN ){
+
+    av_num = (double)MaxN/(double)numprocs;
+
+    for (ID=0; ID<numprocs; ID++){
+      is2[ID] = (int)(av_num*(double)ID) + 1; 
+      ie2[ID] = (int)(av_num*(double)(ID+1)); 
+    }
+
+    is2[0] = 1;
+    ie2[numprocs-1] = MaxN; 
+  }
+
+  else{
+    for (ID=0; ID<MaxN; ID++){
+      is2[ID] = ID + 1; 
+      ie2[ID] = ID + 1;
+    }
+    for (ID=MaxN; ID<numprocs; ID++){
+      is2[ID] =  1;
+      ie2[ID] = -2;
+    }
+  }
+
+  /* find size_H1 */
+  size_H1 = Get_OneD_HS_Col(0, CntOLP, &tmp, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+
+  /* allocation of arrays */
+  S1  = (double*)malloc(sizeof(double)*size_H1);
+  RH0 = (double*)malloc(sizeof(double)*size_H1);
+  RH1 = (double*)malloc(sizeof(double)*size_H1);
+  RH2 = (double*)malloc(sizeof(double)*size_H1);
+  RH3 = (double*)malloc(sizeof(double)*size_H1);
+  IH0 = (double*)malloc(sizeof(double)*size_H1);
+  IH1 = (double*)malloc(sizeof(double)*size_H1);
+  IH2 = (double*)malloc(sizeof(double)*size_H1);
+
+  /* set S1, RH0, RH1, RH2, RH3, IH0, IH1, IH2 */
+
+  size_H1 = Get_OneD_HS_Col(1, CntOLP, S1,  MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+  size_H1 = Get_OneD_HS_Col(1, nh[0],  RH0, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+  size_H1 = Get_OneD_HS_Col(1, nh[1],  RH1, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+  size_H1 = Get_OneD_HS_Col(1, nh[2],  RH2, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+  size_H1 = Get_OneD_HS_Col(1, nh[3],  RH3, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+
   if (SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0 
-      && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0){
-    Dummy_ImNL = (double*****)malloc(sizeof(double****)*1);
-    Dummy_ImNL[0] = (double****)malloc(sizeof(double***)*1);
-    Dummy_ImNL[0][0] = (double***)malloc(sizeof(double**)*1);
-    Dummy_ImNL[0][0][0] = (double**)malloc(sizeof(double*)*1);
-    Dummy_ImNL[0][0][0][0] = (double*)malloc(sizeof(double)*1);
+       && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0){  
+    
+    /* nothing is done. */
+  }
+  else {
+    size_H1 = Get_OneD_HS_Col(1, ImNL[0], IH0, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+    size_H1 = Get_OneD_HS_Col(1, ImNL[1], IH1, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
+    size_H1 = Get_OneD_HS_Col(1, ImNL[2], IH2, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
   }
 
   dtime(&SiloopTime);
@@ -876,257 +1063,402 @@ static void Band_DFT_MO_NonCol(
 
   for (kloop=0; kloop<nkpoint; kloop++){
 
-    printf("kpoint=%i /%i\n",kloop+1,nkpoint);
+    if (myid==Host_ID && 0<level_stdout) printf("kpoint=%i /%i\n",kloop+1,nkpoint);
 
     k1 = kpoint[kloop][1];
     k2 = kpoint[kloop][2];
     k3 = kpoint[kloop][3];
-    
-    Overlap_Band(Host_ID,CntOLP, S, MP, k1, k2, k3);
 
-    if (myid==Host_ID){
+    /* make S and H */
 
-      n = S[0][0].r;
-      EigenBand_lapack(S,ko,n,1);
+    for (i=1; i<=n; i++){
+      for (j=1; j<=n; j++){
+	S[i][j] = Complex(0.0,0.0);
+      } 
+    } 
 
-      if (2<=level_stdout){
-        printf("  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",
-	       kloop,k1,k2,k3);
-        for (i1=1; i1<=n; i1++){
-	  printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,ko[i1]);
-        }
-      }
-
-      /* minus eigenvalues to 1.0e-14 */
-      for (l=1; l<=n; l++){
-        if (ko[l]<0.0){
-          ko[l] = 1.0e-14;
-
-          if (2<=level_stdout){
-  	    printf("found an eigenvalue smaller than %10.8f of OLP kloop=%2d\n",
-                           Threshold_OLP_Eigen,kloop);
-	  }
-	}
-
-        koS[l] = ko[l];
-      }
-
-      /* calculate S*1/sqrt(ko) */
-
-      for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(ko[l]);
-
-    } /* if (myid==Host_ID) */
-
-    MPI_Barrier(mpi_comm_level1);
-
-    /****************************************************
-       make a full Hamiltonian matrix
-    ****************************************************/
+    for (i=1; i<=2*n; i++){
+      for (j=1; j<=2*n; j++){
+	H[i][j] = Complex(0.0,0.0);
+      } 
+    } 
 
     /* non-spin-orbit coupling and non-LDA+U */
-    if (SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0  
-        && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0)
-      Hamiltonian_Band_NC(Host_ID, nh, Dummy_ImNL, H, MP, k1, k2, k3);
+    if (SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0 
+	&& Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0){  
+
+      k = 0;
+      for (AN=1; AN<=atomnum; AN++){
+	GA_AN = order_GA[AN];
+	wanA = WhatSpecies[GA_AN];
+	tnoA = Spe_Total_CNO[wanA];
+	Anum = MP[GA_AN];
+
+	for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
+	  GB_AN = natn[GA_AN][LB_AN];
+	  Rn = ncn[GA_AN][LB_AN];
+	  wanB = WhatSpecies[GB_AN];
+	  tnoB = Spe_Total_CNO[wanB];
+	  Bnum = MP[GB_AN];
+
+	  l1 = atv_ijk[Rn][1];
+	  l2 = atv_ijk[Rn][2];
+	  l3 = atv_ijk[Rn][3];
+	  kRn = k1*(double)l1 + k2*(double)l2 + k3*(double)l3;
+
+	  si = sin(2.0*PI*kRn);
+	  co = cos(2.0*PI*kRn);
+
+	  for (i=0; i<tnoA; i++){
+	    for (j=0; j<tnoB; j++){
+
+	      H[Anum+i  ][Bnum+j  ].r += co*RH0[k];
+	      H[Anum+i  ][Bnum+j  ].i += si*RH0[k];
+
+	      H[Anum+i+n][Bnum+j+n].r += co*RH1[k];
+	      H[Anum+i+n][Bnum+j+n].i += si*RH1[k];
+            
+	      H[Anum+i  ][Bnum+j+n].r += co*RH2[k] - si*RH3[k];
+	      H[Anum+i  ][Bnum+j+n].i += si*RH2[k] + co*RH3[k];
+
+	      S[Anum+i  ][Bnum+j  ].r += co*S1[k];
+	      S[Anum+i  ][Bnum+j  ].i += si*S1[k];
+
+	      k++;
+	    }
+	  }
+	}
+      }
+    }
 
     /* spin-orbit coupling or LDA+U */
-    else 
-      Hamiltonian_Band_NC(Host_ID, nh, ImNL, H, MP, k1, k2, k3);
+    else {  
 
-    if (myid==Host_ID){
+      k = 0;
+      for (AN=1; AN<=atomnum; AN++){
+	GA_AN = order_GA[AN];
+	wanA = WhatSpecies[GA_AN];
+	tnoA = Spe_Total_CNO[wanA];
+	Anum = MP[GA_AN];
 
-      /****************************************************
-                      M1 * U^t * H * U * M1
-      ****************************************************/
+	for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
+	  GB_AN = natn[GA_AN][LB_AN];
+	  Rn = ncn[GA_AN][LB_AN];
+	  wanB = WhatSpecies[GB_AN];
+	  tnoB = Spe_Total_CNO[wanB];
+	  Bnum = MP[GB_AN];
 
-      /* H * U * M1 */
+	  l1 = atv_ijk[Rn][1];
+	  l2 = atv_ijk[Rn][2];
+	  l3 = atv_ijk[Rn][3];
+	  kRn = k1*(double)l1 + k2*(double)l2 + k3*(double)l3;
 
-      for (i1=1; i1<=2*n; i1++){
-	for (j1=1; j1<=n; j1++){
+	  si = sin(2.0*PI*kRn);
+	  co = cos(2.0*PI*kRn);
 
-	  for (m=0; m<=1; m++){
+	  for (i=0; i<tnoA; i++){
+	    for (j=0; j<tnoB; j++){
 
-	    sum  = 0.0;
-	    sumi = 0.0;
-	    for (l=1; l<=n; l++){
-	      sum  += (H[i1][l+m*n].r*S[l][j1].r
-                       - H[i1][l+m*n].i*S[l][j1].i)*M1[j1];
-	      sumi += (H[i1][l+m*n].r*S[l][j1].i
-                       + H[i1][l+m*n].i*S[l][j1].r)*M1[j1];
+	      H[Anum+i  ][Bnum+j  ].r += co*RH0[k] - si*IH0[k];
+	      H[Anum+i  ][Bnum+j  ].i += si*RH0[k] + co*IH0[k];
+
+	      H[Anum+i+n][Bnum+j+n].r += co*RH1[k] - si*IH1[k];
+	      H[Anum+i+n][Bnum+j+n].i += si*RH1[k] + co*IH1[k];
+            
+	      H[Anum+i  ][Bnum+j+n].r += co*RH2[k] - si*(RH3[k]+IH2[k]);
+	      H[Anum+i  ][Bnum+j+n].i += si*RH2[k] + co*(RH3[k]+IH2[k]);
+
+	      S[Anum+i  ][Bnum+j  ].r += co*S1[k];
+              S[Anum+i  ][Bnum+j  ].i += si*S1[k];
+
+	      k++;
 	    }
-
-	    jj1 = 2*j1 - 1 + m;
-
-	    C[i1][jj1].r = sum;
-	    C[i1][jj1].i = sumi;
 	  }
 	}
-      }     
- 
-      /* M1 * U^+ H * U * M1 */
+      }
+    }
 
+    /* set off-diagonal part */
+
+    for (i=1; i<=n; i++){
+      for (j=1; j<=n; j++){
+	H[j+n][i].r = H[i][j+n].r;
+	H[j+n][i].i =-H[i][j+n].i;
+      } 
+    } 
+
+    /* diagonalization of S */
+    Eigen_PHH(mpi_comm_level1,S,koS,n,n,1);
+
+    if (2<=level_stdout){
+      printf("  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",
+	     kloop,k1,k2,k3);
       for (i1=1; i1<=n; i1++){
-
-	for (m=0; m<=1; m++){
-
-	  ii1 = 2*i1 - 1 + m;
-
-	  for (j1=1; j1<=2*n; j1++){
-	    sum  = 0.0;
-	    sumi = 0.0;
-	    for (l=1; l<=n; l++){
-	      sum  +=  M1[i1]*(S[l][i1].r*C[l+m*n][j1].r +
-			       S[l][i1].i*C[l+m*n][j1].i );
-	      sumi +=  M1[i1]*(S[l][i1].r*C[l+m*n][j1].i -
-			       S[l][i1].i*C[l+m*n][j1].r );
-	    }
-	    H[ii1][j1].r = sum;
-	    H[ii1][j1].i = sumi;
-	  }
-	}
-      }     
-
-      /* H to C */
-
-      for (i1=1; i1<=2*n; i1++){
-	for (j1=1; j1<=2*n; j1++){
-	  C[i1][j1].r = H[i1][j1].r;
-	  C[i1][j1].i = H[i1][j1].i;
-	}
+	printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,koS[i1]);
       }
+    }
 
-      /* penalty for ill-conditioning states */
+    /* minus eigenvalues to 1.0e-10 */
 
-      EV_cut0 = Threshold_OLP_Eigen;
+    for (l=1; l<=n; l++){
+      if (koS[l]<1.0e-10) koS[l] = 1.0e-10;
+    }
 
-      for (i1=1; i1<=n; i1++){
+    /* calculate S*1/sqrt(koS) */
 
-	if (koS[i1]<EV_cut0){
-	  C[2*i1-1][2*i1-1].r += pow((koS[i1]/EV_cut0),-2.0) - 1.0;
-	  C[2*i1  ][2*i1  ].r += pow((koS[i1]/EV_cut0),-2.0) - 1.0;
-	}
+    for (l=1; l<=n; l++) koS[l] = 1.0/sqrt(koS[l]);
 
-	/* cutoff the interaction between the ill-conditioned state */
+    /* S * 1.0/sqrt(koS[l]) */
 
-	if (1.0e+3<C[2*i1-1][2*i1-1].r){
-	  for (j1=1; j1<=2*n; j1++){
-	    C[2*i1-1][j1    ] = Complex(0.0,0.0);
-	    C[j1    ][2*i1-1] = Complex(0.0,0.0);
-	    C[2*i1  ][j1    ] = Complex(0.0,0.0);
-	    C[j1    ][2*i1  ] = Complex(0.0,0.0);
-	  }
-	  C[2*i1-1][2*i1-1] = Complex(1.0e+4,0.0);
-	  C[2*i1  ][2*i1  ] = Complex(1.0e+4,0.0);
-	}
-      }
+#pragma omp parallel for shared(n,S,koS)  
 
-      /* solve eigenvalue problem */
-
-      n1 = 2*n;
-      EigenBand_lapack(C, ko, n1,1);
-
-      for (i1=1; i1<=2*n; i1++){
-        for (j1=1; j1<=n1; j1++){
-          H[i1][j1] = C[i1][j1];
-        }
-      }
-
-      for (i1=1; i1<=n1; i1++){
-        EIGEN[kloop][i1] = ko[i1];
-      }
-
-      /****************************************************
-          Transformation to the original eigen vectors.
-                NOTE JRCAT-244p and JAIST-2122p 
-      ****************************************************/
-
-      for (i1=1; i1<=2*n; i1++){
-        for (j1=1; j1<=2*n; j1++){
-          C[i1][j1].r = 0.0;
-          C[i1][j1].i = 0.0;
-        }
-      }
-
-      for (m=0; m<=1; m++){
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n1; j1++){
-
-	    sum  = 0.0; 
-	    sumi = 0.0;
-
-	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*M1[l]*H[2*(l-1)+1+m][j1].r
-		     - S[i1][l].i*M1[l]*H[2*(l-1)+1+m][j1].i;
-	      sumi +=  S[i1][l].r*M1[l]*H[2*(l-1)+1+m][j1].i
-		     + S[i1][l].i*M1[l]*H[2*(l-1)+1+m][j1].r;
-	    } 
-	    C[i1+m*n][j1].r = sum;
-	    C[i1+m*n][j1].i = sumi;
-	  }
-	}
-      }
-
-      /* find HOMO from eigenvalues */
-
-      for (i1=1; i1<=n1; i1++){
-        x = (ko[i1] - ChemP)*Beta;
-        if (x<=-x_cut) x = -x_cut;
-        if (x_cut<=x)  x = x_cut;
-        FermiF = 1.0/(1.0 + exp(x));
-        if (0.5<FermiF) Bulk_HOMO[kloop][0] = i1;
-      }      
-
-      if (2<=level_stdout){
-        printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO = %2d\n",
-                k1,k2,k3,Bulk_HOMO[kloop][0]);
-      }
-
-    } /* if (myid==Host_ID) */
-
-    MPI_Barrier(mpi_comm_level1);
+    for (i1=1; i1<=n; i1++){
+      for (j1=1; j1<=n; j1++){
+	S[i1][j1].r = S[i1][j1].r*koS[j1];
+	S[i1][j1].i = S[i1][j1].i*koS[j1];
+      } 
+    } 
 
     /****************************************************
-     MPI:
-
-     n1
-     Bulk_HOMO
-     C
+                  set H' and diagonalize it
     ****************************************************/
 
-    MPI_Bcast(&n1, 1, MPI_INT, Host_ID, mpi_comm_level1);
-    MPI_Bcast(&Bulk_HOMO[kloop][0], 2, MPI_INT, Host_ID, mpi_comm_level1);
+    /* U'^+ * H * U * M1 */
 
-    /* C[][].r */
-    for (i1=1; i1<=2*n; i1++){
-      for (j1=1; j1<=2*n; j1++){
-        Ctmp[i1][j1] = C[i1][j1].r; 
+    /* transpose S */
+
+    for (i1=1; i1<=n; i1++){
+      for (j1=i1+1; j1<=n; j1++){
+	Ctmp1 = S[i1][j1];
+	Ctmp2 = S[j1][i1];
+	S[i1][j1] = Ctmp2;
+	S[j1][i1] = Ctmp1;
       }
     }
 
-    for (i1=1; i1<=2*n; i1++){
-      MPI_Bcast(&Ctmp[i1][0], n2, MPI_DOUBLE, Host_ID, mpi_comm_level1);
-    }
+    /* H * U' */
+    /* C is distributed by row in each processor */
+
+#pragma omp parallel shared(C,S,H,n,is1,ie1,myid) private(OMPID,Nthrds,Nprocs,i1,j1,l)
+    { 
+
+      /* get info. on OpenMP */ 
+
+      OMPID = omp_get_thread_num();
+      Nthrds = omp_get_num_threads();
+      Nprocs = omp_get_num_procs();
+
+      for (i1=1+OMPID; i1<=2*n; i1+=Nthrds){
+	for (j1=is1[myid]; j1<=ie1[myid]; j1++){
+
+	  double sum_r0 = 0.0;
+	  double sum_i0 = 0.0;
+
+	  double sum_r1 = 0.0;
+	  double sum_i1 = 0.0;
+
+	  for (l=1; l<=n; l++){
+	    sum_r0 += H[i1][l  ].r*S[j1][l].r - H[i1][l  ].i*S[j1][l].i;
+	    sum_i0 += H[i1][l  ].r*S[j1][l].i + H[i1][l  ].i*S[j1][l].r;
+
+	    sum_r1 += H[i1][n+l].r*S[j1][l].r - H[i1][n+l].i*S[j1][l].i;
+	    sum_i1 += H[i1][n+l].r*S[j1][l].i + H[i1][n+l].i*S[j1][l].r;
+	  }
+
+	  C[2*j1-1][i1].r = sum_r0;
+	  C[2*j1-1][i1].i = sum_i0;
+
+	  C[2*j1  ][i1].r = sum_r1;
+	  C[2*j1  ][i1].i = sum_i1;
+	}
+      } 
+
+    } /* #pragma omp parallel */
+
+    /* U'^+ H * U' */
+    /* H is distributed by row in each processor */
+
+#pragma omp parallel shared(C,S,H,n,is1,ie1,myid) private(OMPID,Nthrds,Nprocs,i1,j1,l,jj1,jj2)
+    { 
+
+      /* get info. on OpenMP */ 
+
+      OMPID = omp_get_thread_num();
+      Nthrds = omp_get_num_threads();
+      Nprocs = omp_get_num_procs();
+
+      for (j1=is1[myid]+OMPID; j1<=ie1[myid]; j1+=Nthrds){
+	for (i1=1; i1<=n; i1++){
+
+	  double sum_r00 = 0.0;
+	  double sum_i00 = 0.0;
+
+	  double sum_r01 = 0.0;
+	  double sum_i01 = 0.0;
+
+	  double sum_r10 = 0.0;
+	  double sum_i10 = 0.0;
+
+	  double sum_r11 = 0.0;
+	  double sum_i11 = 0.0;
+
+	  jj1 = 2*j1 - 1;
+	  jj2 = 2*j1;
+
+	  for (l=1; l<=n; l++){
+
+	    sum_r00 += S[i1][l].r*C[jj1][l  ].r + S[i1][l].i*C[jj1][l  ].i;
+	    sum_i00 += S[i1][l].r*C[jj1][l  ].i - S[i1][l].i*C[jj1][l  ].r;
+
+	    sum_r01 += S[i1][l].r*C[jj1][l+n].r + S[i1][l].i*C[jj1][l+n].i;
+	    sum_i01 += S[i1][l].r*C[jj1][l+n].i - S[i1][l].i*C[jj1][l+n].r;
+
+	    sum_r10 += S[i1][l].r*C[jj2][l  ].r + S[i1][l].i*C[jj2][l  ].i;
+	    sum_i10 += S[i1][l].r*C[jj2][l  ].i - S[i1][l].i*C[jj2][l  ].r;
+
+	    sum_r11 += S[i1][l].r*C[jj2][l+n].r + S[i1][l].i*C[jj2][l+n].i;
+	    sum_i11 += S[i1][l].r*C[jj2][l+n].i - S[i1][l].i*C[jj2][l+n].r;
+	  }
+
+	  H[jj1][2*i1-1].r = sum_r00;
+	  H[jj1][2*i1-1].i = sum_i00;
+
+	  H[jj1][2*i1  ].r = sum_r01;
+	  H[jj1][2*i1  ].i = sum_i01;
+
+	  H[jj2][2*i1-1].r = sum_r10;
+	  H[jj2][2*i1-1].i = sum_i10;
+
+	  H[jj2][2*i1  ].r = sum_r11;
+	  H[jj2][2*i1  ].i = sum_i11;
+
+	}
+      }
+
+    } /* #pragma omp parallel */
+
+    /* broadcast H */
+
+    BroadCast_ComplexMatrix(mpi_comm_level1,H,2*n,is12,ie12,myid,numprocs,
+			    stat_send,request_send,request_recv);
+
+    /* H to C (transposition) */
+
+#pragma omp parallel for shared(n,C,H)  
 
     for (i1=1; i1<=2*n; i1++){
       for (j1=1; j1<=2*n; j1++){
-        C[i1][j1].r = Ctmp[i1][j1]; 
+	C[j1][i1].r = H[i1][j1].r;
+	C[j1][i1].i = H[i1][j1].i;
       }
     }
 
-    /* C[][].i */
+    /* solve the standard eigenvalue problem */
+    /*  The output C matrix is distributed by column. */
+
+    Eigen_PHH(mpi_comm_level1,C,ko,2*n,MaxN,0);
+
+    for (i1=1; i1<=MaxN; i1++){
+      EIGEN[kloop][i1] = ko[i1];
+    }
+
+    /* calculation of wave functions */
+
+    /*  The H matrix is distributed by row */
+
     for (i1=1; i1<=2*n; i1++){
+      for (j1=is2[myid]; j1<=ie2[myid]; j1++){
+	H[j1][i1] = C[i1][j1];
+      }
+    }
+
+    /* transpose */
+
+    for (i1=1; i1<=n; i1++){
+      for (j1=i1+1; j1<=n; j1++){
+	Ctmp1 = S[i1][j1];
+	Ctmp2 = S[j1][i1];
+	S[i1][j1] = Ctmp2;
+	S[j1][i1] = Ctmp1;
+      }
+    }
+
+    /* C is distributed by row in each processor */
+
+#pragma omp parallel shared(C,S,H,n,is2,ie2,myid) private(OMPID,Nthrds,Nprocs,i1,j1,l,l1)
+    { 
+
+      /* get info. on OpenMP */ 
+
+      OMPID = omp_get_thread_num();
+      Nthrds = omp_get_num_threads();
+      Nprocs = omp_get_num_procs();
+
+      for (j1=is2[myid]+OMPID; j1<=ie2[myid]; j1+=Nthrds){
+	for (i1=1; i1<=n; i1++){
+
+	  double sum_r0 = 0.0; 
+	  double sum_i0 = 0.0;
+
+	  double sum_r1 = 0.0; 
+	  double sum_i1 = 0.0;
+
+	  l1 = 0; 
+
+	  for (l=1; l<=n; l++){
+
+	    l1++; 
+
+	    sum_r0 +=  S[i1][l].r*H[j1][l1].r - S[i1][l].i*H[j1][l1].i;
+	    sum_i0 +=  S[i1][l].r*H[j1][l1].i + S[i1][l].i*H[j1][l1].r;
+
+	    l1++; 
+
+	    sum_r1 +=  S[i1][l].r*H[j1][l1].r - S[i1][l].i*H[j1][l1].i;
+	    sum_i1 +=  S[i1][l].r*H[j1][l1].i + S[i1][l].i*H[j1][l1].r;
+	  } 
+
+	  C[j1][i1  ].r = sum_r0;
+	  C[j1][i1  ].i = sum_i0;
+
+	  C[j1][i1+n].r = sum_r1;
+	  C[j1][i1+n].i = sum_i1;
+
+	}
+      }
+
+    } /* #pragma omp parallel */
+
+    /* broadcast C: C is distributed by row in each processor */
+
+    BroadCast_ComplexMatrix(mpi_comm_level1,C,2*n,is2,ie2,myid,numprocs,
+			    stat_send,request_send,request_recv);
+
+    /* C to H (transposition)
+       H consists of column vectors
+    */ 
+
+    for (i1=1; i1<=MaxN; i1++){
       for (j1=1; j1<=2*n; j1++){
-        Ctmp[i1][j1] = C[i1][j1].i; 
+	H[j1][i1] = C[i1][j1];
       }
     }
 
-    for (i1=1; i1<=2*n; i1++){
-      MPI_Bcast(&Ctmp[i1][0], n2, MPI_DOUBLE, Host_ID, mpi_comm_level1);
-    }
+    /* find HOMO from eigenvalues */
 
-    for (i1=1; i1<=2*n; i1++){
-      for (j1=1; j1<=2*n; j1++){
-        C[i1][j1].i = Ctmp[i1][j1]; 
-      }
+    Bulk_HOMO[kloop][0] = 0;
+
+    for (i1=1; i1<=MaxN; i1++){
+      x = (ko[i1] - ChemP)*Beta;
+      if (x<=-x_cut) x = -x_cut;
+      if (x_cut<=x)  x = x_cut;
+      FermiF = 1.0/(1.0 + exp(x));
+      if (0.5<FermiF) Bulk_HOMO[kloop][0] = i1;
+    }      
+
+    if (2<=level_stdout){
+      printf("k1=%7.3f k2=%7.3f k3=%7.3f  HOMO = %2d\n",
+	     k1,k2,k3,Bulk_HOMO[kloop][0]);
     }
 
     /****************************************************
@@ -1143,32 +1475,46 @@ static void Band_DFT_MO_NonCol(
     /* HOMOs */
 
     for (j=0; j<nhomos; j++){
+
       j1 = Bulk_HOMO[kloop][0] - j;
+
+      /* store eigenvalue */
+      HOMOs_Coef[kloop][0][j][0][0].r = EIGEN[kloop][j1];
+      HOMOs_Coef[kloop][1][j][0][0].r = EIGEN[kloop][j1];
+
+      /* store eigenvector */
       for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
         wanA = WhatSpecies[GA_AN];
         tnoA = Spe_Total_CNO[wanA];
         Anum = MP[GA_AN];
         for (i=0; i<tnoA; i++){
-          HOMOs_Coef[kloop][0][j][GA_AN][i].r = C[Anum+i][j1].r;
-          HOMOs_Coef[kloop][0][j][GA_AN][i].i = C[Anum+i][j1].i;
-          HOMOs_Coef[kloop][1][j][GA_AN][i].r = C[Anum+i+n][j1].r;
-          HOMOs_Coef[kloop][1][j][GA_AN][i].i = C[Anum+i+n][j1].i;
+          HOMOs_Coef[kloop][0][j][GA_AN][i].r = H[Anum+i][j1].r;
+          HOMOs_Coef[kloop][0][j][GA_AN][i].i = H[Anum+i][j1].i;
+          HOMOs_Coef[kloop][1][j][GA_AN][i].r = H[Anum+i+n][j1].r;
+          HOMOs_Coef[kloop][1][j][GA_AN][i].i = H[Anum+i+n][j1].i;
         }
       }
     }        
 
     /* LUMOs */
     for (j=0; j<nlumos; j++){
+
       j1 = Bulk_HOMO[kloop][0] + 1 + j;
+
+      /* store eigenvalue */
+      LUMOs_Coef[kloop][0][j][0][0].r = EIGEN[kloop][j1];
+      LUMOs_Coef[kloop][1][j][0][0].r = EIGEN[kloop][j1];
+
+      /* store eigenvector */
       for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
         wanA = WhatSpecies[GA_AN];
         tnoA = Spe_Total_CNO[wanA];
         Anum = MP[GA_AN];
         for (i=0; i<tnoA; i++){
-          LUMOs_Coef[kloop][0][j][GA_AN][i].r = C[Anum+i][j1].r;
-          LUMOs_Coef[kloop][0][j][GA_AN][i].i = C[Anum+i][j1].i;
-          LUMOs_Coef[kloop][1][j][GA_AN][i].r = C[Anum+i+n][j1].r;
-          LUMOs_Coef[kloop][1][j][GA_AN][i].i = C[Anum+i+n][j1].i;
+          LUMOs_Coef[kloop][0][j][GA_AN][i].r = H[Anum+i][j1].r;
+          LUMOs_Coef[kloop][0][j][GA_AN][i].i = H[Anum+i][j1].i;
+          LUMOs_Coef[kloop][1][j][GA_AN][i].r = H[Anum+i+n][j1].r;
+          LUMOs_Coef[kloop][1][j][GA_AN][i].i = H[Anum+i+n][j1].i;
         }
       }
     }
@@ -1207,7 +1553,7 @@ static void Band_DFT_MO_NonCol(
 	k3 = kpoint[kloop][3];
 
 	fprintf(fp_EV,"\n\n");
-	fprintf(fp_EV,"   # of k-point = %i\n",kloop);
+	fprintf(fp_EV,"   # of k-point = %i\n",kloop+1);
 	fprintf(fp_EV,"   k1=%10.5f k2=%10.5f k3=%10.5f\n\n",k1,k2,k3);
 	fprintf(fp_EV,"   Chemical Potential (Hartree) = %18.14f\n",ChemP);
 	fprintf(fp_EV,"   HOMO = %i\n\n",Bulk_HOMO[kloop][0]);
@@ -1309,10 +1655,10 @@ static void Band_DFT_MO_NonCol(
 		    j1 = num0*(i-1) + j;
 
 		    if (0<i1 && j1<=2*n){
-		      fprintf(fp_EV,"  %8.5f",C[i1][j1].r);
-		      fprintf(fp_EV,"  %8.5f",C[i1][j1].i);
-		      fprintf(fp_EV,"  %8.5f",C[i1+n][j1].r);
-		      fprintf(fp_EV,"  %8.5f",C[i1+n][j1].i);
+		      fprintf(fp_EV,"  %8.5f",H[i1][j1].r);
+		      fprintf(fp_EV,"  %8.5f",H[i1][j1].i);
+		      fprintf(fp_EV,"  %8.5f",H[i1+n][j1].r);
+		      fprintf(fp_EV,"  %8.5f",H[i1+n][j1].i);
 		    }
 		  }
 
@@ -1344,9 +1690,35 @@ static void Band_DFT_MO_NonCol(
                        free arrays
   ****************************************************/
 
+  free(stat_send);
+  free(request_send);
+  free(request_recv);
+
+  free(is1);
+  free(ie1);
+  free(is2);
+  free(ie2);
+  free(is12);
+  free(ie12);
+
   free(MP);
+  free(order_GA);
+
+  free(My_NZeros);
+  free(SP_NZeros);
+  free(SP_Atoms);
+
   free(ko);
   free(koS);
+
+  free(S1);
+  free(RH0);
+  free(RH1);
+  free(RH2);
+  free(RH3);
+  free(IH0);
+  free(IH1);
+  free(IH2);
 
   for (i=0; i<List_YOUSO[33]; i++){
     free(EIGEN[i]);
@@ -1375,19 +1747,5 @@ static void Band_DFT_MO_NonCol(
   }
   free(Ctmp);
 
-  /* non-spin-orbit coupling and non-LDA+U */  
-  if (SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0
-      && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0){
-    free(Dummy_ImNL[0][0][0][0]);
-    free(Dummy_ImNL[0][0][0]);
-    free(Dummy_ImNL[0][0]);
-    free(Dummy_ImNL[0]);
-    free(Dummy_ImNL);
-  }
-
   dtime(&TEtime);
 }
-
-
-
-

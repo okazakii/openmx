@@ -14,12 +14,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Hamiltonian_Cluster_NC(double *****RH, double *****IH,
                             dcomplex **H, int *MP)
@@ -146,7 +142,7 @@ void Hamiltonian_Cluster_NC(double *****RH, double *****IH,
     in case of SO_switch==1 or Hub_U_switch==1 or Constraint_NCS_switch==1 
                or Zeeman_NCS_switch==1 or Zeeman_NCO_switch==1
 
-    H[i    ][j    ].r = RH[0];
+    H[i    ][j    ].r = RH[0];  
     H[i    ][j    ].i = IH[0];
     H[i+NUM][j+NUM].r = RH[1];
     H[i+NUM][j+NUM].i = IH[1];

@@ -15,12 +15,8 @@
 #include <stdlib.h>
 #include "openmx_common.h"
 #include "lapack_prototypes.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void lapack_dstegr2(INTEGER N, INTEGER EVmax, double *D, double *E, double *W, dcomplex **ev)
 {

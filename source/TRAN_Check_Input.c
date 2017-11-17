@@ -16,13 +16,7 @@
 
 #include "Inputtools.h"
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 

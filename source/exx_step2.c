@@ -245,7 +245,7 @@ static void step2_core(
   if (nrn) {
 
     scr = ERI_NOSCREEN;
-    //scr = 0.10;
+    /*scr = 0.10A*/
     if (w_scr>1e-10) { scr = w_scr; }
 
     ERI_Integral_GL_PrejY(solver, list_R, list_Rt, list_Rp, nrn, 
@@ -377,8 +377,8 @@ int EXX_Step2(const EXX_t *exx)
   nop   = EXX_Number_of_OP(exx);
   
   /*----- initialize LIBERI -----*/
-  //lmax    = 16;
-  //lmax_gl = 8;
+  /*lmax    = 16;*/
+  /*lmax_gl = 8;*/
   lmax    = g_exx_liberi_lmax;
   lmax_gl = (g_exx_liberi_lmax+1)/2;
   ngrid   = g_exx_liberi_ngrid;

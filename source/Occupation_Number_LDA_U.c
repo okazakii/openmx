@@ -18,17 +18,13 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
+#include "mpi.h"
 
 #ifdef c_complex
 #include <complex.h>
 #endif
 
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
 
 #define SCF_Enhance_OP  9
 #define quickcalc_flag  0
@@ -68,7 +64,6 @@ void Occupation_Number_LDA_U(int SCF_iter, int SucceedReadingDMfile, double dUel
   int numprocs,myid,ID,tag=999;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -2835,7 +2830,7 @@ void Induce_NC_Orbital_Polarization(int Mc_AN)
 
       if (Ncut<tmp1){
 
-	EigenBand_lapack(a, ko, 2*k, 1);
+	EigenBand_lapack(a, ko, 2*k, 2*k, 1);
 
 	/*
         printf("NCl Gc_AN=%2d\n",Gc_AN);fflush(stdout);
@@ -4617,7 +4612,7 @@ void Output_NonCollinear_OcpN()
 	}
       }
 
-      EigenBand_lapack(a, ko, 2*k, 1);
+      EigenBand_lapack(a, ko, 2*k, 2*k, 1);
 
       sum = 0.0;
       for (i=0; i<2*k; i++){

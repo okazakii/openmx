@@ -18,18 +18,9 @@
 #include <time.h>
 #include "openmx_common.h"
 #include "Inputtools.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
+
   
 
 int neb_check(char *argv[]) 
@@ -58,6 +49,9 @@ int neb_check(char *argv[])
   s_vec[i]="NVT_VS2";                 i_vec[i]=11; i++; /* modified by Ohwaki */
   s_vec[i]="EvsLC";                   i_vec[i]=12; i++; 
   s_vec[i]="NEB";                     i_vec[i]=13; i++; 
+  s_vec[i]="NVT_VS4";                 i_vec[i]=14; i++; /* modified by Ohwaki */
+  s_vec[i]="NVT_Langevin";            i_vec[i]=15; i++; /* modified by Ohwaki */
+  s_vec[i]="DF";                      i_vec[i]=16; i++; /* delta-factor */
 
   j = input_string2int("MD.Type",&MD_switch, i, s_vec,i_vec);
   if (j==-1){
@@ -72,3 +66,16 @@ int neb_check(char *argv[])
    
   return flag;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

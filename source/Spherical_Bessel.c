@@ -16,11 +16,14 @@
 #include "openmx_common.h"
 
 #define xmin  0.0
+#define asize_lmax 20
+
 
 void Spherical_Bessel( double x, int lmax, double *sb, double *dsb ) 
 {
   int m,n,nmax;
-  double *tsb;
+  double tsb[asize_lmax+10];
+  double invx,vsb0,vsb1,vsb2,vsbi;
   double j0,j1,j0p,j1p,sf,tmp,si,co,ix,ix2;
 
   if (x<0.0){
@@ -33,45 +36,53 @@ void Spherical_Bessel( double x, int lmax, double *sb, double *dsb )
   nmax = lmax + 3*x + 20;
   if (nmax<100) nmax = 100; 
 
-  /* allocate tsb */
-
-  tsb  = (double*)malloc(sizeof(double)*(nmax+1)); 
+  if (asize_lmax<(lmax+1)){
+    printf("asize_lmax should be larger than %d in Spherical_Bessel.c\n",lmax+1);
+    exit(0);
+  }
   
   /* if x is larger than xmin */
 
   if ( xmin < x ){
 
-    /* initial values*/
+    invx = 1.0/x;
 
-    tsb[nmax]   = 0.0;
-    tsb[nmax-1] = 1.0e-14;
+    /* initial values */
+
+    vsb0 = 0.0;
+    vsb1 = 1.0e-14;
 
     /* downward recurrence from nmax-2 to lmax+2 */
 
     for ( n=nmax-1; (lmax+2)<n; n-- ){
 
-      tsb[n-1] = (2.0*n + 1.0)/x*tsb[n] - tsb[n+1];
+      vsb2 = (2.0*n + 1.0)*invx*vsb1 - vsb0;
 
-      if (1.0e+250<tsb[n-1]){
-        tmp = tsb[n-1];        
-        tsb[n-1] /= tmp;
-        tsb[n  ] /= tmp;
+      if (1.0e+250<vsb2){
+        tmp = 1.0/vsb2;
+        vsb2 *= tmp;
+        vsb1 *= tmp;
       }
 
-      /*
-      printf("n=%3d tsb[n-1]=%18.15f\n",n,tsb[n-1]);
-      */
+      vsbi = vsb0;
+      vsb0 = vsb1;
+      vsb1 = vsb2;
     }
 
     /* downward recurrence from lmax+1 to 0 */
 
     n = lmax + 3;
+    tsb[n-1] = vsb1;
+    tsb[n  ] = vsb0;
+    tsb[n+1] = vsbi;
+
     tmp = tsb[n-1];        
     tsb[n-1] /= tmp;
     tsb[n  ] /= tmp;
 
     for ( n=lmax+2; 0<n; n-- ){
-      tsb[n-1] = (2.0*n + 1.0)/x*tsb[n] - tsb[n+1];
+
+      tsb[n-1] = (2.0*n + 1.0)*invx*tsb[n] - tsb[n+1];
 
       if (1.0e+250<tsb[n-1]){
         tmp = tsb[n-1];
@@ -126,8 +137,5 @@ void Spherical_Bessel( double x, int lmax, double *sb, double *dsb )
       dsb[n] = ( (double)n*sb[n-1] - (double)(n+1.0)*sb[n+1] )/(2.0*(double)n + 1.0);
     }
   }
-
-  /* free tsb */
-
-  free(tsb);
 }
+

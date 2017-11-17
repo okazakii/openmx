@@ -20,12 +20,8 @@
 #include <unistd.h>
 /*  end stat section */
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Make_FracCoord(char *file)
 {

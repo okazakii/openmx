@@ -15,12 +15,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Initial_CntCoes(double *****nh, double *****OLP)
 {
@@ -68,7 +64,6 @@ void Initial_CntCoes(double *****nh, double *****OLP)
   MPI_Request request;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 

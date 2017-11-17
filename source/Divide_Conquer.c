@@ -16,20 +16,11 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
+#include "mpi.h"
+#include <omp.h>
 
 #define  measure_time   0
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
 
 
 static double DC_Col(char *mode,
@@ -180,8 +171,8 @@ static double DC_Col(char *mode,
   for (spin=0; spin<=SpinP_switch; spin++){
     EVal[spin] = (double**)malloc(sizeof(double*)*(Matomnum+1));
 
+
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-      Gc_AN = M2G[Mc_AN];
 
       if (Mc_AN==0){
         Gc_AN = 0;
@@ -191,6 +182,8 @@ static double DC_Col(char *mode,
         Msize[Mc_AN] = 1;
       }
       else{
+
+        Gc_AN = M2G[Mc_AN];
         Anum = 1;
         for (i=0; i<=(FNAN[Gc_AN]+SNAN[Gc_AN]); i++){
           Gi = natn[Gc_AN][i];
@@ -203,8 +196,8 @@ static double DC_Col(char *mode,
       }
 
       m_size += n2;
-
       EVal[spin][Mc_AN] = (double*)malloc(sizeof(double)*n2);
+
     }
   }
 
@@ -236,7 +229,6 @@ static double DC_Col(char *mode,
   for (spin=0; spin<=SpinP_switch; spin++){
     Residues[spin] = (double*****)malloc(sizeof(double****)*(Matomnum+1));
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-      Gc_AN = M2G[Mc_AN];
 
       if (Mc_AN==0){
         Gc_AN = 0;
@@ -245,6 +237,7 @@ static double DC_Col(char *mode,
         n2 = 1;
       }
       else{
+        Gc_AN = M2G[Mc_AN];
         wanA = WhatSpecies[Gc_AN];
         tno1 = Spe_Total_CNO[wanA];
         n2 = Msize[Mc_AN] + 2;
@@ -293,10 +286,9 @@ static double DC_Col(char *mode,
   for (spin=0; spin<=SpinP_switch; spin++){
     PDOS_DC[spin] = (double**)malloc(sizeof(double*)*(Matomnum+1));
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-      Gc_AN = M2G[Mc_AN];
 
-      if (Mc_AN==0) n2 = 1;
-      else          n2 = Msize[Mc_AN] + 2;
+      if (Mc_AN==0)  n2 = 1;
+      else           n2 = Msize[Mc_AN] + 2;
 
       m_size += n2;
       PDOS_DC[spin][Mc_AN] = (double*)malloc(sizeof(double)*n2);
@@ -1251,7 +1243,7 @@ static double DC_Col(char *mode,
     }
 
     /****************************************************
-      calculate density and energy density matrices
+       calculate density and energy density matrices
     ****************************************************/
 
     if (measure_time) dtime(&stime);
@@ -1402,7 +1394,6 @@ static double DC_Col(char *mode,
 
   for (spin=0; spin<=SpinP_switch; spin++){
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-      Gc_AN = M2G[Mc_AN];
 
       if (Mc_AN==0){
         Gc_AN = 0;
@@ -1410,6 +1401,7 @@ static double DC_Col(char *mode,
         tno1 = 1;
       }
       else{
+        Gc_AN = M2G[Mc_AN];
         wanA = WhatSpecies[Gc_AN];
         tno1 = Spe_Total_CNO[wanA];
       }
@@ -1537,7 +1529,6 @@ static double DC_NonCol(char *mode,
   EVal = (double**)malloc(sizeof(double*)*(Matomnum+1));
 
   for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-    Gc_AN = M2G[Mc_AN];
 
     if (Mc_AN==0){
       Gc_AN = 0;
@@ -1547,6 +1538,7 @@ static double DC_NonCol(char *mode,
       Msize[Mc_AN] = 1;
     }
     else{
+      Gc_AN = M2G[Mc_AN];
       Anum = 1;
       for (i=0; i<=(FNAN[Gc_AN]+SNAN[Gc_AN]); i++){
 	Gi = natn[Gc_AN][i];
@@ -1592,7 +1584,6 @@ static double DC_NonCol(char *mode,
   for (spin=0; spin<3; spin++){
     Residues[spin] = (dcomplex*****)malloc(sizeof(dcomplex****)*(Matomnum+1));
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-      Gc_AN = M2G[Mc_AN];
 
       if (Mc_AN==0){
 	Gc_AN = 0;
@@ -1601,6 +1592,7 @@ static double DC_NonCol(char *mode,
 	n2 = 1;
       }
       else{
+        Gc_AN = M2G[Mc_AN];
 	wanA = WhatSpecies[Gc_AN];
 	tno1 = Spe_Total_CNO[wanA];
 	n2 = 2*Msize[Mc_AN] + 2;
@@ -1646,7 +1638,6 @@ static double DC_NonCol(char *mode,
 
   PDOS_DC = (double**)malloc(sizeof(double*)*(Matomnum+1));
   for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-    Gc_AN = M2G[Mc_AN];
 
     if (Mc_AN==0) n2 = 1;
     else          n2 = 2*Msize[Mc_AN] + 2;
@@ -2480,7 +2471,7 @@ static double DC_NonCol(char *mode,
       ************************************************/
 
       NUM1 = 2*NUM - (P_min - 1);
-      EigenBand_lapack(C, ko, NUM1, 1);
+      EigenBand_lapack(C, ko, NUM1, NUM1, 1);
 
       /* C to H (transposition) */
 
@@ -2917,7 +2908,6 @@ static double DC_NonCol(char *mode,
 
   for (spin=0; spin<3; spin++){
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
-      Gc_AN = M2G[Mc_AN];
 
       if (Mc_AN==0){
 	Gc_AN = 0;
@@ -2925,6 +2915,7 @@ static double DC_NonCol(char *mode,
 	tno1 = 1;
       }
       else{
+        Gc_AN = M2G[Mc_AN];
 	wanA = WhatSpecies[Gc_AN];
 	tno1 = Spe_Total_CNO[wanA];
       }

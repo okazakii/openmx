@@ -42,6 +42,7 @@ void Cont_Matrix1(double ****Mat, double ****CMat)
 	      sumS += CntCoes[Mc_AN][al][p]*Mat[Mc_AN][h_AN][p0][be];
 	    }
 	    CMat[Mc_AN][h_AN][al][be] = sumS;
+	    Mat[Mc_AN][h_AN][al][be]  = sumS;
 	  }
 	}
       }

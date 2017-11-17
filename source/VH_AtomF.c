@@ -2,7 +2,7 @@
   VH_AtomF.c:
 
      VH_AtomF.c is a subroutine to calculate the Hartree potential
-     potential of a free atom specified by "Gensi".
+     of a free atom specified by "spe".
 
   Log of VH_AtomF.c:
 
@@ -14,40 +14,51 @@
 #include <math.h>
 #include "openmx_common.h"
 
-double VH_AtomF(int Gensi, double R)
+#ifdef MAX 
+#undef MAX
+#endif
+#define MAX(a,b) ((a)>(b))?  (a):(b) 
+
+#ifdef MIN
+#undef MIN
+#endif
+#define MIN(a,b) ((a)<(b))?  (a):(b)
+
+double VH_AtomF(int spe, int N, double x, double r, double *xv, double *rv, double *yv)
 {
-  int mp_min,mp_max,m;
-  double h1,h2,h3,f1,f2,f3,f4;
-  double g1,g2,x1,x2,y1,y2,f;
-  double rm,y12,y22,result,df,a,b;
+  int i;
+  double t,dt,y;
+  double xmin,xmax;
+  
+  xmin = xv[0];
+  xmax = xv[N-1];
 
-  if (Spe_WhatAtom[Gensi]==0) return 0.0;
-
-  mp_min = 0;
-  mp_max = Spe_Num_Mesh_VPS[Gensi] - 1;
-
-  if (Spe_VPS_RV[Gensi][Spe_Num_Mesh_VPS[Gensi]-1]<R){
-    result = Spe_Core_Charge[Gensi]/R;
+  if (xmax<=x){
+    return Spe_Core_Charge[spe]/r;
   }
+  else if (r<rv[0]){
 
-  else if (R<Spe_VPS_RV[Gensi][0]){
+    int m;
+    double rm,h1,h2,h3,f1,f2,f3,f4,f,df;
+    double g1,g2,x1,x2,y1,y2,y12,y22,a,b;
+
     m = 4;
-    rm = Spe_VPS_RV[Gensi][m];
+    rm = rv[m];
 
-    h1 = Spe_VPS_RV[Gensi][m-1] - Spe_VPS_RV[Gensi][m-2];
-    h2 = Spe_VPS_RV[Gensi][m]   - Spe_VPS_RV[Gensi][m-1];
-    h3 = Spe_VPS_RV[Gensi][m+1] - Spe_VPS_RV[Gensi][m];
+    h1 = rv[m-1] - rv[m-2];
+    h2 = rv[m]   - rv[m-1];
+    h3 = rv[m+1] - rv[m];
 
-    f1 = Spe_VH_Atom[Gensi][m-2];
-    f2 = Spe_VH_Atom[Gensi][m-1];
-    f3 = Spe_VH_Atom[Gensi][m];
-    f4 = Spe_VH_Atom[Gensi][m+1];
+    f1 = yv[m-2];
+    f2 = yv[m-1];
+    f3 = yv[m];
+    f4 = yv[m+1];
 
     g1 = ((f3-f2)*h1/h2 + (f2-f1)*h2/h1)/(h1+h2);
     g2 = ((f4-f3)*h2/h3 + (f3-f2)*h3/h2)/(h2+h3);
 
-    x1 = rm - Spe_VPS_RV[Gensi][m-1];
-    x2 = rm - Spe_VPS_RV[Gensi][m];
+    x1 = rm - rv[m-1];
+    x2 = rm - rv[m];
     y1 = x1/h2;
     y2 = x2/h2;
     y12 = y1*y1;
@@ -63,66 +74,18 @@ double VH_AtomF(int Gensi, double R)
 
     a = 0.5*df/rm;
     b = f - a*rm*rm;      
-    result = a*R*R + b;
+    return a*r*r + b;
   }
+  else{ 
 
-  else{
-    do{
-      m = (mp_min + mp_max)/2;
-      if (Spe_VPS_RV[Gensi][m]<R)
-        mp_min = m;
-      else 
-        mp_max = m;
-    }
-    while((mp_max-mp_min)!=1);
-    m = mp_max;
+    x = MAX(x,xmin); 
+    t = ((double)N-1.0)*(x-xmin)/(xmax-xmin);
+    i = floor(t); 
+    dt = t - (double)i; 
 
-    if (m<2)
-      m = 2;
-    else if (Spe_Num_Mesh_VPS[Gensi]<=m)
-      m = Spe_Num_Mesh_VPS[Gensi] - 2;
-
-    /****************************************************
-                   Spline like interpolation
-    ****************************************************/
-
-    h1 = Spe_VPS_RV[Gensi][m-1] - Spe_VPS_RV[Gensi][m-2];
-    h2 = Spe_VPS_RV[Gensi][m]   - Spe_VPS_RV[Gensi][m-1];
-    h3 = Spe_VPS_RV[Gensi][m+1] - Spe_VPS_RV[Gensi][m];
-
-    f1 = Spe_VH_Atom[Gensi][m-2];
-    f2 = Spe_VH_Atom[Gensi][m-1];
-    f3 = Spe_VH_Atom[Gensi][m];
-    f4 = Spe_VH_Atom[Gensi][m+1];
-
-    /****************************************************
-                   Treatment of edge points
-    ****************************************************/
-
-    if (m==1){
-      h1 = -(h2+h3);
-      f1 = f4;
-    }
-    if (m==(Spe_Num_Mesh_VPS[Gensi]-1)){
-      h3 = -(h1+h2);
-      f4 = f1;
-    }
-
-    /****************************************************
-                Calculate the value at R
-    ****************************************************/
-
-    g1 = ((f3-f2)*h1/h2 + (f2-f1)*h2/h1)/(h1+h2);
-    g2 = ((f4-f3)*h2/h3 + (f3-f2)*h3/h2)/(h2+h3);
-
-    x1 = R - Spe_VPS_RV[Gensi][m-1];
-    x2 = R - Spe_VPS_RV[Gensi][m];
-    y1 = x1/h2;
-    y2 = x2/h2;
-
-    result =  y2*y2*(3.0*f2 + h2*g1 + (2.0*f2 + h2*g1)*y2)
-             + y1*y1*(3.0*f3 - h2*g2 - (2.0*f3 - h2*g2)*y1);
+    return 0.5*( ((yv[i+3]-yv[i]-3.0*(yv[i+2]-yv[i+1]))*dt
+		  -yv[i+3]+4.0*yv[i+2]-5.0*yv[i+1]+2.0*yv[i])*dt 
+		 +(yv[i+2]-yv[i]))*dt
+                 +yv[i+1]; 
   }
-
-  return result;
 }

@@ -13,25 +13,14 @@
      24/July/2008  Released by T.Ozaki
 
 ***********************************************************************/
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef fftw2 
-#include <fftw.h>
-#else
 #include <fftw3.h> 
-#endif
-
 #include "tran_variables.h"
 #include "tran_prototypes.h" 
 
@@ -77,8 +66,7 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 			     double gtv[4][4],      /* unit vector of the grid point, which is gtv*integer */
 			     int Ngrid1,
 			     int Ngrid2,
-			     int Ngrid3,            /* # of c grid points */
-			     double *Density_Grid   /* work */
+			     int Ngrid3             /* # of c grid points */
 			     )
 {
   int l1[2];
@@ -92,7 +80,7 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
   int n1,n2,n3;
   int id,gidx;
   double rcutA,rcutB,r,r1,r2;
-  double dx,dy,dz;
+  double dx,dy,dz,xx;
   double dx1,dy1,dz1;
   double dx2,dy2,dz2;
   double x1,y1,z1;
@@ -106,7 +94,7 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
   int myid;
   fftw_complex *in, *out;
   fftw_plan p;
- 
+   
   MPI_Comm_rank(comm1, &myid);
 
   /* for passing TRAN_Poisson_flag to "DFT" */
@@ -122,13 +110,8 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
   Chi1 = (double*)malloc(sizeof(double)*List_YOUSO[7]);
   Chi2 = (double*)malloc(sizeof(double)*List_YOUSO[7]);
 
-#ifdef fftw2
-  in  = (fftw_complex*)malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
-  out = (fftw_complex*)malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
-#else
   in  = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
   out = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
-#endif
 
   /* allocation of arrays */
   if (print_stdout){
@@ -298,7 +281,14 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 			  sum = 0.0;
 			  for (i=0; i<tnoA; i++){
 			    for (j=0; j<tnoB; j++){
-			      sum += 2.0*DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j];
+                   /* revised by Y. Xiao for Noncollinear NEGF calculations */
+			    /*  sum += 2.0*DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j]; */
+                               if(spin==3){
+                                  sum -= 2.0*DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j];
+                               } else {
+                                  sum += 2.0*DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j];
+                               }
+                    /* until here by Y. Xiao for Noncollinear NEGF calculations */
 			    }
 			  }
 			}
@@ -308,9 +298,14 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 			  sum = 0.0;
 			  for (i=0; i<tnoA; i++){
 			    for (j=0; j<tnoB; j++){
-
-			      sum += DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j];
-
+                     /* revised by Y. Xiao for Noncollinear NEGF calculations */
+			    /*  sum += DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j]; */
+                               if(spin==3){
+                                  sum -= DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j];
+                               } else {
+                                  sum += DM_e[side][0][spin][GA_AN_e][LB_AN_e][i][j]*Chi1[i]*Chi2[j];
+                               }
+                     /* until here by Y. Xiao for Noncollinear NEGF calculations */
 			    }
 			  }
 			}
@@ -325,9 +320,12 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
                   /******************************
                        ElectrodeADensity_Grid
                   ******************************/
-   
+
+  		  xx = 0.5*log(dx1*dx1 + dy1*dy1 + dz1*dz1);
                   gidx = (n1-l1[0])*Ngrid2*Ngrid3 + n2*Ngrid3 + n3; 
-                  ElectrodeADensity_Grid[side][gidx] += 0.5*AtomicDenF(wanA,r1);
+                  ElectrodeADensity_Grid[side][gidx] += 0.5*KumoF( Spe_Num_Mesh_PAO[wanA], xx, 
+                                                            Spe_PAO_XV[wanA], Spe_PAO_RV[wanA], 
+                                                            Spe_Atomic_Den[wanA]);
 
 		} /* if (r1<=rcutA) */              
 	      }
@@ -363,43 +361,23 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 
     /* FFT of VHart_Boundary for c-axis */
 
-#ifdef fftw2
-    p = fftw_create_plan(Ngrid3, -1, FFTW_ESTIMATE);
-#else
     p = fftw_plan_dft_1d(Ngrid3,in,out,-1,FFTW_ESTIMATE);
-#endif
 
     for (n1=0; n1<Ngrid1_e[side]; n1++){
       for (n2=0; n2<Ngrid2; n2++){
 
 	for (n3=0; n3<Ngrid3; n3++){
 
-#ifdef fftw2
-	  c_re(in[n3]) = VHart_Boundary[side][n1][n2][n3].r;
-	  c_im(in[n3]) = VHart_Boundary[side][n1][n2][n3].i;
-#else
 	  in[n3][0] = VHart_Boundary[side][n1][n2][n3].r;
 	  in[n3][1] = VHart_Boundary[side][n1][n2][n3].i;
-#endif
-      
 	}  
 
-#ifdef fftw2
-	fftw_one(p, in, out);
-#else
 	fftw_execute(p);
-#endif
 
 	for (k3=0; k3<Ngrid3; k3++){
 
-#ifdef fftw2
-	  VHart_Boundary[side][n1][n2][k3].r = c_re(out[k3]);
-	  VHart_Boundary[side][n1][n2][k3].i = c_im(out[k3]);
-#else
 	  VHart_Boundary[side][n1][n2][k3].r = out[k3][0];
 	  VHart_Boundary[side][n1][n2][k3].i = out[k3][1];
-#endif
-
 	}
       }
     }
@@ -408,43 +386,23 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 
     /* FFT of VHart_Boundary for b-axis */
 
-#ifdef fftw2
-    p = fftw_create_plan(Ngrid2, -1, FFTW_ESTIMATE);
-#else
     p = fftw_plan_dft_1d(Ngrid2,in,out,-1,FFTW_ESTIMATE);
-#endif
 
     for (n1=0; n1<Ngrid1_e[side]; n1++){
       for (k3=0; k3<Ngrid3; k3++){
 
 	for (n2=0; n2<Ngrid2; n2++){
 
-#ifdef fftw2
-	  c_re(in[n2]) = VHart_Boundary[side][n1][n2][k3].r;
-	  c_im(in[n2]) = VHart_Boundary[side][n1][n2][k3].i;
-#else
 	  in[n2][0] = VHart_Boundary[side][n1][n2][k3].r;
 	  in[n2][1] = VHart_Boundary[side][n1][n2][k3].i;
-#endif
-
 	}
 
-#ifdef fftw2
-	fftw_one(p, in, out);
-#else
 	fftw_execute(p);
-#endif
 
 	for (k2=0; k2<Ngrid2; k2++){
 
-#ifdef fftw2
-	  VHart_Boundary[side][n1][k2][k3].r = c_re(out[k2]);
-	  VHart_Boundary[side][n1][k2][k3].i = c_im(out[k2]);
-#else
 	  VHart_Boundary[side][n1][k2][k3].r = out[k2][0];
 	  VHart_Boundary[side][n1][k2][k3].i = out[k2][1];
-#endif
-
 	}
       }
     }
@@ -564,11 +522,6 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
     }
   }
 
-  /*
-  MPI_Finalize();
-  exit(0);
-  */
-
   /****************************************************
     2D FFT of dVHartree of the left and right leads 
     on the bc plane for TRAN_Poisson
@@ -590,43 +543,23 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 
     /* FFT of VHart_Boundary for c-axis */
 
-#ifdef fftw2
-    p = fftw_create_plan(Ngrid3, -1, FFTW_ESTIMATE);
-#else
     p = fftw_plan_dft_1d(Ngrid3,in,out,-1,FFTW_ESTIMATE);
-#endif
 
     for (n1=0; n1<Ngrid1_e[side]; n1++){
       for (n2=0; n2<Ngrid2; n2++){
 
 	for (n3=0; n3<Ngrid3; n3++){
 
-#ifdef fftw2
-	  c_re(in[n3]) = VHart_Boundary[side][n1][n2][n3].r;
-	  c_im(in[n3]) = VHart_Boundary[side][n1][n2][n3].i;
-#else
 	  in[n3][0] = VHart_Boundary[side][n1][n2][n3].r;
 	  in[n3][1] = VHart_Boundary[side][n1][n2][n3].i;
-#endif
-      
 	}  
 
-#ifdef fftw2
-	fftw_one(p, in, out);
-#else
 	fftw_execute(p);
-#endif
 
 	for (k3=0; k3<Ngrid3; k3++){
 
-#ifdef fftw2
-	  VHart_Boundary[side][n1][n2][k3].r = c_re(out[k3]);
-	  VHart_Boundary[side][n1][n2][k3].i = c_im(out[k3]);
-#else
 	  VHart_Boundary[side][n1][n2][k3].r = out[k3][0];
 	  VHart_Boundary[side][n1][n2][k3].i = out[k3][1];
-#endif
-
 	}
       }
     }
@@ -635,43 +568,23 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 
     /* FFT of VHart_Boundary for b-axis */
 
-#ifdef fftw2
-    p = fftw_create_plan(Ngrid2, -1, FFTW_ESTIMATE);
-#else
     p = fftw_plan_dft_1d(Ngrid2,in,out,-1,FFTW_ESTIMATE);
-#endif
 
     for (n1=0; n1<Ngrid1_e[side]; n1++){
       for (k3=0; k3<Ngrid3; k3++){
 
 	for (n2=0; n2<Ngrid2; n2++){
 
-#ifdef fftw2
-	  c_re(in[n2]) = VHart_Boundary[side][n1][n2][k3].r;
-	  c_im(in[n2]) = VHart_Boundary[side][n1][n2][k3].i;
-#else
 	  in[n2][0] = VHart_Boundary[side][n1][n2][k3].r;
 	  in[n2][1] = VHart_Boundary[side][n1][n2][k3].i;
-#endif
-
 	}
 
-#ifdef fftw2
-	fftw_one(p, in, out);
-#else
 	fftw_execute(p);
-#endif
 
 	for (k2=0; k2<Ngrid2; k2++){
 
-#ifdef fftw2
-	  VHart_Boundary[side][n1][k2][k3].r = c_re(out[k2]);
-	  VHart_Boundary[side][n1][k2][k3].i = c_im(out[k2]);
-#else
 	  VHart_Boundary[side][n1][k2][k3].r = out[k2][0];
 	  VHart_Boundary[side][n1][k2][k3].i = out[k2][1];
-#endif
-
 	}
       }
     }
@@ -696,14 +609,8 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
   free(Chi1);
   free(Chi2);
 
-#ifdef fftw2
-  free(in);
-  free(out);
-#else
   fftw_free(in);
   fftw_free(out);
-#endif
-
 }
 
 

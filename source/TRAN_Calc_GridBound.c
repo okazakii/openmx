@@ -19,13 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_variables.h"
 #include "tran_prototypes.h"
 
@@ -58,10 +52,10 @@ void TRAN_Calc_GridBound(MPI_Comm mpi_comm_level1,
 			 double Left_tv[4][4],
 			 double Right_tv[4][4])
 {
-  int ct_AN, wanA;
-  int i,j;
-  int side;
-  double rcutA;
+  int ct_AN,ct_AN2,wanA,wanB;
+  int i,j,po;
+  double r,rcutA,rcutB;
+  double dx,dy,dz;
   double MinV,MaxV;
   int MaxGridNum;
   double R[4],Cxyz[4];
@@ -133,10 +127,31 @@ void TRAN_Calc_GridBound(MPI_Comm mpi_comm_level1,
 
       /* set "12" atoms having non-zero overlap with atoms in the left lead */ 
 
-      if ( Vec0<0.0 || Vec1<0.0 ){
-        TRAN_region[ct_AN] += 10;
-      }
+      ct_AN2 = 1;
+      po = 0;
 
+      do { 
+
+        if ( TRAN_region[ct_AN2]==2 ) {  /* left region */
+
+          wanB = WhatSpecies[ct_AN2];
+          rcutB = Spe_Atom_Cut1[wanB];
+
+          dx = Gxyz[ct_AN][1] - (Gxyz[ct_AN2][1] - Left_tv[1][1]);
+          dy = Gxyz[ct_AN][2] - (Gxyz[ct_AN2][2] - Left_tv[1][2]);
+          dz = Gxyz[ct_AN][3] - (Gxyz[ct_AN2][3] - Left_tv[1][3]);
+
+          r = sqrt(dx*dx+dy*dy+dz*dz);
+
+          if (r<(rcutA+rcutB) ){
+            TRAN_region[ct_AN] += 10;
+	    po = 1;
+          }
+	}
+
+        ct_AN2++;
+
+      } while (po==0 && ct_AN2<=atomnum);
     }
   }
 
@@ -148,14 +163,14 @@ void TRAN_Calc_GridBound(MPI_Comm mpi_comm_level1,
 
   Vec0 = fabs(Dot_Product(Left_tv[1],rgtv[1])*0.5/PI);
   TRAN_grid_bound[0] = (int)(MaxV - Vec0) + 1;
-
+  
   /*
   if (myid==Host_ID){
     printf("Left MinV=%15.12f MaxV=%15.12f\n",MinV,MaxV);
     printf("grid_bound (left) =%d\n",TRAN_grid_bound[0]);
   }
   */
-
+  
   /********************************************************** 
                            right side 
   ***********************************************************/
@@ -193,9 +208,31 @@ void TRAN_Calc_GridBound(MPI_Comm mpi_comm_level1,
 
       /* set "13" atoms having non-zero overlap with atoms in the right lead */ 
 
-      if ( MaxGridNum<Vec0 || MaxGridNum<Vec1 ){
-        TRAN_region[ct_AN] += 10;
-      }
+      ct_AN2 = 1;
+      po = 0;
+
+      do { 
+
+        if ( TRAN_region[ct_AN2]==3 ) {  /* right region */
+
+          wanB = WhatSpecies[ct_AN2];
+          rcutB = Spe_Atom_Cut1[wanB];
+
+          dx = Gxyz[ct_AN][1] - (Gxyz[ct_AN2][1] + Right_tv[1][1]);
+          dy = Gxyz[ct_AN][2] - (Gxyz[ct_AN2][2] + Right_tv[1][2]);
+          dz = Gxyz[ct_AN][3] - (Gxyz[ct_AN2][3] + Right_tv[1][3]);
+
+          r = sqrt(dx*dx+dy*dy+dz*dz);
+
+          if (r<(rcutA+rcutB) ){
+            TRAN_region[ct_AN] += 10;
+	    po = 1;
+          }
+	}
+
+        ct_AN2++;
+
+      } while (po==0 && ct_AN2<=atomnum);
 
     }
   }

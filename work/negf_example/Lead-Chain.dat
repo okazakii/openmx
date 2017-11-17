@@ -22,7 +22,7 @@ NEGF.tran.Kgrid            1 1       # default= 1 1
 
 Species.Number       1
 <Definition.of.Atomic.Species
- C    C5.0-s1p1      C_CA11
+ C    C5.0-s2p2d1      C_CA13
 Definition.of.Atomic.Species>
 
 #
@@ -50,24 +50,24 @@ Atoms.UnitVectors>
 scf.XcType                  LDA        # LDA|LSDA-CA|LSDA-PW|GGA-PBE
 scf.SpinPolarization        off        # On|Off|NC
 scf.ElectronicTemperature  600.0       # default=300 (K)
-scf.energycutoff           150.0       # default=150 (Ry)
+scf.energycutoff           180.0       # default=150 (Ry)
 scf.maxIter                100         # default=40
 scf.EigenvalueSolver       Band        # DC|GDC|Cluster|Band
 scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
-scf.Kgrid                 600 1 1      # means n1 x n2 x n3
+scf.Kgrid                 200 1 1      # means n1 x n2 x n3
 scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
 scf.Init.Mixing.Weight     0.010       # default=0.30
 scf.Min.Mixing.Weight      0.001       # default=0.001
 scf.Max.Mixing.Weight      0.020       # default=0.40
 scf.Mixing.History          20         # default=5
-scf.Mixing.StartPulay        7          # default=6
-scf.criterion             1.0e-9        # default=1.0e-6 (Hartree)
+scf.Mixing.StartPulay        7         # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree)
 
 #
 # MD or Geometry Optimization
 #
 
-MD.Type               Nomd    # Opt|EF|BFGS|RF|DIIS
+MD.Type               Nomd  # Opt|EF|BFGS|RF|DIIS
 MD.Opt.DIIS.History   6     # default=3
 MD.Opt.StartDIIS      7     # default=5
 MD.Opt.EveryDIIS      6     # default=10

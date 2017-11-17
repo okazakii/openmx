@@ -14,12 +14,8 @@
 #include <math.h>
 #include <stdlib.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void BroadCast_ReMatrix(MPI_Comm MPI_Curret_Comm_WD, 
                         double **Mat, int n, int *is1, int *ie1, int myid, int numprocs, 

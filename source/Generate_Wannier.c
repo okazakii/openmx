@@ -20,19 +20,9 @@
 
 #include "openmx_common.h"
 #include "lapack_prototypes.h"
- 
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
+ 
 
 #define printout  0    /* 0:off, 1:on */
 #define measure_time   0
@@ -113,7 +103,7 @@ void Cal_Omega(double *omega_I, double *omega_OD, double *omega_D, dcomplex ****
 void Cal_Gradient(dcomplex ***Gmnk,dcomplex ****Mmnkb, double **wann_center, double **bvector, double *wb, int wan_num, int kpt_num, int tot_bvector, int *zero_Gk);
 void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan_num);
 void Calc_rT_dot_d(dcomplex *rmnk, dcomplex *dmnk, int n, double *amod);
-void Gradient_at_next_x(dcomplex ***g, double wbtot, double alpha, dcomplex ***Uk, dcomplex ****m, int kpt_num, int WANNUM, double **kg, double **bvector, double **frac_bv, double *wb, int tot_bvector, int **kplusb, dcomplex *rimnk, double *omega_I, double *omega_OD, double *omega_D);//, double ***wann_center, double **wann_r2);
+void Gradient_at_next_x(dcomplex ***g, double wbtot, double alpha, dcomplex ***Uk, dcomplex ****m, int kpt_num, int WANNUM, double **kg, double **bvector, double **frac_bv, double *wb, int tot_bvector, int **kplusb, dcomplex *rimnk, double *omega_I, double *omega_OD, double *omega_D);
 
 void new_Gradient(dcomplex ****m, int kpt_num, int WANNUM, double **bvector, double *wb, int tot_bvector, dcomplex *rimnk, double *omega_I, double *omega_OD, double *omega_D, double **wann_center, double *wann_r2);
 
@@ -190,7 +180,7 @@ void Wannier(int Solver,
 
 
 
-
+#pragma optimization_level 1
 void Generate_Wannier(char *inputfile)
 {
   int ct_AN,wan1,TNO1;
@@ -376,7 +366,7 @@ void Generate_Wannier(char *inputfile)
 
 
 
-
+#pragma optimization_level 1
 void Set_OLP_Projector_Basis(double ****OLP_WP)
 {
   /****************************************************
@@ -714,7 +704,7 @@ void Set_OLP_Projector_Basis(double ****OLP_WP)
 		  }
 
                   /* add a small vaule for stabilization of eigenvalue routine */
-		  //                  printf("Project kind %i, basis num0+L0+M0=%i\n",Gc_AN,num0+L0+M0 );fflush(0);
+		  /* printf("Project kind %i, basis num0+L0+M0=%i\n",Gc_AN,num0+L0+M0 );fflush(0); */
                   OLP_WP[Gc_AN][h_AN][num0+L0+M0][num1+L1+M1] = 8.0*CsumS0.r;
 
 		}
@@ -769,7 +759,7 @@ void Set_OLP_Projector_Basis(double ****OLP_WP)
 }
 
 
-
+#pragma optimization_level 1
 void Find_NN_Projectors_Basis()
 {
   int p,Rn,i,wan,k;
@@ -852,7 +842,7 @@ void Find_NN_Projectors_Basis()
 
 
 
-
+#pragma optimization_level 1
 void Calc_OLP_exp(int tot_bvector, double **bvector)
 {
   int Mc_AN,Gc_AN,tno0,tno1;
@@ -954,8 +944,8 @@ void Calc_OLP_exp(int tot_bvector, double **bvector)
           co = cos(mbdotr);
           si = sin(mbdotr);
 
-	  ChiV1[i][Nc].r = co*Orbs_Grid[Mc_AN][i][Nc];
-	  ChiV1[i][Nc].i = si*Orbs_Grid[Mc_AN][i][Nc];
+	  ChiV1[i][Nc].r = co*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
+	  ChiV1[i][Nc].i = si*Orbs_Grid[Mc_AN][Nc][i];/* AITUNE */
 
 	}
       }
@@ -975,13 +965,24 @@ void Calc_OLP_exp(int tot_bvector, double **bvector)
 
 	  Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
 	  Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
-
-	  for (i=0; i<NO0; i++){
-	    for (j=0; j<NO1; j++){
-	      OLP_exp[b][Mc_AN][h_AN][i][j].r += ChiV1[i][Nc].r*Orbs_Grid[Mh_AN][j][Nh]*GridVol;
-	      OLP_exp[b][Mc_AN][h_AN][i][j].i += ChiV1[i][Nc].i*Orbs_Grid[Mh_AN][j][Nh]*GridVol;
+          
+          if (G2ID[Gh_AN]==myid){
+	    for (i=0; i<NO0; i++){
+	      for (j=0; j<NO1; j++){
+		OLP_exp[b][Mc_AN][h_AN][i][j].r += ChiV1[i][Nc].r*Orbs_Grid[Mh_AN][Nh][j]*GridVol;/*AITUNE*/
+		OLP_exp[b][Mc_AN][h_AN][i][j].i += ChiV1[i][Nc].i*Orbs_Grid[Mh_AN][Nh][j]*GridVol;/*AITUNE*/
+	      }
 	    }
 	  }
+          else{
+	    for (i=0; i<NO0; i++){
+	      for (j=0; j<NO1; j++){
+		OLP_exp[b][Mc_AN][h_AN][i][j].r += ChiV1[i][Nc].r*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j]*GridVol;/*AITUNE*/
+		OLP_exp[b][Mc_AN][h_AN][i][j].i += ChiV1[i][Nc].i*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j]*GridVol;/*AITUNE*/
+	      }
+	    }
+          } 
+
 	}
 
       }
@@ -1153,7 +1154,7 @@ void Calc_OLP_exp(int tot_bvector, double **bvector)
 
 
 
-
+#pragma optimization_level 1
 void Wannier(int Solver, 
 	     int atomnum, 
 	     double ChemP, 
@@ -2208,10 +2209,10 @@ void Wannier(int Solver,
 
       for(spin=0;spin<spinsize;spin++){
 	for(k=0;k<kpt_num;k++){
-	  //	  printf("kpt %i bands:\n",k,Nk[spin][k][0],Nk[spin][k][1]);
+	  /* printf("kpt %i bands:\n",k,Nk[spin][k][0],Nk[spin][k][1]);  */
 	  for(i=0;i<BANDNUM;i++){
 	    fscanf(fptmp,"%d%d%lf",&ki,&kj,&EigenValall[k][spin][i+1]);
-	    //	    printf("%i %10.5f\n",i+1,EigenValall[k][spin][i+1]); 
+	    /*	    printf("%i %10.5f\n",i+1,EigenValall[k][spin][i+1]);  */
 	  }
 	}
       }
@@ -2219,15 +2220,15 @@ void Wannier(int Solver,
       for(spin=0;spin<spinsize;spin++){
         for(k=0;k<kpt_num;k++){
           fgets(dumy, BUFFSIZE, fptmp);    
-	  //          printf("%s\n",dumy);
-	  //          fprintf(fptmp, "WF kpt %i (%10.8f,%10.8f,%10.8f)\n",k+1,kg[k][0],kg[k][1],kg[k][2]);
+	  /* printf("%s\n",dumy); */
+	  /* fprintf(fptmp, "WF kpt %i (%10.8f,%10.8f,%10.8f)\n",k+1,kg[k][0],kg[k][1],kg[k][2]); */
           for(i=1; i<BANDNUM+1; i++){
             for(j=1;j<fsize3; j++){
               fscanf(fptmp,"%d%d%lf%lf", 
                             &ki, &kj, 
                             &Wkall[k][spin][i][j].r,
                             &Wkall[k][spin][i][j].i);
-	      //              printf("%i %i %14.10f %14.10f\n",i, j,Wkall[k][spin][i][j].r,Wkall[k][spin][i][j].i);
+	      /*  printf("%i %i %14.10f %14.10f\n",i, j,Wkall[k][spin][i][j].r,Wkall[k][spin][i][j].i); */
             }
           }
           fgets(dumy, BUFFSIZE, fptmp);    
@@ -2996,8 +2997,8 @@ void Wannier(int Solver,
 	    Amnk[spin][k][i][j].i=tmpM[i][j].i;
 	  }
         }
-      }//kpt
-    }// spin
+      }/* kpt */
+    }/* spin */
     /* Then we can find the initial guess for Utilde matrix which is usded for optimizing the omega_Tilde part */
     Getting_Utilde(Amnk, spinsize, kpt_num, WANNUM, WANNUM, Utilde); 
     /* and update Mmnk matrix to that with intial guess M_opt= Utilde^dagger * M_zero * Utilde(k+b) */
@@ -3413,7 +3414,7 @@ void Wannier(int Solver,
     if(searching_scheme==1 || searching_scheme==2){/* CG method */
       step=0;
       delta_0=1.0;
-      //    sigma_0=-2.0;
+      /* sigma_0=-2.0; */
       step=0;
       Cal_Gradient(Gmnk,Mmnkb,wann_center,bvector,wb, WANNUM, kpt_num, tot_bvector, &zero_Gk); /* r0 */
       /* get r0 and d0 */
@@ -3486,7 +3487,7 @@ void Wannier(int Solver,
 	    }
 
 	  }
-	  alpha=alpha*yita/(yita_prev-yita);//*(omega_prev-omega)/fabs(omega_prev-omega);
+	  alpha=alpha*yita/(yita_prev-yita);/* (omega_prev-omega)/fabs(omega_prev-omega); */
 	  yita_prev=yita;
 	  /* update Ukmatrix and Mmnkb by taking one step along the search direction Gmnk*/
 	  Taking_one_step(Gmnk, wbtot, alpha, Ukmatrix, Mmnkb, M_zero, kpt_num, WANNUM, kg, frac_bv, tot_bvector,kplusb);
@@ -3943,6 +3944,7 @@ void Wannier(int Solver,
 }/* End of main */
 
 
+#pragma optimization_level 1
 void MLWF_Coef(dcomplex ****Uk,dcomplex ****Wkall,int ***Nk, int *MP, int kpt_num, 
                int fsize3, int fsize, int spinsize, int SpinP_switch, int band_num,
                int wan_num, double **kg, int r_num, int **rvect, dcomplex *****Wannier_Coef)
@@ -3950,7 +3952,7 @@ void MLWF_Coef(dcomplex ****Uk,dcomplex ****Wkall,int ***Nk, int *MP, int kpt_nu
   int i,j,k,spin, rindx, nindx,aindx,oindx, ki;
   double sumr, sumi, phr, phi, kRn, sumr2, sumi2;
   int ct_AN, Gc_AN, ialpha, h_AN, Rnh,l1,l2,l3,Gh_AN, tnoB, Bnum, Anum;
-  dcomplex tmpWk[band_num][fsize3]; //tmpWk2[band_num][fsize3];
+  dcomplex tmpWk[band_num][fsize3]; /* tmpWk2[band_num][fsize3]; */
   dcomplex tmp2Wk[band_num][fsize3];
   int myid;
 
@@ -4147,7 +4149,7 @@ void MLWF_Coef(dcomplex ****Uk,dcomplex ****Wkall,int ***Nk, int *MP, int kpt_nu
 
 
 
-
+#pragma optimization_level 1
 void MPI_comm_OLP_Hks_iHks(double ****OLP, double *****Hks, double *****iHks)
 {
   int Gc_AN,tno0,tno1,Cwan,h_AN,Hwan,Gh_AN;
@@ -4461,7 +4463,7 @@ void MPI_comm_OLP_Hks_iHks(double ****OLP, double *****Hks, double *****iHks)
 
 
 
-
+#pragma optimization_level 1
 void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize, 
                         int fsize, int SpinP_switch, 
                         int kpt_num, int band_num,  int wan_num, 
@@ -4549,16 +4551,16 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
 	band_num=wan_num;
       }
       for(mu1=0;mu1<band_num;mu1++){/* band index in enegy window */
-	//     for(mu1=0;mu1<Nk[spin][k][1]-Nk[spin][k][0];mu1++){
-	//     for(nindx=0;nindx<wan_num;nindx++){
+	/* for(mu1=0;mu1<Nk[spin][k][1]-Nk[spin][k][0];mu1++){ */
+	/*     for(nindx=0;nindx<wan_num;nindx++){ */
 	windx=0;
 	for(proj_kind=0;proj_kind<Wannier_Num_Kinds_Projectors; proj_kind++){
           Anum = 0;
           for (L=0; L<=3; L++){
             Anum += (2*L+1)*Wannier_NumL_Pro[proj_kind][L]; /* total number of basis for this kind of projector */
           }
-	  //	  for(nindx=0;nindx<Wannier_Num_Pro[proj_kind];nindx++){
-	  //          printf("proj_kind =%i, projNum=%i Position index in tmpAmn is ",proj_kind, Anum);fflush(0);
+	  /*  for(nindx=0;nindx<Wannier_Num_Pro[proj_kind];nindx++){ */
+	  /*       printf("proj_kind =%i, projNum=%i Position index in tmpAmn is ",proj_kind, Anum);fflush(0); */
           for(nindx=0;nindx<Anum;nindx++){
 	    /* 1. centeral atom  j */   
 	    sumr=0.0;sumi=0.0; 
@@ -4576,8 +4578,8 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
 	      co=cos(kRn);
 	      si=sin(kRn);
 	      if(debug3){
-		//		printf("glbal index=%i  local index=%i (grobal=%i, Rn=%i)\n",ct_AN,h_AN,Gh_AN,Rnh);
-		//		printf("overlap matrix OLP:\n");
+		/*	printf("glbal index=%i  local index=%i (grobal=%i, Rn=%i)\n",ct_AN,h_AN,Gh_AN,Rnh); */
+		/*		printf("overlap matrix OLP:\n"); */
 	      }
 	      for(i1=0;i1<tnoB;i1++){ /* basis on neighboring atom  alpha */
                 if(SpinP_switch!=3){
@@ -4602,8 +4604,8 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
 		    */
                   }
                 }
-		tmpr=tmpr*OLP_WP[proj_kind][h_AN][nindx][i1]; //sqrt((double)(FNAN[ct_AN]+1));
-		tmpi=tmpi*OLP_WP[proj_kind][h_AN][nindx][i1]; //sqrt((double)(FNAN[ct_AN]+1));
+		tmpr=tmpr*OLP_WP[proj_kind][h_AN][nindx][i1]; /* sqrt((double)(FNAN[ct_AN]+1)); */
+		tmpi=tmpi*OLP_WP[proj_kind][h_AN][nindx][i1]; /* sqrt((double)(FNAN[ct_AN]+1)); */
 
 		sumr=sumr+tmpr;
 		sumi=sumi+tmpi;
@@ -4614,56 +4616,58 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
 	    }/* neighboring atom */
 	    tmpAmn[mu1][windx].r=sumr/sqrt(fabs((double)FNAN_WP[proj_kind])); 
 	    tmpAmn[mu1][windx].i=sumi/sqrt(fabs((double)FNAN_WP[proj_kind]));
-	    //            printf("%i ", windx);fflush(0);
+	    /*            printf("%i ", windx);fflush(0); */
 	    windx++;
 	  }/*  nindx */
-	  //            printf("\n");fflush(0);
+	  /*            printf("\n");fflush(0); */
 	}/* proj_kind */
       }/* band in energy window */    
       /* Now we make rotation firstly, then selection and at last hybridize */   
-      //      printf("For Rotation:\n");fflush(0);
+      /*      printf("For Rotation:\n");fflush(0); */
       for(mu1=0;mu1<band_num;mu1++){
         windx=0;
         for(proj_kind=0;proj_kind<Wannier_Num_Kinds_Projectors; proj_kind++){
           for (L=0; L<=3; L++){
             if(Wannier_NumL_Pro[proj_kind][L]!=0 && L!=0){ /* if thie L is included and L!=0, rotate it*/
-	      //              printf("proj_kind=%i, rotate L=%i from %i to %i\n",proj_kind,L,windx,windx+2*L+1);fflush(0); 
+	      /*    printf("proj_kind=%i, rotate L=%i from %i to %i\n",proj_kind,L,windx,windx+2*L+1);fflush(0); */ 
               for(i=0;i<2*L+1;i++){
                 sumr=0.0;sumi=0.0;
                 for(j=0;j<2*L+1;j++){
-		  //                  printf("i=%i, j=%i \n",i,j);fflush(0);
+		  /*                  printf("i=%i, j=%i \n",i,j);fflush(0); */
                   sumr=sumr+Wannier_RotMat_for_Real_Func[proj_kind][L][i][j]*tmpAmn[mu1][windx+j].r;
                   sumi=sumi+Wannier_RotMat_for_Real_Func[proj_kind][L][i][j]*tmpAmn[mu1][windx+j].i;
-		  //                  printf("sumr and sumi ok\n");fflush(0);
+		  /*                  printf("sumr and sumi ok\n");fflush(0); */
                 }
                 tmpResult[i].r=sumr; 
                 tmpResult[i].i=sumi;
               }
-	      //              printf("windx=%i L=%i.\n",windx,L);fflush(0);
+	      /*              printf("windx=%i L=%i.\n",windx,L);fflush(0); */
               for(i=0;i<2*L+1;i++){
-		//                printf("i=%i \n",i);fflush(0);
+		/*                printf("i=%i \n",i);fflush(0);  */
                 tmpAmn[mu1][windx+i].r=tmpResult[i].r; 
                 tmpAmn[mu1][windx+i].i=tmpResult[i].i; 
-		//                printf("i=%i \n",i);fflush(0);
+		/*                printf("i=%i \n",i);fflush(0); */
               }
               windx+=2*L+1; /* go over this L to the next */
-	      //              printf("windx=%i L=%i.\n",windx,L);fflush(0);
+	      /*              printf("windx=%i L=%i.\n",windx,L);fflush(0); */
             }else if(Wannier_NumL_Pro[proj_kind][L]!=0 && L==0){
-	      //              printf("proj_kind=%i, skip L=%i from %i to %i\n",proj_kind,L,windx,windx+2*L+1);fflush(0); 
+	      /* printf("proj_kind=%i, skip L=%i from %i to %i\n",proj_kind,L,windx,windx+2*L+1);fflush(0);  */
               windx++; /* skip s orbital */
             }
           } /* Rotation done for each L */
         }
       }/* band index mu1 */   
       /* Make selection */
-      //      printf("For Selection:\n");fflush(0);
+      /*      printf("For Selection:\n");fflush(0); */
       for(mu1=0;mu1<band_num;mu1++){
         windx=0; 
         nindx=0;
         for(proj_kind=0;proj_kind<Wannier_Num_Kinds_Projectors; proj_kind++){
           for(i=0;i<Wannier_Num_Pro[proj_kind];i++){ /* Wannier_Num_Pro[proj_kind] number projectors */
             Amnk[spin][k][mu1][nindx]=tmpAmn[mu1][Wannier_Select_Matrix[proj_kind][i]+windx];
-	    //            printf("proj_kind=%i, chose %i from tmpAmn to Amnk[%i]\n",proj_kind, Wannier_Select_Matrix[proj_kind][i]+windx,nindx);
+	    /*       printf("proj_kind=%i, chose %i from tmpAmn to Amnk[%i]\n",
+                     proj_kind, Wannier_Select_Matrix[proj_kind][i]+windx,nindx);
+	    */		     
             nindx++;
           }
           for (L=0; L<=3; L++){
@@ -4672,7 +4676,7 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
         }
       }/* band index mu1 */  
       /* Make hybridization */ 
-      //      printf("For Hybridization:\n");fflush(0);
+      /*      printf("For Hybridization:\n");fflush(0);  */
       for(mu1=0;mu1<band_num;mu1++){
         nindx=0;
         for(proj_kind=0;proj_kind<Wannier_Num_Kinds_Projectors; proj_kind++){
@@ -4702,7 +4706,7 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
         }           
       }/* band index mu1 */  
       /* just for Benzene MOs */
-      //    printf("start Benzene!");fflush(0);
+      /*    printf("start Benzene!");fflush(0); */
       if(0){
 	for(mu1=0;mu1<band_num;mu1++){
 	  for(nindx=0;nindx<6*1;nindx++){
@@ -4730,7 +4734,7 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
 	  }
 	}
       }
-      //////////////////     printf("end Benzene!kpt=%i\n",k);fflush(0);
+      /*     printf("end Benzene!kpt=%i\n",k);fflush(0); */
       if(Wannier_Output_Projection_Matrix && myid==Host_ID){ 
         for(nindx=0;nindx<wan_num;nindx++){
           for(mu1=0;mu1<BAND;mu1++){/* band index in enegy window */
@@ -4738,7 +4742,7 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
           } /* band */
         } /* wf */
       }
-      //    printf("next kpt=%i\n",k+1);fflush(0);
+      /*    printf("next kpt=%i\n",k+1);fflush(0); */
     }/* kpt */
   }/* spin */  
   if(Wannier_Output_Projection_Matrix && myid==Host_ID){
@@ -4756,11 +4760,14 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
 
 }/* end of Projection_Amatrix */
 
+
+
+#pragma optimization_level 1
 void Getting_Uk(dcomplex ****Amnk, int spinsize, int kpt_num, int band_num, int wan_num, dcomplex ****Uk, int ***Nk){
   int spin, mu1, nindx, k, ia, info, i,j,lwork,ldu,lda;
-  dcomplex **Amatrix;//[band_num][wan_num]; /* for Amatrix[BANDNUM][WANNUM] */ 
+  dcomplex **Amatrix;/* [band_num][wan_num]; */ /* for Amatrix[BANDNUM][WANNUM] */ 
   dcomplex *da; 
-  dcomplex **Zmatrix;//[band_num][band_num];/* BANDNUMxBANDNUM matrix for left singular vector of Amatrix[BANDNUM][WANNUM] */
+  dcomplex **Zmatrix;/* [band_num][band_num];*/ /* BANDNUMxBANDNUM matrix for left singular vector of Amatrix[BANDNUM][WANNUM] */
   dcomplex *dz;
   dcomplex **Dmatrix;/*[band_num][wan_num];  The same dimention as that of Amatrix, BANDNUMxWANNUM.
                        Its first WANNUM x WANNUM are diagonal with singular value on the diagonal, all 
@@ -4856,7 +4863,8 @@ void Getting_Uk(dcomplex ****Amnk, int spinsize, int kpt_num, int band_num, int 
          Ozaki-san, would you please modify this calling of zgesvd?*/
       /*      zgesvd(jobu, jobvt, band_num, wan_num, da, band_num, dsing, dz, band_num, dvt, wan_num, &info); */
       /* clapack on Macbook Air */
-      //      zgesvd_(jobu, jobvt, band_num, wan_num, da, band_num, dsing, dz, band_num, dvt, wan_num, work,2*wan_num+band_num, rwork, &info);
+      /*      zgesvd_(jobu, jobvt, band_num, wan_num, da, band_num, dsing, dz, band_num, dvt, 
+              wan_num, work,2*wan_num+band_num, rwork, &info); */
 
       lda=band_num;
       ldu=band_num; 
@@ -5078,14 +5086,14 @@ void Getting_Uk(dcomplex ****Amnk, int spinsize, int kpt_num, int band_num, int 
 }/* Getting_Uk  */
 
 
-
+#pragma optimization_level 1
 void Getting_Utilde(dcomplex ****Amnk, int spinsize, int kpt_num, 
                     int band_num, int wan_num, dcomplex ****Uk)
 {
   int spin, mu1, nindx, k, ia, info, i,j,lwork;
-  dcomplex **Amatrix;//[band_num][wan_num]; /* for Amatrix[BANDNUM][WANNUM] */ 
+  dcomplex **Amatrix;/* [band_num][wan_num];* /* for Amatrix[BANDNUM][WANNUM] */ 
   dcomplex *da; 
-  dcomplex **Zmatrix;//[band_num][band_num];/* BANDNUMxBANDNUM matrix for left singular vector of Amatrix[BANDNUM][WANNUM] */
+  dcomplex **Zmatrix;/* [band_num][band_num];*/ /* BANDNUMxBANDNUM matrix for left singular vector of Amatrix[BANDNUM][WANNUM] */
   dcomplex *dz;
   dcomplex **Dmatrix;/*[band_num][wan_num];  The same dimention as that of Amatrix, BANDNUMxWANNUM.
                        Its first WANNUM x WANNUM are diagonal with singular value on the diagonal, all 
@@ -5176,7 +5184,7 @@ void Getting_Utilde(dcomplex ****Amnk, int spinsize, int kpt_num,
          Ozaki-san, would you please modify this calling of zgesvd?*/
       /*      zgesvd(jobu, jobvt, band_num, wan_num, da, band_num, dsing, dz, band_num, dvt, wan_num, &info); */
       /* clapack on Macbook Air */
-      //      zgesvd_(jobu, jobvt, band_num, wan_num, da, band_num, dsing, dz, band_num, dvt, wan_num, work,2*wan_num+band_num, rwork, &info);
+      /*      zgesvd_(jobu, jobvt, band_num, wan_num, da, band_num, dsing, dz, band_num, dvt, wan_num, work,2*wan_num+band_num, rwork, &info); */
       F77_NAME(zgesvd, ZGESVD)(&jobu,&jobvt, &band_num,&wan_num,da,&band_num,dsing,dz,&band_num,dvt,&wan_num,work,&lwork,rwork,&info);
 
       if(info==0){
@@ -5389,6 +5397,8 @@ void Getting_Utilde(dcomplex ****Amnk, int spinsize, int kpt_num,
 }/* Getting_Utilde  */
 
 
+
+#pragma optimization_level 1
 void Initial_Guess_Mmnkb(dcomplex ****Uk, int spinsize, int kpt_num, int band_num, 
                          int wan_num, dcomplex *****Mmnkb, dcomplex *****Mmnkb_zero, 
                          double **kg, double **bvector, int tot_bvector, int **kplusb, int ***Nk)
@@ -5396,10 +5406,10 @@ void Initial_Guess_Mmnkb(dcomplex ****Uk, int spinsize, int kpt_num, int band_nu
   int bindx, nindx, spin, k, i, j, kpb_band, disentangle;
   int ki,kj,kk;
   double kpb[3];
-  dcomplex **M_zero;//[band_num][band_num];
-  dcomplex **Uk_hermitian;//[wan_num][band_num],
-  dcomplex **UkM;//[wan_num][band_num];
-  dcomplex **Ukb;//[band_num][wan_num];
+  dcomplex **M_zero;/* [band_num][band_num]; */
+  dcomplex **Uk_hermitian;/* [wan_num][band_num]; */
+  dcomplex **UkM;/* [wan_num][band_num]; */
+  dcomplex **Ukb;/* [band_num][wan_num]; */
   double sumr, sumi;
   int mu1;
   FILE *fp;
@@ -5506,6 +5516,9 @@ void Initial_Guess_Mmnkb(dcomplex ****Uk, int spinsize, int kpt_num, int band_nu
   }/* spin */
 }/* Initial_Guess_Mmnkb  */
 
+
+
+#pragma optimization_level 1
 void Updating_Mmnkb(dcomplex ***Uk, int kpt_num, int band_num, int wan_num, dcomplex ****Mmnkb, dcomplex ****Mmnkb_zero, double **kg, double **bvector, int tot_bvector, int **kplusb){
   int bindx, nindx, spin, k, i, j;
   int ki,kj,kk;
@@ -5608,7 +5621,8 @@ void Updating_Mmnkb(dcomplex ***Uk, int kpt_num, int band_num, int wan_num, dcom
 }/* Updating_Mmnkb  */
 
 
- 
+
+#pragma optimization_level 1
 void Wannier_Center(double **wann_center, double *wann_r2, dcomplex ****Mmnkb,int wan_num,
                     double **bvector, double *wb, int kpt_num, int tot_bvector){
   int i,j,k;
@@ -5707,7 +5721,7 @@ void Wannier_Center(double **wann_center, double *wann_r2, dcomplex ****Mmnkb,in
       for(bindx=0;bindx<tot_bvector;bindx++){ /* b vectors */
 
 	sum=sum+wb[bindx]*(lnMnnkb[k][bindx][nindx]*lnMnnkb[k][bindx][nindx]+1.0-Mnnkb2[k][bindx][nindx]);
-	// printf("kpt %2d and bindx= %2d \n",k,bindx); fflush(0);
+	/* printf("kpt %2d and bindx= %2d \n",k,bindx); fflush(0); */
       }/* b vectors */
     }/* k point */
 
@@ -5737,7 +5751,7 @@ void Wannier_Center(double **wann_center, double *wann_r2, dcomplex ****Mmnkb,in
 
 
 
-
+#pragma optimization_level 1
 void Cal_Omega(double *omega_I, double *omega_OD, double *omega_D, dcomplex ****Mmnkb, 
 	       double **wann_center, int wan_num, double **bvector, double *wb, int kpt_num, int tot_bvector){
   int i,j,k,m,n;
@@ -5821,7 +5835,7 @@ void Cal_Omega(double *omega_I, double *omega_OD, double *omega_D, dcomplex ****
 
 
 
-
+#pragma optimization_level 1
 void  Cal_Gradient(dcomplex ***Gmnk,dcomplex ****Mmnkb, double **wann_center, 
                    double **bvector, double *wb, int wan_num, int kpt_num, 
                    int tot_bvector, int *zero_Gk)
@@ -5998,7 +6012,7 @@ void  Cal_Gradient(dcomplex ***Gmnk,dcomplex ****Mmnkb, double **wann_center,
      for(k=0;k<kpt_num;k++){
      for(bindx=0;bindx<tot_bvector;bindx++){
      for(n=0;n<wan_num;n++){
-     printf("qnkb k=%i b=%i n=%i %18.12f\n",k,bindx,n+1, qnkb[spin][k][bindx][n]);//+lnMnnkb[spin][k][bindx][n]);
+     printf("qnkb k=%i b=%i n=%i %18.12f\n",k,bindx,n+1, qnkb[spin][k][bindx][n]);
      }
      printf("\n");
      }
@@ -6043,8 +6057,8 @@ void  Cal_Gradient(dcomplex ***Gmnk,dcomplex ****Mmnkb, double **wann_center,
 	} /* b vectors */
 	Gmnk[k][m][n].r=4.0*(nnr-mnr)/(double)kpt_num;
 	Gmnk[k][m][n].i=4.0*(nni-mni)/(double)kpt_num;
-	//         Gmnk[spin][k][m][n].r=4.0*(nnr-mnr-sr)/(double)kpt_num;
-	//         Gmnk[spin][k][m][n].i=4.0*(nni-mni-si)/(double)kpt_num;
+	/*         Gmnk[spin][k][m][n].r=4.0*(nnr-mnr-sr)/(double)kpt_num; */
+	/*         Gmnk[spin][k][m][n].i=4.0*(nni-mni-si)/(double)kpt_num; */
 
       }/* n */
     }/* m */
@@ -6105,6 +6119,7 @@ void  Cal_Gradient(dcomplex ***Gmnk,dcomplex ****Mmnkb, double **wann_center,
 
 
 
+#pragma optimization_level 1
 void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan_num)
 {
   int i, j, k,l, m, n;
@@ -6201,7 +6216,7 @@ void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan
       MPI_Finalize();
       exit(0);
     }else{
-      //     printf("zheev success!\n");
+      /*     printf("zheev success!\n"); */
     }
     /* getting the eigen vectors into zz matrix */
     i=0;
@@ -6248,9 +6263,9 @@ void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan
 	  for(n=0;n<wan_num;n++){
 	    sumr=sumr+(zz[m][l].r*H[m][n].r+zz[m][l].i*H[m][n].i)*zz[n][l].r-(zz[m][l].r*H[m][n].i-zz[m][l].i*H[m][n].r)*zz[n][l].i;
 	    sumi=sumi+(zz[m][l].r*H[m][n].r+zz[m][l].i*H[m][n].i)*zz[n][l].i+(zz[m][l].r*H[m][n].i-zz[m][l].i*H[m][n].r)*zz[n][l].r;
-	    //              sumr=sumr+(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].r+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].i;
-	    //              sumi=sumi-(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].i+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].r;
-	  }
+	    /*              sumr=sumr+(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].r+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].i; */
+	    /*              sumi=sumi-(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].i+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].r; */
+	  } 
 	}
 	printf("eigenvalue %i=%10.8f %10.8f\n",l,sumr,sumi);
       }
@@ -6261,8 +6276,8 @@ void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan
 	  for(n=0;n<wan_num;n++){
 	    sumr=sumr+zz[l][n].r*dw[n]*zz[m][n].r+zz[l][n].i*dw[n]*zz[m][n].i;
 	    sumi=sumi-zz[l][n].r*dw[n]*zz[m][n].i+zz[l][n].i*dw[n]*zz[m][n].r;
-	    //             sumr=sumr+(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].r+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].i;
-	    //             sumi=sumi-(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].i+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].r;
+	    /*             sumr=sumr+(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].r+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].i; */
+	    /*             sumi=sumi-(zz[l][m].r*H[m][n].r-zz[l][m].i*H[m][n].i)*zz[n][l].i+(zz[l][m].r*H[m][n].i+zz[l][m].i*H[m][n].r)*zz[n][l].r; */
 	  }
 	  printf("(%10.8f %10.8f)",sumr,sumi);
 	}
@@ -6270,40 +6285,40 @@ void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan
       }
     } /* debug5 */
 
-    //      printf("k=%i expWk=\n",k); 
+    /*      printf("k=%i expWk=\n",k);  */
     for(l=0;l<wan_num;l++){
       for(m=0;m<wan_num;m++){
 	sumr=0.0;sumi=0.0;
 	for(n=0;n<wan_num;n++){
-	  //           sumr=sumr+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*zz[m][n].r+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].i;
-	  //           sumi=sumi+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*(-zz[m][n].i)+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].r;
+	  /*           sumr=sumr+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*zz[m][n].r+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].i; */
+	  /*           sumi=sumi+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*(-zz[m][n].i)+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].r; */
 	  sumr=sumr+zz[l][n].r*expW[n][m].r-zz[l][n].i*expW[n][m].i;
 	  sumi=sumi+zz[l][n].r*expW[n][m].i+zz[l][n].i*expW[n][m].r;
 	} /* n */
 	H[l][m].r=sumr;
 	H[l][m].i=sumi;
-	//         printf("(%10.8f %10.8f)",sumr,sumi); 
+	/*         printf("(%10.8f %10.8f)",sumr,sumi); */
       }/* m */
-      //      printf("\n");
+	/*      printf("\n"); */
     }/* l */
     for(l=0;l<wan_num;l++){
       for(m=0;m<wan_num;m++){
 	sumr=0.0;sumi=0.0;
 	for(n=0;n<wan_num;n++){
-	  //           sumr=sumr+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*zz[m][n].r+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].i;
-	  //           sumi=sumi+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*(-zz[m][n].i)+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].r;
+	  /*           sumr=sumr+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*zz[m][n].r+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].i; */
+	  /*           sumi=sumi+(zz[l][n].r*cos(dw[n])+zz[l][n].i*sin(dw[n]))*(-zz[m][n].i)+(-zz[l][n].r*sin(dw[n])+zz[l][n].i*cos(dw[n]))*zz[m][n].r; */
 	  sumr=sumr+H[l][n].r*zz[m][n].r+H[l][n].i*zz[m][n].i;
 	  sumi=sumi-H[l][n].r*zz[m][n].i+H[l][n].i*zz[m][n].r;
 	} /* n */
 	expW[l][m].r=sumr;
 	expW[l][m].i=sumi;
-	//         printf(" %20.12f %20.12f \n ",sumr,sumi);
+	/*         printf(" %20.12f %20.12f \n ",sumr,sumi); */
       }/* m */
-      //       printf("\n");
+      /*       printf("\n"); */
     }/* l */
 
     /* updating Ukmatrix by Uk*expW */  
-    //     printf("k=%i Uk=\n",k); 
+    /*     printf("k=%i Uk=\n",k); */
     for(l=0;l<wan_num;l++){
       for(m=0;m<wan_num;m++){
 	sumr=0.0; sumi=0.0; 
@@ -6313,11 +6328,11 @@ void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan
 	}/* n */
 	Ukmatrix[k][l][m].r=sumr;
 	Ukmatrix[k][l][m].i=sumi;     
-	//         Ukmatrix[spin][k][l][m].r=expW[l][m].r;
-	//         Ukmatrix[spin][k][l][m].i=expW[l][m].i;
-	//         printf("(%10.8f %10.8f)",sumr,sumi); 
+	/*         Ukmatrix[spin][k][l][m].r=expW[l][m].r; */
+	/*         Ukmatrix[spin][k][l][m].i=expW[l][m].i; */
+	/*         printf("(%10.8f %10.8f)",sumr,sumi); */
       }/* m */
-      //       printf("\n");
+      /*       printf("\n"); */
     }/* l */ 
   }/* kpt */
 
@@ -6350,9 +6365,11 @@ void Cal_Ukmatrix(dcomplex ***deltaW, dcomplex ***Ukmatrix, int kpt_num, int wan
   free(work);
   free(rwork);
 
-}/* Cal_Ukmatrix */
+} /* Cal_Ukmatrix */
 
 
+
+#pragma optimization_level 1
 void EigenState_k(double k1, double k2, double k3, int *MP, int spinsize, int SpinP_switch, 
                   int fsize, int fsize2, int fsize3,  dcomplex ***Wk1, double **EigenVal1, 
     	          double ****OLP, double *****Hks, double *****iHks)
@@ -6460,14 +6477,14 @@ void EigenState_k(double k1, double k2, double k3, int *MP, int spinsize, int Sp
      while kx, ky and kz are Cartesian coordinates
   */
 
-  //  printf("k1=%10.5f,k2=%10.5f,k3=%10.5f\n",k1,k2,k3);
+  /*  printf("k1=%10.5f,k2=%10.5f,k3=%10.5f\n",k1,k2,k3); */
 
   kx = k1*rtv[1][1] + k2*rtv[2][1] + k3*rtv[3][1];
   ky = k1*rtv[1][2] + k2*rtv[2][2] + k3*rtv[3][2];
   kz = k1*rtv[1][3] + k2*rtv[2][3] + k3*rtv[3][3];
 
   Overlap_Band_Wannier(fOLP,S,MP,k1,k2,k3);
-  EigenBand_lapack(S,ko,fsize,fsize);
+  EigenBand_lapack(S,ko,fsize,fsize,1);
 
   for (l=1; l<=fsize; l++){
     if (ko[l]<OLP_eigen_cut){
@@ -6550,9 +6567,9 @@ void EigenState_k(double k1, double k2, double k3, int *MP, int spinsize, int Sp
 	  }
 	  H[i1][j1].r = sumr;
 	  H[i1][j1].i = sumi;
-	  //            printf("%10.5f ",sumr);
+	  /*            printf("%10.5f ",sumr); */
 	}
-	//              printf("\n");
+	/*              printf("\n"); */
       } 
 
       /* H to C */
@@ -6565,7 +6582,7 @@ void EigenState_k(double k1, double k2, double k3, int *MP, int spinsize, int Sp
 
       /* solve eigenvalue problem */
 
-      EigenBand_lapack(C,EigenVal1[spin],fsize,fsize);
+      EigenBand_lapack(C,EigenVal1[spin],fsize,fsize,1);
 
       /****************************************************
 	     transformation to the original eigenvectors.
@@ -6664,7 +6681,7 @@ void EigenState_k(double k1, double k2, double k3, int *MP, int spinsize, int Sp
 
       /* solve eigenvalue problem */
 
-      EigenBand_lapack(H,EigenVal1[0],fsize2,fsize2);
+      EigenBand_lapack(H,EigenVal1[0],fsize2,fsize2,1);
 
       /****************************************************
              transformation to the original eigenvectors
@@ -6739,7 +6756,7 @@ void EigenState_k(double k1, double k2, double k3, int *MP, int spinsize, int Sp
 
 
 
-
+#pragma optimization_level 1
 void Calc_Mmnkb(int k, int kk, double k1[4], double k2[4], double b[4], 
                 int bindx, int SpinP_switch, int *MP, double Sop[2], 
                 dcomplex *Wk1, dcomplex *Wk2, int fsize, int mm, int nn)
@@ -6957,7 +6974,7 @@ void Calc_Mmnkb(int k, int kk, double k1[4], double k2[4], double b[4],
 
 
 
-
+#pragma optimization_level 1
 void Shell_Structure(double **klatt, int *M_s, int **bvector, int *shell_num, int MAXSHELL){
   /*
     This subroutine will analyse the shell structure of given k space defined by klatt[3][3].
@@ -7045,7 +7062,7 @@ void Shell_Structure(double **klatt, int *M_s, int **bvector, int *shell_num, in
       dz=(double)i1*klatt[0][2]+(double)i2*klatt[1][2]+(double)i3*klatt[2][2];
       printf("(%2d,%2d,%2d) %10.5f%10.5f%10.5f %10.5f\n",ordered_com[kindx][0],ordered_com[kindx][1],ordered_com[kindx][2],dx/BohrR_Wannier,dy/BohrR_Wannier,dz/BohrR_Wannier,distance[kindx]/BohrR_Wannier);
     }
-    //    	c=getchar();
+    /*    	c=getchar(); */
   }
     
   /* Now, classifying them into shells. Be careful, the first shell determined here 
@@ -7109,7 +7126,7 @@ void Shell_Structure(double **klatt, int *M_s, int **bvector, int *shell_num, in
 }/*End of Shell_Structure subroutine*/
                          
                          
-                         
+#pragma optimization_level 1
 int Cal_Weight_of_Shell(double **klatt, int *M_s, int **bvector, int *num_shell, 
 			double *wb, int *Reject_Shell, int *searched_shell){
   /*
@@ -7558,7 +7575,7 @@ int Cal_Weight_of_Shell(double **klatt, int *M_s, int **bvector, int *num_shell,
 }/*Cal_Weight_of_Shell */
 
 
-
+#pragma optimization_level 1
 static void Ascend_Ordering(double *xyz_value, int *ordering, int tot_atom){
   int i,j,k, tmp_order;
   double tmp_xyz;
@@ -7578,6 +7595,8 @@ static void Ascend_Ordering(double *xyz_value, int *ordering, int tot_atom){
   return;
 }
 
+
+#pragma optimization_level 1
 void Calc_rT_dot_d(dcomplex *rmnk, dcomplex *dmnk, int n, double *amod){
   int i;
   double sum;
@@ -7585,23 +7604,23 @@ void Calc_rT_dot_d(dcomplex *rmnk, dcomplex *dmnk, int n, double *amod){
   sum=0.0;
   for(i=0;i<n;i++){
     sum=sum+(rmnk[i].r*dmnk[i].r+rmnk[i].i*dmnk[i].i);
-    //printf("rT %i %20.12f  %20.12f, d %20.12f  %20.12f rT*d %20.12f\n",i,rmnk[i].r, rmnk[i].i,dmnk[i].r,dmnk[i].i, rmnk[i].r*dmnk[i].r+rmnk[i].i*dmnk[i].i);
+    /* printf("rT %i %20.12f  %20.12f, d %20.12f  %20.12f rT*d %20.12f\n",i,rmnk[i].r, rmnk[i].i,dmnk[i].r,dmnk[i].i, rmnk[i].r*dmnk[i].r+rmnk[i].i*dmnk[i].i);*/
   }
   *amod=sum;
-  //printf("error mod %10.5f\n",*amod);
+  /* printf("error mod %10.5f\n",*amod); */
 }/* end of Calc_rT_dot_d */ 
 
-//void Gradient_at_next_x(dcomplex ****Gmnk, double wbtot, double alpha, dcomplex ****Uk, dcomplex *****m, int spinsize, int kpt_num, int WANNUM, double **kg, double **bvector, double **frac_bv, double *wb, int tot_bvector, int *M_s, int shell_num, dcomplex **rimnk,
-//double *omega_I, double *omega_OD, double *omega_D, double ***wann_center, double **wann_r2){
+/*void Gradient_at_next_x(dcomplex ****Gmnk, double wbtot, double alpha, dcomplex ****Uk, dcomplex *****m, int spinsize, int kpt_num, int WANNUM, double **kg, double **bvector, double **frac_bv, double *wb, int tot_bvector, int *M_s, int shell_num, dcomplex **rimnk,*/
+/*double *omega_I, double *omega_OD, double *omega_D, double ***wann_center, double **wann_r2){ */
 
 
-
+#pragma optimization_level 1
 void Gradient_at_next_x(dcomplex ***Gmnk, double wbtot, double alpha, dcomplex ***Ukmatrix, dcomplex ****Mmnkb_zero, int kpt_num, int WANNUM, double **kg, double **bvector, double **frac_bv, double *wb, int tot_bvector, int **kplusb, dcomplex *rimnk, double *omega_I, double *omega_OD, double *omega_D){
-  // double ***wann_center, double **wann_r2){
-  // for yita_prev. Gmnk and Ukmatrix Mmnkb will not be changed during this subroutine 
-  //   taking one step alpha*d 
+  /* double ***wann_center, double **wann_r2){ */
+  /* for yita_prev. Gmnk and Ukmatrix Mmnkb will not be changed during this subroutine */
+  /*   taking one step alpha*d */
   dcomplex ***g, ***Uk, ****m; 
-  //  double *oi, *ood, *od, ***wr, **wr2;
+  /*  double *oi, *ood, *od, ***wr, **wr2; */
   dcomplex ***deltaW, ****m_zero; 
   int i,j, k, spin, bindx, nindx;
   double **wann_center, *wann_r2, *wk;
@@ -7700,8 +7719,8 @@ void Gradient_at_next_x(dcomplex ***Gmnk, double wbtot, double alpha, dcomplex *
   Wannier_Center(wann_center, wann_r2, m, WANNUM, bvector, wb, kpt_num, tot_bvector);
   
   Cal_Omega(omega_I, omega_OD, omega_D, m, wann_center, WANNUM, bvector, wb, kpt_num, tot_bvector);
-  //  Cal_Omega(omega_I, omega_OD, omega_D, m, wann_center, WANNUM, bvector,
-  //                  wb, kpt_num, tot_bvector);
+  /*  Cal_Omega(omega_I, omega_OD, omega_D, m, wann_center, WANNUM, bvector, */
+  /*                  wb, kpt_num, tot_bvector); */
    
   /* Gradients of spread function */
   Cal_Gradient(g, m, wann_center, bvector, wb, WANNUM, kpt_num, tot_bvector, &i);
@@ -7773,6 +7792,8 @@ void Gradient_at_next_x(dcomplex ***Gmnk, double wbtot, double alpha, dcomplex *
 }/* end of Gradient_at_next_x */
 
 
+
+#pragma optimization_level 1
 void Output_WF_Spread(char *mode, 
                       double **wann_center, double *wann_r2, 
                       double omega_I, double omega_OD, double omega_D, int WANNUM)
@@ -7871,7 +7892,7 @@ void Output_WF_Spread(char *mode,
 
 
 
-
+#pragma optimization_level 1
 void new_Gradient(dcomplex ****m, int kpt_num, int WANNUM, double **bvector, double *wb, int tot_bvector, dcomplex *rimnk, double *omega_I, double *omega_OD, double *omega_D, double **wann_center, double *wann_r2){
   int i,j,k, bindx;
   double *wk;
@@ -7918,7 +7939,7 @@ void new_Gradient(dcomplex ****m, int kpt_num, int WANNUM, double **bvector, dou
 }/* new_Gradient */
 
 
-
+#pragma optimization_level 1
 void Taking_one_step(dcomplex ***Gmnk, double wbtot, double alpha, dcomplex ***Ukmatrix, dcomplex ****Mmnkb, dcomplex ****Mmnkb_zero, int kpt_num, int WANNUM, double **kg, double **frac_bv, int tot_bvector, int **kplusb){
 
   dcomplex ***deltaW;
@@ -7993,7 +8014,7 @@ void Taking_one_step(dcomplex ***Gmnk, double wbtot, double alpha, dcomplex ***U
 
 
 
-
+#pragma optimization_level 1
 void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize, int kpt_num,
                          int band_num, int wan_num, int ***Nk, int ***innerNk, double **kg, 
                          double **bvector, double *wb, int **kplusb, int tot_bvector, 
@@ -8211,9 +8232,9 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
 	      }
 	    }   
 	    omega_I=omega_I+wb[bindx]*sumr;
-	  }// bindx 
-	}// if there is frozen state  
-      }//kpt  
+	  }/*  bindx */ 
+	}/* if there is frozen state */  
+      }/* kpt */  
       for(k=0;k<kpt_num;k++){
 	band_num=nbandwin[k][1]-nbandwin[k][0];
 	Mk=nbandfroz[k][1]-nbandfroz[k][0];
@@ -8394,7 +8415,7 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
 	  free(Zmat[i]);
 	}
 	free(Zmat);
-      }// kpt_num
+      }/*  kpt_num */
 
       omega_I=(double)wan_num*wbtot-omega_I/(double)kpt_num;
       omega_I=omega_I*BohrR_Wannier*BohrR_Wannier;
@@ -8410,7 +8431,7 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
 	     printf("alpha=%10.6f\n",dis_alpha_mix);
 	     }
       */
-    }//iteration
+    }/* iteration */
     if(iter>=dis_max_iter && fabs(delta_OI)>dis_conv_tol){
       if (myid==Host_ID){
         printf("**************************** WARNNING ****************************\n");
@@ -8503,7 +8524,7 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
         MPI_Finalize();
 	exit(0);
       }else{
-	//       printf("zheev success!\n");
+	/*       printf("zheev success!\n"); */
         if(myid==Host_ID){
           printf("At k %i [%6.4f,%6.4f,%6.4f] eigenvalues (in Ha) in \n  optimized subspace, original space and differences are:\n",k+1,kg[k][0],kg[k][1],kg[k][2]);
           for(i=0;i<wan_num;i++){
@@ -8546,7 +8567,7 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
     }/* kpt */
     free(dw);
     free(za);
-  }//spin
+  }/* spin */
 
   /*******************************************
          free arrays 
@@ -8615,7 +8636,7 @@ void Disentangling_Bands(dcomplex ****Uk, dcomplex *****Mmnkb_zero, int spinsize
 
 
 
-
+#pragma optimization_level 1
 void Getting_Zmatrix(dcomplex **Zmat, int presentk, double *wb, int tot_bvector, 
                      dcomplex ****Mmnkb, dcomplex ***Udis, int **kplusb, int band_num, 
                      int wan_num, int Mk, int **nbandwin, int **nbandfroz)
@@ -8671,7 +8692,7 @@ void Getting_Zmatrix(dcomplex **Zmat, int presentk, double *wb, int tot_bvector,
       if(Mk>0){
 	if((i+1+nbandwin[presentk][0])<(nbandfroz[presentk][0]+1)){/* if the i state is between two bottoms of outer and inner window */
 	  i1=i;/*just take i value since all the states inside outer window is indexed from 0*/
-	}else{// if(i+1+nbandwin[k][0]>nbandfroz[k][1])/* if i state is between tow tops of outter and inner windwo */
+	}else{/* if(i+1+nbandwin[k][0]>nbandfroz[k][1]) */ /* if i state is between tow tops of outter and inner windwo */
 	  i1=i+Mk;/* jump Mk states that locate inside the inner window. */
 	}
       }else{ /* No frozen case */
@@ -8681,7 +8702,7 @@ void Getting_Zmatrix(dcomplex **Zmat, int presentk, double *wb, int tot_bvector,
 	if(Mk>0){
 	  if(j+1+nbandwin[presentk][0]<nbandfroz[presentk][0]+1){/* if the j state is between two bottoms of outer and inner window */
 	    j1=j;/*just take j value since all the states inside outer window is indexed from 0*/
-	  }else{// if(j+1+nbandwin[k][0]>nbandfroz[k][1])/* if i state is between tow tops of outter and inner windwo */
+	  }else{/* if(j+1+nbandwin[k][0]>nbandfroz[k][1]) */ /* if i state is between tow tops of outter and inner windwo */
 	    j1=j+Mk;/* jump Mk states that locate inside the inner window. */
 	  }
 	}else{
@@ -8722,13 +8743,13 @@ void Getting_Zmatrix(dcomplex **Zmat, int presentk, double *wb, int tot_bvector,
 
 
 
-
+#pragma optimization_level 1
 void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int SpinP_switch, int kpt_num, int band_num, int wan_num, int ***Nk, double rtv[4][4], double **kg, double ChemP, int r_num, int**rvect, int *ndegen){
   int i,j,k,l, spin, rpt, num_kpath, npath;
   int BAND;
   double **kpath;
   dcomplex ****HWk;/* H(w)(k) Eq.(21)-paper of Mostofi */
-  dcomplex ****HR;//[spin][rvect][wan_num][wan_num];/* Hamiltonian in real space Eq. (22)-paper of Mostofi or Eq.(13)-paper of Yates et al.*/
+  dcomplex ****HR;/*[spin][rvect][wan_num][wan_num];*/ /* Hamiltonian in real space Eq. (22)-paper of Mostofi or Eq.(13)-paper of Yates et al.*/
   dcomplex **tmpH, **tmpZ;
   double sumr, sumi,rdotk;
   dcomplex ****Hkpath;
@@ -8920,7 +8941,7 @@ void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int S
     printf("Hamiltonian in Wannier Gauge in real space:\n");
     for(rpt=0;rpt<r_num;rpt++){
       if((rvect[0][rpt]==0 && rvect[1][rpt]==0 && rvect[2][rpt]==0)|| (rvect[0][rpt]==0 && rvect[1][rpt]==0 && rvect[2][rpt]==1) || (rvect[0][rpt]==0 && rvect[1][rpt]==1 && rvect[2][rpt]==0) || (rvect[0][rpt]==0 && rvect[1][rpt]==1 && rvect[2][rpt]==1) || (rvect[0][rpt]==1 && rvect[1][rpt]==1 && rvect[2][rpt]==0) ||(rvect[0][rpt]==1 && rvect[1][rpt]==1 && rvect[2][rpt]==1) || (rvect[0][rpt]==1 && rvect[1][rpt]==0 && rvect[2][rpt]==1)||(rvect[0][rpt]==0 && rvect[1][rpt]==0 && rvect[2][rpt]==2) ||(rvect[0][rpt]==0 && rvect[1][rpt]==2 && rvect[2][rpt]==0)) {
-      // 000, 001, 010, 011, 110, 111, 101, 002, 020
+	/* 000, 001, 010, 011, 110, 111, 101, 002, 020 */
         printf("R vector: (%i,%i,%i)\n",rvect[0][rpt],rvect[1][rpt],rvect[2][rpt]);
         for(spin=0;spin<spinsize;spin++){
           printf("spin %i\n",spin);
@@ -8995,9 +9016,9 @@ void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int S
           for(j=0;j<wan_num;j++){
             Hkpath[spin][k][i][j].r=Hkpath[spin][k][i][j].r+(cos(rdotk)*HR[spin][rpt][i][j].r-sin(rdotk)*HR[spin][rpt][i][j].i)/(double)ndegen[rpt];
             Hkpath[spin][k][i][j].i=Hkpath[spin][k][i][j].i+(sin(rdotk)*HR[spin][rpt][i][j].r+cos(rdotk)*HR[spin][rpt][i][j].i)/(double)ndegen[rpt];      
-	    //            Hkpath[spin][k][i][j].r=Hkpath[spin][k][i][j].r+(cos(rdotk)*HR[spin][rpt][i][j].r-sin(rdotk)*HR[spin][rpt][i][j].i)/(double)r_num;
-	    //            Hkpath[spin][k][i][j].i=Hkpath[spin][k][i][j].i+(sin(rdotk)*HR[spin][rpt][i][j].r+cos(rdotk)*HR[spin][rpt][i][j].i)/(double)r_num;
-          }
+	    /*            Hkpath[spin][k][i][j].r=Hkpath[spin][k][i][j].r+(cos(rdotk)*HR[spin][rpt][i][j].r-sin(rdotk)*HR[spin][rpt][i][j].i)/(double)r_num; */
+	    /*            Hkpath[spin][k][i][j].i=Hkpath[spin][k][i][j].i+(sin(rdotk)*HR[spin][rpt][i][j].r+cos(rdotk)*HR[spin][rpt][i][j].i)/(double)r_num; */
+          } 
         }
       }
     }
@@ -9060,7 +9081,7 @@ void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int S
 	     printf("*********************** Error **********************\n");
 	     exit(0);
 	   }else{
-	     //       printf("zheev success!\n");
+	     /*       printf("zheev success!\n"); */
 	     fprintf(fpBand,"%d %lf %lf %lf\n", wan_num,kpath[0][k], kpath[1][k], kpath[2][k]);
 	     for (info=0; info<wan_num; info++) {
 	       fprintf(fpBand,"%lf ",dw[info]);
@@ -9130,7 +9151,7 @@ void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int S
 }/* Wannier_Interpolation */
 
 
-
+#pragma optimization_level 1
 void Wigner_Seitz_Vectors(double metric[3][3], double rtv[4][4], int knum_i, 
                          int knum_j, int knum_k, int *r_num, 
                          int **rvect, int *ndegen)
@@ -9274,7 +9295,7 @@ void Wigner_Seitz_Vectors(double metric[3][3], double rtv[4][4], int knum_i,
 
 
 
-
+#pragma optimization_level 1
 void Udis_projector_frozen(dcomplex ****Uk,int ***Nk,int ***innerNk,int kpt_num, int spinsize, int band_num, int wan_num){
   int i,j,k,l,spin, Nkp, Mk;
   double sumr, sumi;
@@ -9285,8 +9306,8 @@ void Udis_projector_frozen(dcomplex ****Uk,int ***Nk,int ***innerNk,int kpt_num,
   char jobz, uplo;
   dcomplex *work;
   double *rwork;
-  dcomplex *za;//[band_num*band_num];
-  double *dw;//[band_num];
+  dcomplex *za;/* [band_num*band_num]; */
+  double *dw;/* [band_num]; */
 
   /* allocation of arrays */
 
@@ -9436,8 +9457,8 @@ void Udis_projector_frozen(dcomplex ****Uk,int ***Nk,int ***innerNk,int kpt_num,
 	Uk[spin][k][i+innerNk[spin][k][0]-Nk[spin][k][0]][i].r=1.0;
       }
       free(dw);free(za);     
-    }//kpt
-  }//spin
+    }/* kpt */
+  }/* spin */
 
   /* freeing of arrays */
 
@@ -9463,7 +9484,7 @@ void Udis_projector_frozen(dcomplex ****Uk,int ***Nk,int ***innerNk,int kpt_num,
 
 
 
-
+#pragma optimization_level 1
 void Center_Guide( dcomplex ****Mmnkb, int WANNUM, int *bdirection, 
                    int nbdir, int kpt_num, double **bvector, int tot_bvector)
 {
@@ -9734,6 +9755,8 @@ void Center_Guide( dcomplex ****Mmnkb, int WANNUM, int *bdirection,
 
 }/* Center_Guide */
 
+
+#pragma optimization_level 1
 double Invert3_mat(double smat[3][3], double **sinv)
 {
   double work[6][6],det,sum;
@@ -9776,7 +9799,7 @@ double Invert3_mat(double smat[3][3], double **sinv)
 }/* Invert3_mat */ 
 
 
-
+#pragma optimization_level 1
 void OutData_WF(char *inputfile, int rnum, int **rvect)
 {
   int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc;
@@ -9884,8 +9907,8 @@ void OutData_WF(char *inputfile, int rnum, int **rvect)
 		  ReCoef = Wannier_Coef[kloop][spin][orbit][Gc_AN][i].r; 
 		  ImCoef = Wannier_Coef[kloop][spin][orbit][Gc_AN][i].i;
 
-		  RMO_Grid_tmp[GN1] += ReCoef*Orbs_Grid[Mc_AN][i][Nc];
-		  IMO_Grid_tmp[GN1] += ImCoef*Orbs_Grid[Mc_AN][i][Nc];
+		  RMO_Grid_tmp[GN1] += ReCoef*Orbs_Grid[Mc_AN][Nc][i];/*AITUNE*/
+		  IMO_Grid_tmp[GN1] += ImCoef*Orbs_Grid[Mc_AN][Nc][i];/*AITUNE*/
 
 		}
 	      }
@@ -10164,7 +10187,7 @@ void OutData_WF(char *inputfile, int rnum, int **rvect)
 
 
 
-
+#pragma optimization_level 1
 void Calc_SpinDirection_WF(int rnum, int **rvect)
 {
   int Mc_AN,Gc_AN,Cwan,NO0,spin,Nc;
@@ -10280,15 +10303,15 @@ void Calc_SpinDirection_WF(int rnum, int **rvect)
 		      ReCoef = Wannier_Coef[kloop][spin][orbit][Gc_AN][i].r; 
 		      ImCoef = Wannier_Coef[kloop][spin][orbit][Gc_AN][i].i;
 
-		      RMO_Grid0_tmp[GN1] += ReCoef*Orbs_Grid[Mc_AN][i][Nc];
-		      IMO_Grid0_tmp[GN1] += ImCoef*Orbs_Grid[Mc_AN][i][Nc];
+		      RMO_Grid0_tmp[GN1] += ReCoef*Orbs_Grid[Mc_AN][Nc][i];/*AITUNE*/
+		      IMO_Grid0_tmp[GN1] += ImCoef*Orbs_Grid[Mc_AN][Nc][i];/*AITUNE*/
 
                       spin = 1; 
 		      ReCoef = Wannier_Coef[kloop][spin][orbit][Gc_AN][i].r; 
 		      ImCoef = Wannier_Coef[kloop][spin][orbit][Gc_AN][i].i;
 
-		      RMO_Grid1_tmp[GN1] += ReCoef*Orbs_Grid[Mc_AN][i][Nc];
-		      IMO_Grid1_tmp[GN1] += ImCoef*Orbs_Grid[Mc_AN][i][Nc];
+		      RMO_Grid1_tmp[GN1] += ReCoef*Orbs_Grid[Mc_AN][Nc][i];/*AITUNE*/
+		      IMO_Grid1_tmp[GN1] += ImCoef*Orbs_Grid[Mc_AN][Nc][i];/*AITUNE*/
 		    }
 		  }
 
@@ -10368,7 +10391,7 @@ void Calc_SpinDirection_WF(int rnum, int **rvect)
 
 
 
-
+#pragma optimization_level 1
 void Overlap_Band_Wannier(double ****fOLP,
 			  dcomplex **S,int *MP,
 			  double k1, double k2, double k3)
@@ -10463,7 +10486,7 @@ void Overlap_Band_Wannier(double ****fOLP,
 
 
 
-
+#pragma optimization_level 1
 void Hamiltonian_Band_Wannier(double ****RH, dcomplex **H, int *MP,
 			      double k1, double k2, double k3)
 {
@@ -10555,7 +10578,7 @@ void Hamiltonian_Band_Wannier(double ****RH, dcomplex **H, int *MP,
 
 
 
-
+#pragma optimization_level 1
 void Hamiltonian_Band_NC_Wannier(double *****RH, double *****IH,
 				 dcomplex **H, int *MP,
 				 double k1, double k2, double k3)

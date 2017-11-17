@@ -13,13 +13,13 @@ level.of.fileout                  0    # default=1 (0-2)
 
 Species.Number       2
 <Definition.of.Atomic.Species
- Ga   Ga7.0-s1p1d1   Ga_CA11
- As   As7.0-s1p1d1   As_CA11
+ Ga   Ga7.0-s1p1d1   Ga_CA13
+ As   As7.0-s1p1d1   As_CA13
 Definition.of.Atomic.Species>
 
 <Hubbard.U.values                 #  eV
- Ga   1s 4.0 1p 4.0 1d 0.0
- As   1s 4.0 1p 4.0 1d 0.0
+ Ga   1s 1.0 1p 2.0 1d 0.0
+ As   1s 1.0 1p 2.0 1d 0.0
 Hubbard.U.values>
 
 #
@@ -29,7 +29,7 @@ Hubbard.U.values>
 Atoms.Number         2
 Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
 <Atoms.SpeciesAndCoordinates           
- 1  Ga -0.3000  0.2000 -0.3000   6.5 6.5  0.0 0.0  0.0 0.0 1  off
+ 1  Ga -0.3000  0.3000 -0.3000   6.5 6.5  0.0 0.0  0.0 0.0 1  off
  2  As  1.4125  1.4125  1.4125   7.5 7.5  0.0 0.0  0.0 0.0 1  off
 Atoms.SpeciesAndCoordinates>
 Atoms.UnitVectors.Unit             Ang # Ang|AU
@@ -70,43 +70,6 @@ scf.criterion             1.0e-12      # default=1.0e-6 (Hartree)
 1DFFT.EnergyCutoff        3600.0       # default=3DFFT.EnergyCutoff*3.0 (Ry)
 
 #
-# Orbital Optimization
-#
-
-orbitalOpt.Method           Off        # Off|Unrestricted|Restricted|species
-orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
-orbitalOpt.initPrefactor   0.1         # default=0.1
-orbitalOpt.scf.maxIter      12         # default=12
-orbitalOpt.MD.maxIter        2         # default=5
-orbitalOpt.per.MDIter        2         # default=1000000
-orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
-
-#
-# output of contracted orbitals
-#
-
-CntOrb.fileout               off       # on|off, default=off
-Num.CntOrb.Atoms              1        # default=1
-<Atoms.Cont.Orbitals
- 1
-Atoms.Cont.Orbitals>
- 
-#
-# SCF Order-N
-#
-
-orderN.HoppingRanges        4.0        # default=5.0 (Ang) 
-orderN.NumHoppings           1         # default=2
-
-
-#
-# restart using *.rst
-#
-
-scf.restart                  off       # on|off, default=off
-
-
-#
 # MD or Geometry Optimization
 #
 
@@ -136,24 +99,3 @@ Band.Nkpath                5
    25  0.0 0.0 0.0   1.0 1.0 0.0   g X 
 Band.kpath>
 
-#
-# MO output
-#
-
-MO.fileout                       off   # on|off
-num.HOMOs                         1    # default=2
-num.LUMOs                         1    # default=2
-
-MO.Nkpoint                        2    # default=1 
-<MO.kpoint
-  0.0  0.0  0.0
-  0.0  0.0  0.2
-MO.kpoint>
-
-#
-# DOS and PDOS
-#
-
-Dos.fileout                  off       # on|off, default=off
-Dos.Erange              -20.0  20.0    # default = -20 20 
-Dos.Kgrid                 7  7  7      # default = Kgrid1 Kgrid2 Kgrid3

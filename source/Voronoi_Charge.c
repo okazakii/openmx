@@ -14,18 +14,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
 
 
 void Voronoi_Charge()

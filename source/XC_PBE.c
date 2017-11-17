@@ -69,7 +69,7 @@ void XC_PBE(double dens[2], double GDENS[3][2], double Exc[2],
 
   D[0] = dens[0];
   D[1] = dens[1];
-  dt = largest(den_min,dens[0] + dens[1]);
+  dt = dens[0] + dens[1];
 
   for (IX=0; IX<=2; IX++){
     GD[IX][0] = GDENS[IX][0];
@@ -106,8 +106,9 @@ void XC_PBE(double dens[2], double GDENS[3][2], double Exc[2],
   kF = pow(3.0*PI*PI*dt,THD);
   ks = sqrt(4.0*kF/PI);
   zeta = (dens[0] - dens[1])/dt;
-  zeta = largest( -1.0 + den_min,zeta);
-  zeta = smallest( 1.0 - den_min,zeta);
+
+  if (0.99<zeta) zeta =  0.99;
+  if (zeta<-1.0) zeta = -0.99;
 
   /*
   printf("zeta=%50.45f\n",zeta);
@@ -207,7 +208,7 @@ void XC_PBE(double dens[2], double GDENS[3][2], double Exc[2],
   Fx = 0.0;
   for (IS=0; IS<=1; IS++){
 
-    DS[IS] = largest(den_min, 2.0*D[IS]);
+    DS[IS] = largest(den_min,2.0*D[IS]);
     GDMS = largest(gd_min, 2.0*GDM[IS]);
     KFS = pow(3.0*PI*PI*DS[IS],THD);
     s = GDMS/(2.0*KFS*DS[IS]);

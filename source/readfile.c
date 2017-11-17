@@ -14,15 +14,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
 #include "tran_prototypes.h"
-
 
 
 double readfile(char *argv[])
@@ -50,7 +43,6 @@ double readfile(char *argv[])
 #endif
 
     Input_std(argv[1]);
-
     fclose(fp);
   }
   else{
@@ -59,7 +51,6 @@ double readfile(char *argv[])
   }
 
   Allocate_Arrays(2);
-
   Set_Allocate_Atom2CPU(0,1,0); /* for species */
   SetPara_DFT();
 
@@ -77,26 +68,20 @@ double readfile(char *argv[])
     }
   }
 
-  Set_Allocate_Atom2CPU(0,0,0); /* simple division by # of atoms, get Matomnum */
+  /*****************************
+    last input
+    0: atomnum, 
+    1: elapsed time 
+  *****************************/    
 
-  if (Solver!=6) { /*  except for GDC */
-
-    /*****************************
-      final input
-      0: atomnum, 
-      1: the neighbor 
-      2: elapsed time 
-    *****************************/    
-
-    Set_Allocate_Atom2CPU(1,0,1); 
-  }
+  Set_Allocate_Atom2CPU(1,0,0); 
 
   /***************************************************************
    NEGF:
    check the consistency between the current and previous inputs 
   ***************************************************************/
 
-  TRAN_Check_Input(mpi_comm_level1, Solver);
+  TRAN_Check_Input(MPI_COMM_WORLD1, Solver);
 
   dtime(&TEtime);
   time0 = TEtime - TStime;

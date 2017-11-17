@@ -13,22 +13,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 #define  stdout_MulP  1
 
 
 
-void Mulliken_Charge( char *mode )
+double Mulliken_Charge( char *mode )
 {
   int Mc_AN,Gc_AN,tno0,Cwan,num,l,m,mul;
   int wan1,wan2,i,j,k,Gs_AN,s_AN,spin;
+  int tag=999;
   double MulP[4],My_Total_SpinS;
   double MulP_LA[4],MulP_LB[4],MagML;
   double summx,summy,summz;
@@ -47,17 +45,25 @@ void Mulliken_Charge( char *mode )
   double Re11,Re22,Re12,Im12,d1,d2,d3;
   double theta[2],phi[2],Nup[2],Ndown[2],sit,cot,sip,cop;
   double Stime_atom, Etime_atom;
+  double my_data[4],data[4];
   double ***DecMulP;
   double *tmp_array0;
   double *sum_l,*sum_mul;
   double S_coordinate[3];
+  double TStime,TEtime,time0;
   char *Name_Angular[Supported_MaxL+1][2*(Supported_MaxL+1)+1];
   char file_MC[YOUSO10] = ".MC";
   FILE *fp_MC;
   int numprocs,myid,ID;
   char buf[fp_bsize];          /* setvbuf */
+  MPI_Status stat;
 
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TStime);
+
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
 
   /* calculate TZ */
 
@@ -81,10 +87,6 @@ void Mulliken_Charge( char *mode )
   tmp_array0 = (double*)malloc(sizeof(double)*(List_YOUSO[7]*(SpinP_switch+1)));
   sum_l   = (double*)malloc(sizeof(double)*(SpinP_switch+1));
   sum_mul = (double*)malloc(sizeof(double)*(SpinP_switch+1));
-
-  /* MPI */
-  MPI_Comm_size(mpi_comm_level1,&numprocs);
-  MPI_Comm_rank(mpi_comm_level1,&myid);
 
   My_Total_SpinS  = 0.0;
   My_Total_SpinSx = 0.0;
@@ -269,13 +271,16 @@ void Mulliken_Charge( char *mode )
 
     /* spin moment */
 
-    MPI_Allreduce(&My_Total_SpinSx, &Total_SpinSx, 1, MPI_DOUBLE,
-                   MPI_SUM, mpi_comm_level1);
-    MPI_Allreduce(&My_Total_SpinSy, &Total_SpinSy, 1, MPI_DOUBLE,
-                   MPI_SUM, mpi_comm_level1);
-    MPI_Allreduce(&My_Total_SpinSz, &Total_SpinSz, 1, MPI_DOUBLE,
-                   MPI_SUM, mpi_comm_level1);
+    my_data[0] = My_Total_SpinSx;
+    my_data[1] = My_Total_SpinSy;
+    my_data[2] = My_Total_SpinSz;
 
+    MPI_Allreduce(&my_data[0], &data[0], 3, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+    Total_SpinSx = data[0];
+    Total_SpinSy = data[1];
+    Total_SpinSz = data[2];
+    
     xyz2spherical( Total_SpinSx,Total_SpinSy,Total_SpinSz, 0.0,0.0,0.0, S_coordinate ); 
 
     Total_SpinS      = S_coordinate[0];
@@ -288,42 +293,91 @@ void Mulliken_Charge( char *mode )
     MPI_Allreduce(&My_Total_SpinS, &Total_SpinS, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
   }
 
+  /* MPI: InitN_USpin and InitN_DSpin */
+
   for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-
+    
     ID = G2ID[Gc_AN];
-    MPI_Bcast(&InitN_USpin[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
-    MPI_Bcast(&InitN_DSpin[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
 
-    /* spin non-collinear */
-    if (SpinP_switch==3){
-      MPI_Bcast(&Angle0_Spin[Gc_AN],    1, MPI_DOUBLE, ID, mpi_comm_level1);
-      MPI_Bcast(&Angle1_Spin[Gc_AN],    1, MPI_DOUBLE, ID, mpi_comm_level1);
-    }
+    if (ID!=Host_ID){
 
-    /* DecMulP */
+      if (myid==ID){
 
-    num = 0; 
-    for (spin=0; spin<(SpinP_switch+1); spin++){
-      wan1 = WhatSpecies[Gc_AN];
-      tno0 = Spe_Total_NO[wan1];  
-      for (i=0; i<Spe_Total_CNO[wan1]; i++){
-	tmp_array0[num] = DecMulP[spin][Gc_AN][i];
-	num++;
+	/* spin non-collinear */
+	if (SpinP_switch==3){
+	  data[0] = InitN_USpin[Gc_AN];
+	  data[1] = InitN_DSpin[Gc_AN];
+	  data[2] = Angle0_Spin[Gc_AN];
+	  data[3] = Angle1_Spin[Gc_AN];
+	  MPI_Send(&data[0], 4, MPI_DOUBLE, Host_ID, tag, mpi_comm_level1);
+	}
+	else{
+	  data[0] = InitN_USpin[Gc_AN];
+	  data[1] = InitN_DSpin[Gc_AN];
+	  MPI_Send(&data[0], 2, MPI_DOUBLE, Host_ID, tag, mpi_comm_level1);
+	}
+      }
+
+      else if (myid==Host_ID){
+
+	/* spin non-collinear */
+	if (SpinP_switch==3){
+	  MPI_Recv(&data[0], 4, MPI_DOUBLE, ID, tag, mpi_comm_level1, &stat);
+	  InitN_USpin[Gc_AN] = data[0];
+	  InitN_DSpin[Gc_AN] = data[1];
+	  Angle0_Spin[Gc_AN] = data[2];
+	  Angle1_Spin[Gc_AN] = data[3];
+	}
+	else{
+	  MPI_Recv(&data[0], 2, MPI_DOUBLE, ID, tag, mpi_comm_level1, &stat);
+	  InitN_USpin[Gc_AN] = data[0];
+	  InitN_DSpin[Gc_AN] = data[1];
+	}
       }
     }
+  }  
+    
+  /* MPI: DecMulP */
 
-    MPI_Bcast(&tmp_array0[0], num, MPI_DOUBLE, ID, mpi_comm_level1);
+  if ( strcasecmp(mode,"write")==0 ){
 
-    num = 0; 
-    for (spin=0; spin<(SpinP_switch+1); spin++){
-      wan1 = WhatSpecies[Gc_AN];
-      tno0 = Spe_Total_NO[wan1];  
-      for (i=0; i<Spe_Total_CNO[wan1]; i++){
-	DecMulP[spin][Gc_AN][i] = tmp_array0[num];
-	num++;
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      ID = G2ID[Gc_AN];
+
+      if (ID!=Host_ID){
+
+	if (myid==ID){
+
+	  num = 0; 
+	  for (spin=0; spin<(SpinP_switch+1); spin++){
+	    wan1 = WhatSpecies[Gc_AN];
+	    for (i=0; i<Spe_Total_CNO[wan1]; i++){
+	      tmp_array0[num] = DecMulP[spin][Gc_AN][i];
+	      num++;
+	    }
+	  }
+
+	  MPI_Send(&tmp_array0[0], num, MPI_DOUBLE, Host_ID, tag, mpi_comm_level1);
+
+	}
+	else if (myid==Host_ID){
+
+	  wan1 = WhatSpecies[Gc_AN];
+	  num = (SpinP_switch+1)*Spe_Total_CNO[wan1]; 
+	  MPI_Recv(&tmp_array0[0], num, MPI_DOUBLE, ID, tag, mpi_comm_level1, &stat);
+
+	  num = 0; 
+	  for (spin=0; spin<(SpinP_switch+1); spin++){
+	    wan1 = WhatSpecies[Gc_AN];
+	    for (i=0; i<Spe_Total_CNO[wan1]; i++){
+	      DecMulP[spin][Gc_AN][i] = tmp_array0[num];
+	      num++;
+	    }
+	  }
+	}
       }
     }
-
   }
 
   /****************************************
@@ -344,21 +398,25 @@ void Mulliken_Charge( char *mode )
         Total_Mul_up += InitN_USpin[Gc_AN];
         Total_Mul_dn += InitN_USpin[Gc_AN];
 
-        printf(" %4d %4s  MulP %8.4f%8.4f sum %8.4f\n",
-                Gc_AN,SpeName[wan1],
-                InitN_USpin[Gc_AN],InitN_USpin[Gc_AN],
-                InitN_USpin[Gc_AN]+InitN_USpin[Gc_AN]);
+        if (Gc_AN<=20 && level_stdout<=1){
+          printf(" %4d %4s  MulP %8.4f%8.4f sum %8.4f\n",
+                  Gc_AN,SpeName[wan1],
+                  InitN_USpin[Gc_AN],InitN_USpin[Gc_AN],
+                  InitN_USpin[Gc_AN]+InitN_USpin[Gc_AN]);
+	}
       }
       else if (SpinP_switch==1){
 
         Total_Mul_up += InitN_USpin[Gc_AN];
         Total_Mul_dn += InitN_DSpin[Gc_AN];
 
-        printf(" %4d %4s  MulP %8.4f %8.4f sum %8.4f diff %8.4f\n",
-                  Gc_AN,SpeName[wan1],
-                  InitN_USpin[Gc_AN],InitN_DSpin[Gc_AN],
-                  InitN_USpin[Gc_AN]+InitN_DSpin[Gc_AN],
-                  InitN_USpin[Gc_AN]-InitN_DSpin[Gc_AN]);
+        if (Gc_AN<=20 && level_stdout<=1){
+          printf(" %4d %4s  MulP %8.4f %8.4f sum %8.4f diff %8.4f\n",
+                    Gc_AN,SpeName[wan1],
+                    InitN_USpin[Gc_AN],InitN_DSpin[Gc_AN],
+                    InitN_USpin[Gc_AN]+InitN_DSpin[Gc_AN],
+                    InitN_USpin[Gc_AN]-InitN_DSpin[Gc_AN]);
+	}
       }
       else if (SpinP_switch==3){
     
@@ -381,7 +439,8 @@ void Mulliken_Charge( char *mode )
         Total_Mul_up += InitN_USpin[Gc_AN];
         Total_Mul_dn += InitN_DSpin[Gc_AN];
 
-        printf(" %4d %4s  MulP%5.2f%5.2f sum %5.2f diff %5.2f (%6.2f %6.2f)  Ml %4.2f (%6.2f %6.2f)  Ml+s %4.2f (%6.2f %6.2f)\n",
+        if (Gc_AN<=20 && level_stdout<=1){
+          printf(" %4d %4s  MulP%5.2f%5.2f sum %5.2f diff %5.2f (%6.2f %6.2f)  Ml %4.2f (%6.2f %6.2f)  Ml+s %4.2f (%6.2f %6.2f)\n",
                   Gc_AN,SpeName[wan1],
                   InitN_USpin[Gc_AN],InitN_DSpin[Gc_AN],
                   InitN_USpin[Gc_AN]+InitN_DSpin[Gc_AN],
@@ -390,8 +449,15 @@ void Mulliken_Charge( char *mode )
  	          OrbitalMoment[Gc_AN],
   	          Angle0_Orbital[Gc_AN]/PI*180.0, Angle1_Orbital[Gc_AN]/PI*180.0,
                   S_coordinate[0],S_coordinate[1]/PI*180.0,S_coordinate[2]/PI*180.0);
+	}
 
       }
+
+    } /* Gc_AN */
+
+    if (20<atomnum && level_stdout<=1){
+      printf("     ..........\n");
+      printf("     ......\n\n");
     }
 
     printf(" Sum of MulP: up   =%12.5f down          =%12.5f\n",
@@ -456,7 +522,7 @@ void Mulliken_Charge( char *mode )
       else{
 
         /* total Mulliken charge */
-        fprintf(fp_MC,"  Total spin S = %15.12f\n\n",Total_SpinS);
+        fprintf(fp_MC,"  Total spin moment (muB)  %12.9f\n\n",2.0*Total_SpinS);
         fprintf(fp_MC,"                    Up spin      Down spin     Sum           Diff\n");
         for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
           wan1 = WhatSpecies[Gc_AN];
@@ -671,6 +737,12 @@ void Mulliken_Charge( char *mode )
 
   free(sum_l);
   free(sum_mul);
+
+  /* for time */
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TEtime);
+  time0 = TEtime - TStime;
+  return time0;
 }
 
 

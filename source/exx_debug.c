@@ -7,12 +7,6 @@
 #include "exx_log.h"
 
 
-#ifdef EXX_USE_MPI
-#include <mpi.h>
-#else
-#include "mimic_mpi.h"
-#endif /* EXX_USE_MPI */
-
 void EXX_Debug_Copy_DM(
   int MaxN,
   double *****CDM,
@@ -212,7 +206,7 @@ void EXX_Debug_Check_DM(
         l2 = atv_ijk[Rn][2];
         l3 = atv_ijk[Rn][3];
 
-        //iep = find_ep(exx, GA_AN-1, GB_AN-1, l1, l2, l3);
+        /*iep = find_ep(exx, GA_AN-1, GB_AN-1, l1, l2, l3);*/
         iep = EXX_Find_EP(exx, GA_AN-1, GB_AN-1, l1, l2, l3);
 
         if (-1==iep) { EXX_ERROR("iep not found"); }

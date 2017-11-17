@@ -5,18 +5,9 @@
 #include <ctype.h>
 #include "openmx_common.h"
 #include "Inputtools.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
+
 
 
 #include "tran_prototypes.h"
@@ -35,8 +26,8 @@ void Set_Cluster_UnitCell(double tv[4][4],int unitflag);
 int OrbPol2int(char OrbPol[YOUSO10]);
 char *ToCapital(char *s);
 int divisible_cheker(int N);
-void Setup_Mixed_Basis(char *file, int myid);
 static void Set_In_First_Cell();
+static void Remake_RestartFile(int numprocs_new, int numprocs_old, int N1, int N2, int N3);
 
 /* hmweng */
 int Analyze_Wannier_Projectors(int p, char ctmp[YOUSO10], 
@@ -77,6 +68,8 @@ void Input_std(char *file)
   char file_check[YOUSO10];
   int numprocs,myid;
   int output_hks;
+  int numprocs1;
+  FILE *fp_rstart;
 
   MPI_Comm_size(MPI_COMM_WORLD1,&numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD1,&myid);
@@ -98,15 +91,16 @@ void Input_std(char *file)
 
   input_string("System.CurrrentDirectory",filepath,"./");
   input_string("System.Name",filename,"default");
-  input_string("DATA.PATH",DFT_DATA_PATH,"../DFT_DATA11");
+  input_string("DATA.PATH",DFT_DATA_PATH,"../DFT_DATA13");
   input_int("level.of.stdout", &level_stdout,1);
   input_int("level.of.fileout",&level_fileout,1);
+  input_logical("memory.usage.fileout",&memoryusage_fileout,0); /* default=off */
 
   if (level_stdout<0 || 3<level_stdout){
     printf("Invalid value of level.of.stdout\n");
     po++;
   }
-
+  
   if (level_fileout<0 || 3<level_fileout){
     printf("Invalid value of level.of.fileout\n");
     po++;
@@ -121,12 +115,6 @@ void Input_std(char *file)
   input_int("scf.RadialF.VNA", &List_YOUSO[34],8);
   
   /****************************************************
-                 the use of mixed basis
-  ****************************************************/
-
-  input_logical("scf.Mixed.Basis",&Mixed_Basis_flag,0); /* default=off */
-
-  /****************************************************
                       cutoff energy 
   ****************************************************/
 
@@ -135,7 +123,7 @@ void Input_std(char *file)
   input_double("scf.energycutoff",&Grid_Ecut,(double)150.0);
   input_logical("scf.MPI.tuned.grids",&MPI_tunedgrid_flag,0);
 
-  /* for fixed Ngrids  */
+  /* for fixed Ngrids */
 
   i_vec2[0]=0;
   i_vec2[1]=0;
@@ -168,29 +156,6 @@ void Input_std(char *file)
       MPI_Finalize(); 
       exit(0);
     }
-
-    /* for mixed basis set */
-
-    if (Mixed_Basis_flag==1){
-     
-      if ( ((Ngrid1%NG_Mixed_Basis)!=0)
-        || ((Ngrid2%NG_Mixed_Basis)!=0)
-	|| ((Ngrid3%NG_Mixed_Basis)!=0)){
-
-        printf("scf.Ngrid must be divisible by %2d for the mixed basis\n",NG_Mixed_Basis);
-
-        MPI_Finalize(); 
-        exit(0);
-      }
-    }
-  }
-
-  /****************************************************
-   adjustment of cutoff energy for mixed basis scheme
-  ****************************************************/
-
-  if (Mixed_Basis_flag==1){
-    Setup_Mixed_Basis(file,myid);
   }
 
   /****************************************************
@@ -199,8 +164,6 @@ void Input_std(char *file)
 
   input_int("Species.Number",&SpeciesNum,0);
   real_SpeciesNum = SpeciesNum;
-
-  if (Mixed_Basis_flag==1) SpeciesNum++;
 
   if (SpeciesNum<=0){
     printf("Species.Number may be wrong.\n");
@@ -249,19 +212,9 @@ void Input_std(char *file)
   if (fp=input_find("<Definition.of.Atomic.Species")) {
 
     for (i=0; i<SpeciesNum; i++){
-
-      if (Mixed_Basis_flag==1 && i==(SpeciesNum-1)){
-
-        sprintf(SpeName[i], "FEB");
-        sprintf(SpeBasis[i],"FEB-s1");
-        sprintf(SpeVPS[i],  "FEB");
-        SpeciesString2int(i);
-      }
-      else{
-        fgets(buf,MAXBUF,fp);
-        sscanf(buf,"%s %s %s %lf",SpeName[i],SpeBasis[i],SpeVPS[i],&Spe_AtomicMass[i]);
-        SpeciesString2int(i);
-      }
+      fgets(buf,MAXBUF,fp);
+      sscanf(buf,"%s %s %s %lf",SpeName[i],SpeBasis[i],SpeVPS[i],&Spe_AtomicMass[i]);
+      SpeciesString2int(i);
     }
 
     ungetc('\n',fp);
@@ -335,6 +288,9 @@ void Input_std(char *file)
   s_vec[i]="NVT_VS2";                 i_vec[i]=11; i++; /* modified by Ohwaki */
   s_vec[i]="EvsLC";                   i_vec[i]=12; i++; 
   s_vec[i]="NEB";                     i_vec[i]=13; i++; 
+  s_vec[i]="NVT_VS4";                 i_vec[i]=14; i++; /* modified by Ohwaki */
+  s_vec[i]="NVT_Langevin";            i_vec[i]=15; i++; /* modified by Ohwaki */
+  s_vec[i]="DF";                      i_vec[i]=16; i++; /* delta-factor */
 
   j = input_string2int("MD.Type",&MD_switch, i, s_vec,i_vec);
   if (j==-1){
@@ -348,6 +304,13 @@ void Input_std(char *file)
     po++;
   }
 
+  if (MD_switch==16 && MD_IterNumber!=7){ /* delta-factor */
+    printf("MD_IterNumber=%i should be 7 for the delta-factor calculation.\n",MD_IterNumber);
+    po++;
+  }
+
+  input_int("MD.Current.Iter",&MD_Current_Iter,0);
+
   input_double("MD.TimeStep",&MD_TimeStep,(double)0.5);
   if (MD_TimeStep<0.0){
     printf("MD.TimeStep=%lf should be over 0.\n",MD_TimeStep);
@@ -360,6 +323,9 @@ void Input_std(char *file)
   input_int("MD.Opt.EveryDIIS",&OptEveryDIIS,200);
 
   input_double("MD.EvsLC.Step",&MD_EvsLattice_Step,(double)0.4);
+
+  i_vec[0]=1; i_vec[1]=1, i_vec[2]=1;
+  input_intv("MD.EvsLC.flag",3,MD_EvsLattice_flag,i_vec);
 
   /*
   input_double("MD.Initial.MaxStep",&SD_scaling_user,(double)0.02); 
@@ -380,15 +346,14 @@ void Input_std(char *file)
     exit(0);
   }
 
-  if (MD_switch==2 || MD_switch==9 || MD_switch==11){ 
+  if (MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==14 || MD_switch==15){
 
     if (fp=input_find("<MD.TempControl")) {
 
       fscanf(fp,"%i",&TempNum);         
 
       /* added by mari */
-      if (MD_switch==2 || MD_switch==11) { /* NVT_VS or NVT_VS2 */
-
+      if (MD_switch==2 || MD_switch==11 || MD_switch==14) { /* NVT_VS or NVT_VS2 or NVT_VS4 */
 	NumScale[0] = 0;
 
 	for (i=1; i<=TempNum; i++){  
@@ -403,10 +368,13 @@ void Input_std(char *file)
       }
 
       /* added by mari */
-      else if (MD_switch==9) { /* NVT_NH */
+      else if (MD_switch==9 || MD_switch==15) { /* NVT_NH or NVT_Langevin*/
 	for (i=1; i<=TempNum; i++){  
 	  fscanf(fp,"%lf %lf",&TempPara[i][1],&TempPara[i][2]);
 	}  
+
+        TempPara[0][1] = 0;
+	TempPara[0][2] = TempPara[1][2];
       }
 
       if ( ! input_last("MD.TempControl>") ) {
@@ -432,12 +400,12 @@ void Input_std(char *file)
 
   input_double("NH.Mass.HeatBath",&TempQ,(double)20.0);
 
+  input_double("Langevin.Friction.Factor",&FricFac,(double)0.001);
+
   /****************************************************
              solver of the eigenvalue problem
   ****************************************************/
 
-  Solver_DIIS_flag = 0;
-  
   s_vec[0]="Recursion";     s_vec[1]="Cluster"; s_vec[2]="Band";
   s_vec[3]="NEGF";          s_vec[4]="DC";      s_vec[5]="GDC";
   s_vec[6]="Cluster-DIIS";  s_vec[7]="Krylov";  s_vec[8]="Cluster2";  
@@ -448,17 +416,18 @@ void Input_std(char *file)
 
   input_string2int("scf.EigenvalueSolver", &Solver, 9, s_vec,i_vec);
 
-  if (Solver==7){
-    Solver = 2;
-    Solver_DIIS_flag = 1;
+  if (Solver==1){
+    if (myid==Host_ID){
+      printf("The recursion method is not supported anymore.\n");
+    }
+    MPI_Finalize();
+    exit(0);
   }
 
-  if (Mixed_Basis_flag==1 && Solver==4){
-
+  if (Solver==6){
     if (myid==Host_ID){
-      printf("The mixed basis is not supported for NEGF\n");
+      printf("The GDC method is not supported anymore.\n");
     }
-
     MPI_Finalize();
     exit(0);
   }
@@ -467,6 +436,10 @@ void Input_std(char *file)
   s_vec[0]="dstevx"; s_vec[1]="dstegr"; s_vec[2]="dstedc"; s_vec[3]="dsteqr"; 
   i_vec[0]=2;        i_vec[1]=0;        i_vec[2]=1;        i_vec[3]=3;        
   input_string2int("scf.lapack.dste", &dste_flag, 4, s_vec,i_vec);
+
+  s_vec[0]="elpa1"; s_vec[1]="lapack"; 
+  i_vec[0]=1;       i_vec[1]=0;       
+  input_string2int("scf.eigen.lib", &scf_eigen_lib_flag, 3, s_vec,i_vec);
 
   if (Solver==1){
     if (myid==Host_ID){
@@ -574,8 +547,6 @@ void Input_std(char *file)
     exit(1);
   }
 
-  input_logical("scf.partialCoreCorrection",&PCC_switch,1);
-
   if (SpinP_switch==0 && SO_switch==1){
     if (myid==Host_ID){
       printf("scf.SpinOrbit.Coupling must be OFF when scf.SpinPolarization=OFF\n");
@@ -583,6 +554,17 @@ void Input_std(char *file)
     MPI_Finalize();
     exit(1);
   }
+
+  input_logical("scf.partialCoreCorrection",&PCC_switch,1);
+
+  if (PCC_switch==0){
+    if (myid==Host_ID){
+      printf("scf.partialCoreCorrection should be always switched on.\n");
+      printf("Check your input file.\n\n");
+    }
+    MPI_Finalize();
+    exit(1);
+  }  
 
   /* scf.NC.Zeeman.Spin */
 
@@ -707,7 +689,10 @@ void Input_std(char *file)
   /* set PeriodicGamma_flag in 1 in the band calc. with only the gamma point */
   PeriodicGamma_flag = 0;
   if (Solver==3 && Kspace_grid1==1 && Kspace_grid2==1 && Kspace_grid3==1){
-    printf("When only the gamma point is considered, the eigenvalue solver is changed to 'Cluster' with the periodic boundary condition.\n");
+   
+    if (myid==Host_ID){
+    printf("When only the gamma point is considered, the eigenvalue solver is changed to 'Cluster' with the periodic boundary condition.\n");fflush(stdout);
+    }
     PeriodicGamma_flag = 1;
     Solver = 2;
   }
@@ -793,7 +778,7 @@ void Input_std(char *file)
       printf("    The following calc. is implemented with ESM method.    \n");
       printf("    Boundary condition = Vacuum|Vacuum|Vacuum              \n");
       printf("                                                           \n");
-      printf("             Copyright (C), 2011, T.Ohwaki and M.Otani     \n");
+      printf("        Copyright (C), 2011-2013, T.Ohwaki and M.Otani     \n");
       printf("********************************************************** \n");
       printf("\n");
     }
@@ -806,7 +791,7 @@ void Input_std(char *file)
       printf("    The following calc. is implemented with ESM method.    \n");
       printf("    Boundary condition = Metal|Vacuum|Metal                \n");
       printf("                                                           \n");
-      printf("             Copyright (C), 2011, T.Ohwaki and M.Otani     \n");
+      printf("        Copyright (C), 2011-2013, T.Ohwaki and M.Otani     \n");
       printf("********************************************************** \n");
       printf("\n");
     }
@@ -819,7 +804,7 @@ void Input_std(char *file)
       printf("    The following calc. is implemented with ESM method.    \n");
       printf("    Boundary condition = Vacuum|Vacuum|Metal               \n");
       printf("                                                           \n");
-      printf("             Copyright (C), 2011, T.Ohwaki and M.Otani     \n");
+      printf("        Copyright (C), 2011-2013, T.Ohwaki and M.Otani     \n");
       printf("********************************************************** \n");
       printf("\n");
     }
@@ -833,7 +818,7 @@ void Input_std(char *file)
       printf("    Boundary condition = Metal|Vacuum|Metal                \n");
       printf("                         plus Uniform electric field       \n");
       printf("                                                           \n");
-      printf("             Copyright (C), 2011, T.Ohwaki and M.Otani     \n");
+      printf("        Copyright (C), 2011-2013, T.Ohwaki and M.Otani     \n");
       printf("********************************************************** \n");
       printf("\n");
     }
@@ -899,6 +884,14 @@ void Input_std(char *file)
     printf("\n");
   }
 
+  /*****************************************************
+  if restart files for geometry optimization exist, 
+  read data from them. 
+  default = off
+  *****************************************************/
+
+  input_logical("geoopt.restart",&GeoOpt_RestartFromFile, 0); 
+
   /****************************************************
                          atoms
   ****************************************************/
@@ -911,11 +904,7 @@ void Input_std(char *file)
 
     input_int("Atoms.Number",&atomnum,0);
 
-    if (Mixed_Basis_flag==1) atomnum += Ngrid1_FE*Ngrid2_FE*Ngrid3_FE;
-
     if (atomnum<=0){
-      printf("111 Atoms.Number may be wrong.\n");
-
       printf("Atoms.Number may be wrong.\n");
       po++;
     }
@@ -1219,13 +1208,16 @@ void Input_std(char *file)
 
             /* ended by T.Ohwaki */
 
-            Gxyz[i][k] = Gxyz[i][k] - (double)itmp;
+            if (GeoOpt_RestartFromFile==0){
 
-            if (myid==Host_ID){
-              if (k==1) printf("The fractional coordinate of a-axis for atom %d was translated within the range (0 to 1).\n",i);
-              if (k==2) printf("The fractional coordinate of b-axis for atom %d was translated within the range (0 to 1).\n",i);
-              if (k==3) printf("The fractional coordinate of c-axis for atom %d was translated within the range (0 to 1).\n",i);
-            }
+	      Gxyz[i][k] = Gxyz[i][k] - (double)itmp;
+
+	      if (myid==Host_ID){
+		if (k==1) printf("The fractional coordinate of a-axis for atom %d was translated within the range (0 to 1).\n",i);
+		if (k==2) printf("The fractional coordinate of b-axis for atom %d was translated within the range (0 to 1).\n",i);
+		if (k==3) printf("The fractional coordinate of c-axis for atom %d was translated within the range (0 to 1).\n",i);
+	      }
+	    }
 	  }
           else if (Gxyz[i][k]<0.0){
 
@@ -1245,13 +1237,16 @@ void Input_std(char *file)
 
             /* ended by T.Ohwaki */
 
-            Gxyz[i][k] = Gxyz[i][k] + (double)(abs(itmp)+1);
+            if (GeoOpt_RestartFromFile==0){
 
-            if (myid==Host_ID){
-              if (k==1) printf("The fractional coordinate of a-axis for atom %d was translated within the range (0 to 1).\n",i);
-              if (k==2) printf("The fractional coordinate of b-axis for atom %d was translated within the range (0 to 1).\n",i);
-              if (k==3) printf("The fractional coordinate of c-axis for atom %d was translated within the range (0 to 1).\n",i);
-            }
+	      Gxyz[i][k] = Gxyz[i][k] + (double)(abs(itmp)+1);
+
+	      if (myid==Host_ID){
+		if (k==1) printf("The fractional coordinate of a-axis for atom %d was translated within the range (0 to 1).\n",i);
+		if (k==2) printf("The fractional coordinate of b-axis for atom %d was translated within the range (0 to 1).\n",i);
+		if (k==3) printf("The fractional coordinate of c-axis for atom %d was translated within the range (0 to 1).\n",i);
+	      }
+	    }
 	  }
 
 	}
@@ -1287,7 +1282,7 @@ void Input_std(char *file)
       }
     }
 
-  } /* if (Solver!=4){  */
+  } /* if (Solver!=4){ */
 
   /*******************************
                 NEGF 
@@ -1349,7 +1344,7 @@ void Input_std(char *file)
     G12 = rtv[1][1]*rtv[1][1] + rtv[1][2]*rtv[1][2] + rtv[1][3]*rtv[1][3]; 
     G22 = rtv[2][1]*rtv[2][1] + rtv[2][2]*rtv[2][2] + rtv[2][3]*rtv[2][3]; 
     G32 = rtv[3][1]*rtv[3][1] + rtv[3][2]*rtv[3][2] + rtv[3][3]*rtv[3][3]; 
-    
+
     G12 = sqrt(G12);
     G22 = sqrt(G22);
     G32 = sqrt(G32);
@@ -1461,7 +1456,7 @@ void Input_std(char *file)
 
       /***********************************************
           5.291772083*10^{-11} m / 2.418884*10^{-17} s 
-          = 2.1876917*10^6 m/s                                                                               
+          = 2.1876917*10^6 m/s                         
           = 1 a.u. for velocity 
 
           1 m/s = 0.4571028 * 10^{-6} a.u.
@@ -1484,6 +1479,63 @@ void Input_std(char *file)
       /* format error */
       printf("Format error for MD.Init.Velocity\n");
       po++;
+    }
+  }
+
+  /*************************************************************
+   set atom groups for multi heat-bath thermostat for MD (VS4):
+                                     added by T. Ohwaki
+  *************************************************************/
+
+  input_int("MD.num.AtomGroup",&num_AtGr,1);
+
+  Allocate_Arrays(10);
+  int chk_vs4;
+
+  for (k=1; k<=num_AtGr; k++){
+    atnum_AtGr[k] = 0;
+  }
+
+  if (fp=input_find("<MD.AtomGroup")){
+
+    for (i=1; i<=atomnum; i++){
+      fscanf(fp,"%d %d", &j, &AtomGr[i]);
+      chk_vs4 = 0;
+
+      for (k=1; k<=num_AtGr; k++){
+        if (AtomGr[i] == k){
+          atnum_AtGr[k]+=1;
+          chk_vs4 = 1;
+        }
+      }
+
+      if (chk_vs4 ==0){
+        printf("Please check your input for atom group!!\n");
+        po++;
+      }
+    }
+
+    if ( ! input_last("MD.AtomGroup>") ) {
+      /* format error */
+      printf("Format error for MD.AtomGroup\n");
+      po++;
+    }
+
+    if (myid==Host_ID && 0<level_stdout){
+      printf("\n");
+      printf("*************************************************************** \n");
+      printf("  Multi heat-bath MD calculation with velocity scaling method   \n");
+      printf("                                                                \n");
+      printf("  Number of atom groups = %d \n", num_AtGr);
+      for (k=1; k<=num_AtGr; k++){
+	printf("  Number of atoms in group  %d  =  %d \n", k, atnum_AtGr[k]);
+      }
+      for (i=1; i<=atomnum; i++){
+	printf("  Atom  %d  : group  %d  \n", i, AtomGr[i]);
+      }
+      printf("                                                                \n");
+      printf("*************************************************************** \n");
+      printf("\n");
     }
   }
 
@@ -1567,10 +1619,31 @@ void Input_std(char *file)
   input_double("Atoms.NetCharge",&Given_Total_Charge,(double)0.0);
 
   /*****************************************************
-    if DM file exists, read data from it. default = off
+  if restart files exist, read data from them. 
+  default = off
   *****************************************************/
 
   input_logical("scf.restart",&Scf_RestartFromFile, 0); 
+
+  /* check the number of processors */
+
+  if (Scf_RestartFromFile){
+
+    MPI_Comm_size(mpi_comm_level1,&numprocs1);
+    sprintf(file_check,"%s%s_rst/%s.crst_check",filepath,filename,filename);
+
+    if ((fp = fopen(file_check,"r")) != NULL){
+      fscanf(fp,"%d %d %d %d",&i_vec[0],&i_vec[1],&i_vec[2],&i_vec[3]);
+      fclose(fp);
+
+      if (i_vec[0]!=numprocs1){
+        Remake_RestartFile(numprocs1,i_vec[0],i_vec[1],i_vec[2],i_vec[3]); 
+      }
+    }
+    else{
+      printf("Failure of saving %s\n",file_check);
+    }
+  }
 
   /****************************************************
                     Band dispersion
@@ -1745,7 +1818,7 @@ void Input_std(char *file)
                   order-N method for SCF
   ****************************************************/
 
-  input_double("orderN.HoppingRanges",&BCR,(double)5.0);
+  input_double("orderN.HoppingRanges",&BCR,(double)7.0);
   BCR=BCR/BohrR;
 
   input_int("orderN.NumHoppings",&NOHS_L,2);
@@ -1908,6 +1981,12 @@ void Input_std(char *file)
       kpoint_changeunit(tv,Band_UnitCell,MO_Nkpoint,MO_kpoint);
     }
   }
+
+  /****************************************************
+                  OutData_bin_flag
+  ****************************************************/
+
+  input_logical("OutData.bin.flag",&OutData_bin_flag,0); /* default=off */
 
   /****************************************************
            for output of contracted orbitals    
@@ -2625,6 +2704,107 @@ void Input_std(char *file)
 
 
 
+void Remake_RestartFile(int numprocs_new, int numprocs_old, int N1, int N2, int N3)
+{
+  int myid,ID,N2D,n2Ds_new,n2De_new;
+  int n2Ds_old,n2De_old,num,spin,i,j,n,n3,m;
+  int IDs_old,IDe_old,n2D;
+  FILE *fp;
+  char fileCD[YOUSO10];
+  double *tmp_array0,*tmp_array1;
+
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /*
+  printf("myid=%2d numprocs_new=%2d numprocs_old=%2d\n",
+          myid,numprocs_new,numprocs_old);
+  */
+
+  N2D = N1*N2;
+  n2Ds_new = (myid*N2D+numprocs_new-1)/numprocs_new;
+  n2De_new = ((myid+1)*N2D+numprocs_new-1)/numprocs_new;
+  IDs_old = n2Ds_new*numprocs_old/N2D;
+  IDe_old = n2De_new*numprocs_old/N2D;
+
+  /* allocation of array */     
+  num = (n2De_new-n2Ds_new)*N3;
+  tmp_array1 = (double*)malloc(sizeof(double)*num);
+
+  /*
+  printf("n2Ds_new=%2d n2De_new=%2d\n",n2Ds_new,n2De_new);
+  printf("IDs_old=%2d IDe_old=%2d\n",IDs_old,IDe_old);
+  printf("num=%2d\n",num);
+  */
+
+  /* restructure files */
+
+  for (spin=0; spin<=SpinP_switch; spin++){
+    for (i=0; i<Extrapolated_Charge_History; i++){
+
+      n = 0;
+      for (ID=IDs_old; ID<=IDe_old; ID++){
+
+	n2Ds_old = (ID*N2D+numprocs_old-1)/numprocs_old;
+	n2De_old = ((ID+1)*N2D+numprocs_old-1)/numprocs_old;
+
+	/* allocation of array */     
+	num = (n2De_old-n2Ds_old)*N3;
+	tmp_array0 = (double*)malloc(sizeof(double)*num);
+
+        /* set file name */ 
+	sprintf(fileCD,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,spin,ID,i);
+
+        /* read files */ 
+	if ((fp = fopen(fileCD,"rb")) != NULL){
+
+	  fread(tmp_array0,sizeof(double),num,fp);
+
+	  /*
+          for (j=0; j<num; j++){
+            printf("ABC spin=%2d i=%2d ID=%2d j=%2d den=%15.12f\n",spin,i,ID,j,tmp_array0[j]);
+          } 
+	  */
+
+	  fclose(fp);
+ 
+          for (n2D=n2Ds_old; n2D<n2De_old; n2D++){
+            if (n2Ds_new<=n2D && n2D<n2De_new){
+              for (n3=0; n3<N3; n3++){
+                m = (n2D-n2Ds_old)*N3 + n3; 
+                tmp_array1[n] = tmp_array0[m];              
+                n++;
+	      }
+            }
+          } 
+	}
+
+	/* freeing of array */     
+	free(tmp_array0);
+
+      } /* ID */
+
+      /* set file name */ 
+      sprintf(fileCD,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,spin,myid,i);
+
+      if (n!=0){  
+	/* save data */
+	if ((fp = fopen(fileCD,"wb")) != NULL){
+	  fwrite(tmp_array1,sizeof(double),n,fp);
+	  fclose(fp);
+	}
+	else{
+	  printf("Could not open a file %s\n",fileCD);
+	}
+      }
+
+    } /* i */
+  } /* spin */
+  
+  /* freeing of array */     
+  free(tmp_array1);
+}
+
+
 
 static void Set_In_First_Cell()
 {
@@ -3230,7 +3410,7 @@ void SpeciesString2int(int p)
     i++;
   }
 
-  if (2<=level_stdout || Cnt_switch==1){
+  if (2<=level_stdout && myid==Host_ID){
     printf("<Input_std>  SpeBasisName=%s\n",SpeBasisName[p]);
   }
 
@@ -3771,193 +3951,6 @@ int divisible_cheker(int N)
 
 
 
-void Setup_Mixed_Basis(char *file, int myid)
-{
-  int i,po;
-  FILE *fp;
-  char *s_vec[20];
-  int i_vec[20];
-  double LngA,LngB,LngC;
-  double A2,B2,C2;
-  double GridV,GVolume;
-  double tmp[4];
-
-  po = 0;
-
-  s_vec[0]="Ang"; s_vec[1]="AU";
-  i_vec[0]=0;  i_vec[1]=1;
-  input_string2int("Atoms.UnitVectors.Unit",&unitvector_unit,2,s_vec,i_vec);
-
-  if (fp=input_find("<Atoms.Unitvectors")) {
-    for (i=1; i<=3; i++){
-      fscanf(fp,"%lf %lf %lf",&tv[i][1],&tv[i][2],&tv[i][3]);
-    }
-    if ( ! input_last("Atoms.Unitvectors>") ) {
-      /* format error */
-      printf("Format error for Atoms.Unitvectors\n");
-      po++;
-    }
-
-    /* Ang to AU */
-    if (unitvector_unit==0){
-      for (i=1; i<=3; i++){
-	tv[i][1] = tv[i][1]/BohrR;
-	tv[i][2] = tv[i][2]/BohrR;
-	tv[i][3] = tv[i][3]/BohrR;
-      }
-    }
-  }
-
-  else {
-    /* for automatically set up the unit cell */
-
-    if (myid==Host_ID){
-      printf("You have to give the unit cell for the mixed basis scheme.\n");
-    }
-    MPI_Finalize();
-    exit(1);
-  }
-
-  /***************************
-     set up:
-     Finite_Elements_Ecut
-     Ngrid1_FE
-     Ngrid2_FE
-     Ngrid3_FE
-  ***************************/
-
-  Finite_Elements_Ecut = Grid_Ecut/(double)(NG_Mixed_Basis*NG_Mixed_Basis);
-
-  printf("Finite_Elements_Ecut=%15.12f\n",Finite_Elements_Ecut);  
-
-  Ngrid1_FE = 4;
-  Ngrid2_FE = 4;
-  Ngrid3_FE = 4;
-
-  gtv_FE[1][1] = tv[1][1]/((double)Ngrid1_FE);
-  gtv_FE[1][2] = tv[1][2]/((double)Ngrid1_FE);
-  gtv_FE[1][3] = tv[1][3]/((double)Ngrid1_FE);
-
-  gtv_FE[2][1] = tv[2][1]/((double)Ngrid2_FE);
-  gtv_FE[2][2] = tv[2][2]/((double)Ngrid2_FE);
-  gtv_FE[2][3] = tv[2][3]/((double)Ngrid2_FE);
-    
-  gtv_FE[3][1] = tv[3][1]/((double)Ngrid3_FE);
-  gtv_FE[3][2] = tv[3][2]/((double)Ngrid3_FE);
-  gtv_FE[3][3] = tv[3][3]/((double)Ngrid3_FE);
-    
-  Cross_Product(gtv_FE[2],gtv_FE[3],tmp);
-
-  GridV = Dot_Product(gtv_FE[1],tmp); 
-  GVolume = fabs( GridV );
-
-  Cross_Product(gtv_FE[2],gtv_FE[3],tmp);
-  rgtv_FE[1][1] = 2.0*PI*tmp[1]/GridV;
-  rgtv_FE[1][2] = 2.0*PI*tmp[2]/GridV;
-  rgtv_FE[1][3] = 2.0*PI*tmp[3]/GridV;
-
-  Cross_Product(gtv_FE[3],gtv_FE[1],tmp);
-  rgtv_FE[2][1] = 2.0*PI*tmp[1]/GridV;
-  rgtv_FE[2][2] = 2.0*PI*tmp[2]/GridV;
-  rgtv_FE[2][3] = 2.0*PI*tmp[3]/GridV;
-    
-  Cross_Product(gtv_FE[1],gtv_FE[2],tmp);
-  rgtv_FE[3][1] = 2.0*PI*tmp[1]/GridV;
-  rgtv_FE[3][2] = 2.0*PI*tmp[2]/GridV;
-  rgtv_FE[3][3] = 2.0*PI*tmp[3]/GridV;
-
-  A2 = rgtv_FE[1][1]*rgtv_FE[1][1] + rgtv_FE[1][2]*rgtv_FE[1][2] + rgtv_FE[1][3]*rgtv_FE[1][3];
-  B2 = rgtv_FE[2][1]*rgtv_FE[2][1] + rgtv_FE[2][2]*rgtv_FE[2][2] + rgtv_FE[2][3]*rgtv_FE[2][3];
-  C2 = rgtv_FE[3][1]*rgtv_FE[3][1] + rgtv_FE[3][2]*rgtv_FE[3][2] + rgtv_FE[3][3]*rgtv_FE[3][3];
-
-  A2 = A2/4.0;
-  B2 = B2/4.0;
-  C2 = C2/4.0;
-
-  Find_ApproxFactN(tv,&Finite_Elements_Ecut,&Ngrid1_FE,&Ngrid2_FE,&Ngrid3_FE,&A2,&B2,&C2);
-
-
-  /*
-  Ngrid1_FE = 2;
-  Ngrid2_FE = 2;
-  Ngrid3_FE = 2;
-  */
-
-  printf("Ngrid1_FE=%2d A2=%15.12f\n",Ngrid1_FE,A2);  
-  printf("Ngrid2_FE=%2d B2=%15.12f\n",Ngrid2_FE,B2);  
-  printf("Ngrid3_FE=%2d C2=%15.12f\n",Ngrid3_FE,C2);
-
-  gtv_FE[1][1] = tv[1][1]/(double)Ngrid1_FE;
-  gtv_FE[1][2] = tv[1][2]/(double)Ngrid1_FE;
-  gtv_FE[1][3] = tv[1][3]/(double)Ngrid1_FE;
-
-  gtv_FE[2][1] = tv[2][1]/(double)Ngrid2_FE;
-  gtv_FE[2][2] = tv[2][2]/(double)Ngrid2_FE;
-  gtv_FE[2][3] = tv[2][3]/(double)Ngrid2_FE;
-    
-  gtv_FE[3][1] = tv[3][1]/(double)Ngrid3_FE;
-  gtv_FE[3][2] = tv[3][2]/(double)Ngrid3_FE;
-  gtv_FE[3][3] = tv[3][3]/(double)Ngrid3_FE;
-
-  LngA = sqrt( Dot_Product(gtv_FE[1],gtv_FE[1]) );
-  LngB = sqrt( Dot_Product(gtv_FE[2],gtv_FE[2]) );
-  LngC = sqrt( Dot_Product(gtv_FE[3],gtv_FE[3]) );
-
-  rcut_FEB = LngA;
-  if (LngB<rcut_FEB) rcut_FEB = LngB;
-  if (LngC<rcut_FEB) rcut_FEB = LngC;
-  rcut_FEB -= 1.0e-10;
-
-  printf("rcut_FEB=%15.12f\n",rcut_FEB);
-
-  /* set up Grid_Ecut */
-
-  Ngrid1 = Ngrid1_FE*NG_Mixed_Basis;
-  Ngrid2 = Ngrid2_FE*NG_Mixed_Basis;
-  Ngrid3 = Ngrid3_FE*NG_Mixed_Basis;
-
-  gtv[1][1] = tv[1][1]/((double)Ngrid1);
-  gtv[1][2] = tv[1][2]/((double)Ngrid1);
-  gtv[1][3] = tv[1][3]/((double)Ngrid1);
-
-  gtv[2][1] = tv[2][1]/((double)Ngrid2);
-  gtv[2][2] = tv[2][2]/((double)Ngrid2);
-  gtv[2][3] = tv[2][3]/((double)Ngrid2);
-    
-  gtv[3][1] = tv[3][1]/((double)Ngrid3);
-  gtv[3][2] = tv[3][2]/((double)Ngrid3);
-  gtv[3][3] = tv[3][3]/((double)Ngrid3);
-    
-  Cross_Product(gtv[2],gtv[3],tmp);
-
-  GridV = Dot_Product(gtv[1],tmp); 
-  GVolume = fabs( GridV );
-
-  Cross_Product(gtv[2],gtv[3],tmp);
-  rgtv[1][1] = 2.0*PI*tmp[1]/GridV;
-  rgtv[1][2] = 2.0*PI*tmp[2]/GridV;
-  rgtv[1][3] = 2.0*PI*tmp[3]/GridV;
-
-  Cross_Product(gtv[3],gtv[1],tmp);
-  rgtv[2][1] = 2.0*PI*tmp[1]/GridV;
-  rgtv[2][2] = 2.0*PI*tmp[2]/GridV;
-  rgtv[2][3] = 2.0*PI*tmp[3]/GridV;
-    
-  Cross_Product(gtv[1],gtv[2],tmp);
-  rgtv[3][1] = 2.0*PI*tmp[1]/GridV;
-  rgtv[3][2] = 2.0*PI*tmp[2]/GridV;
-  rgtv[3][3] = 2.0*PI*tmp[3]/GridV;
-
-  A2 = rgtv[1][1]*rgtv[1][1] + rgtv[1][2]*rgtv[1][2] + rgtv[1][3]*rgtv[1][3];
-  B2 = rgtv[2][1]*rgtv[2][1] + rgtv[2][2]*rgtv[2][2] + rgtv[2][3]*rgtv[2][3];
-  C2 = rgtv[3][1]*rgtv[3][1] + rgtv[3][2]*rgtv[3][2] + rgtv[3][3]*rgtv[3][3];
-
-  A2 = A2/4.0;
-  B2 = B2/4.0;
-  C2 = C2/4.0;
-
-  Grid_Ecut = (A2 + B2 + C2 - 1.0)/3.0;
-}
 
 
 

@@ -16,84 +16,62 @@
 #include "openmx_common.h"
 #include "tran_prototypes.h"
 #include "tran_variables.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
+
 
 #define  maxima_step  1000000.0
 
-
-void Kerker_Mixing_Rhok_Normal(int Change_switch,
+static void Kerker_Mixing_Rhok_Normal(
+                               int Change_switch,
 			       double Mix_wgt,
-			       double *****ReRhok,
-			       double *****ImRhok,
-			       double ****ReBestRhok,
-			       double ****ImBestRhok,
-			       double *****Residual_ReRhok,
-			       double *****Residual_ImRhok,
-			       double ***ReV1,
-			       double ***ImV1,
-			       double ***ReV2,
-			       double ***ImV2,
-			       double ***ReRhoAtomk,
-			       double ***ImRhoAtomk);
+			       double ***ReRhok,
+			       double ***ImRhok,
+			       double **Residual_ReRhok,
+			       double **Residual_ImRhok,
+			       double *ReVk,
+			       double *ImVk,
+			       double *ReRhoAtomk,
+			       double *ImRhoAtomk);
 
-void Kerker_Mixing_Rhok_NEGF(int Change_switch,
+
+static void Kerker_Mixing_Rhok_NEGF(
+                             int Change_switch,
 			     double Mix_wgt,
-			     double *****ReRhok,
-			     double *****ImRhok,
-			     double ****ReBestRhok,
-			     double ****ImBestRhok,
-			     double *****Residual_ReRhok,
-			     double *****Residual_ImRhok,
-			     double ***ReV1,
-			     double ***ImV1,
-			     double ***ReV2,
-			     double ***ImV2,
-			     double ***ReRhoAtomk,
-			     double ***ImRhoAtomk);
+			     double ***ReRhok,
+			     double ***ImRhok,
+			     double **Residual_ReRhok,
+			     double **Residual_ImRhok,
+			     double *ReVk,
+			     double *ImVk,
+			     double *ReRhoAtomk,
+			     double *ImRhoAtomk);
+
 
 
 
 void Kerker_Mixing_Rhok(int Change_switch,
                         double Mix_wgt,
-                        double *****ReRhok,
-                        double *****ImRhok,
-                        double ****ReBestRhok,
-                        double ****ImBestRhok,
-                        double *****Residual_ReRhok,
-                        double *****Residual_ImRhok,
-                        double ***ReV1,
-                        double ***ImV1,
-                        double ***ReV2,
-                        double ***ImV2,
-                        double ***ReRhoAtomk,
-                        double ***ImRhoAtomk)
+                        double ***ReRhok,
+                        double ***ImRhok,
+                        double **Residual_ReRhok,
+                        double **Residual_ImRhok,
+                        double *ReVk,
+                        double *ImVk,
+                        double *ReRhoAtomk,
+                        double *ImRhoAtomk)
 {
 
-  if (Solver!=4 || TRAN_Poisson_flag==4){
+  if (Solver!=4 || TRAN_Poisson_flag==2){
 
     Kerker_Mixing_Rhok_Normal(Change_switch,
 			      Mix_wgt,
 			      ReRhok,
 			      ImRhok,
-			      ReBestRhok,
-			      ImBestRhok,
 			      Residual_ReRhok,
 			      Residual_ImRhok,
-			      ReV1,
-			      ImV1,
-			      ReV2,
-			      ImV2,
+			      ReVk,
+			      ImVk,
 			      ReRhoAtomk,
 			      ImRhoAtomk);
   }
@@ -104,14 +82,10 @@ void Kerker_Mixing_Rhok(int Change_switch,
 			    Mix_wgt,
 			    ReRhok,
 			    ImRhok,
-			    ReBestRhok,
-			    ImBestRhok,
 			    Residual_ReRhok,
 			    Residual_ImRhok,
-			    ReV1,
-			    ImV1,
-			    ReV2,
-			    ImV2,
+			    ReVk,
+			    ImVk,
 			    ReRhoAtomk,
 			    ImRhoAtomk);
   }
@@ -129,37 +103,42 @@ void Kerker_Mixing_Rhok(int Change_switch,
 
 void Kerker_Mixing_Rhok_Normal(int Change_switch,
 			       double Mix_wgt,
-			       double *****ReRhok,
-			       double *****ImRhok,
-			       double ****ReBestRhok,
-			       double ****ImBestRhok,
-			       double *****Residual_ReRhok,
-			       double *****Residual_ImRhok,
-			       double ***ReV1,
-			       double ***ImV1,
-			       double ***ReV2,
-			       double ***ImV2,
-			       double ***ReRhoAtomk,
-			       double ***ImRhoAtomk)
+			       double ***ReRhok,
+			       double ***ImRhok,
+			       double **Residual_ReRhok,
+			       double **Residual_ImRhok,
+			       double *ReVk,
+			       double *ImVk,
+			       double *ReRhoAtomk,
+			       double *ImRhoAtomk)
 {
   static int firsttime=1;
   int ian,jan,Mc_AN,Gc_AN,spin,spinmax;
-  int h_AN,Gh_AN,m,n,i,j,k,k1,k2,k3,kk2;
-  int knum,knum_full,MN,pSCF_iter;
+  int h_AN,Gh_AN,m,n,i,j,k,k1,k2,k3;
+  int MN,pSCF_iter,p0,p1;
+  int GN,GNs,N2D,BN_AB,N3[4];
   double Mix_wgt2,Norm,My_Norm,tmp0,tmp1;
   double Min_Weight,Max_Weight,wgt0,wgt1;
   double Gx,Gy,Gz,G2,size_Kerker_weight;
   double sk1,sk2,sk3,G12,G22,G32;
-  double G0,G02,weight;
+  double G0,G02,G02p,weight;
   int numprocs,myid,ID;
-  double ***Kerker_weight;
+  double *Kerker_weight;
   /* for OpenMP */
   int OMPID,Nthrds,Nprocs,Nloop,Nthrds0;
-  double *My_Norm_threads;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /* allocate arrays */
+
+  size_Kerker_weight = My_NumGridB_CB;
+  Kerker_weight = (double*)malloc(sizeof(double)*My_NumGridB_CB); 
+
+  if (firsttime)
+  PrintMemory("Kerker_Mixing_Rhok: Kerker_weight",sizeof(double)*size_Kerker_weight,NULL);
+  firsttime=0;
 
   /* find an optimum G0 */
 
@@ -175,6 +154,7 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
   else                  G0 = sqrt(G0);
 
   G02 = Kerker_factor*Kerker_factor*G0*G0;
+  G02p = (0.01*Kerker_factor*G0)*(0.01*Kerker_factor*G0);
 
   if      (SpinP_switch==0)  spinmax = 1;
   else if (SpinP_switch==1)  spinmax = 2;
@@ -184,64 +164,38 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
             set Kerker_weight 
   ************************************/
 
-  size_Kerker_weight = My_NGrid2_Poisson*Ngrid1*Ngrid3;
-  knum = My_NGrid2_Poisson*Ngrid1*Ngrid3;
-  knum_full = spinmax*My_NGrid2_Poisson*Ngrid1*Ngrid3;
+  N2D = Ngrid3*Ngrid2;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid1;
 
-  Kerker_weight = (double***)malloc(sizeof(double**)*My_NGrid2_Poisson); 
-  for (i=0; i<My_NGrid2_Poisson; i++){
-    Kerker_weight[i] = (double**)malloc(sizeof(double*)*Ngrid1); 
-    for (j=0; j<Ngrid1; j++){
-      Kerker_weight[i][j] = (double*)malloc(sizeof(double)*Ngrid3); 
-    }
-  }
+  for (k=0; k<My_NumGridB_CB; k++){
 
-  if (firsttime)
-  PrintMemory("Kerker_Mixing_Rhok: Kerker_weight",sizeof(double)*size_Kerker_weight,NULL);
-  firsttime=0;
+    /* get k3, k2, and k1 */
 
-#pragma omp parallel shared(myid,Start_Grid2,knum,G02,Kerker_weight,rtv,Ngrid3,Ngrid2,Ngrid1) private(OMPID,Nthrds,Nprocs,k2,kk2,sk2,k,k1,k3,sk1,sk3,Gx,Gy,Gz,G2,weight)
-  {
+    GN = k + GNs;     
+    k3 = GN/(Ngrid2*Ngrid1);    
+    k2 = (GN - k3*Ngrid2*Ngrid1)/Ngrid1;
+    k1 = GN - k3*Ngrid2*Ngrid1 - k2*Ngrid1; 
 
-    /* get info. on OpenMP */ 
+    if (k1<Ngrid1/2)  sk1 = (double)k1;
+    else              sk1 = (double)(k1 - Ngrid1);
 
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
+    if (k2<Ngrid2/2)  sk2 = (double)k2;
+    else              sk2 = (double)(k2 - Ngrid2);
 
-    /* one-dimensionalized loop */
+    if (k3<Ngrid3/2)  sk3 = (double)k3;
+    else              sk3 = (double)(k3 - Ngrid3);
 
-    for (k=OMPID*knum/Nthrds; k<(OMPID+1)*knum/Nthrds; k++){
+    Gx = sk1*rtv[1][1] + sk2*rtv[2][1] + sk3*rtv[3][1];
+    Gy = sk1*rtv[1][2] + sk2*rtv[2][2] + sk3*rtv[3][2]; 
+    Gz = sk1*rtv[1][3] + sk2*rtv[2][3] + sk3*rtv[3][3];
+    G2 = Gx*Gx + Gy*Gy + Gz*Gz;
 
-      /* get k2, k1, and k3 */
- 
-      k2 = k/(Ngrid1*Ngrid3);
-      k1 = (k - k2*(Ngrid1*Ngrid3))/Ngrid3;
-      k3 = k - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
+    if (k1==0 && k2==0 && k3==0)  weight = 1.0;
+    else                          weight = (G2 + G02)/(G2+G02p);
 
-      kk2 = k2 + Start_Grid2[myid];
+    Kerker_weight[k] = sqrt(weight);
 
-      if (kk2<Ngrid2/2) sk2 = (double)kk2;
-      else              sk2 = (double)(kk2 - Ngrid2);
-
-      if (k1<Ngrid1/2)  sk1 = (double)k1;
-      else              sk1 = (double)(k1 - Ngrid1);
-
-      if (k3<Ngrid3/2)  sk3 = (double)k3;
-      else              sk3 = (double)(k3 - Ngrid3);
-
-      Gx = sk1*rtv[1][1] + sk2*rtv[2][1] + sk3*rtv[3][1];
-      Gy = sk1*rtv[1][2] + sk2*rtv[2][2] + sk3*rtv[3][2]; 
-      Gz = sk1*rtv[1][3] + sk2*rtv[2][3] + sk3*rtv[3][3];
-      G2 = Gx*Gx + Gy*Gy + Gz*Gz;
-
-      if (k1==0 && kk2==0 && k3==0)  weight = 1.0;
-      else                           weight = (G2 + G02)/G2;
-
-      Kerker_weight[k2][k1][k3] = weight;
-
-    } /* k */
-  } /* #pragma omp parallel */
+  } /* k */
 
   /* start... */
 
@@ -264,52 +218,21 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
        norm of residual charge density in k-space
   ****************************************************/
 
-  /* get Nthrds0 */  
-#pragma omp parallel shared(Nthrds0)
-  {
-    Nthrds0 = omp_get_num_threads();
-  }
-  /* allocation of array */
-  My_Norm_threads = (double*)malloc(sizeof(double)*Nthrds0);
- for (Nloop=0; Nloop<Nthrds0; Nloop++) My_Norm_threads[Nloop] = 0.0;
+  MPI_Barrier(mpi_comm_level1);
 
-#pragma omp parallel shared(Residual_ReRhok,Residual_ImRhok,ImRhok,ReRhok,Kerker_weight,My_Norm_threads,knum_full,My_NGrid2_Poisson,Ngrid1,Ngrid3) private(OMPID,Nthrds,Nprocs,k,spin,k2,k1,k3,Nloop,weight,tmp0,tmp1)
-  {
-    /* get info. on OpenMP */ 
+  My_Norm = 0.0;
+  for (spin=0; spin<spinmax; spin++){
+    for (k=0; k<My_NumGridB_CB; k++){
 
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    /* one-dimensionalized loop */
-
-    for (k=OMPID*knum_full/Nthrds; k<(OMPID+1)*knum_full/Nthrds; k++){
-
-      /* get spin, k2, k1, and k3 */
-
-      spin = k/(My_NGrid2_Poisson*Ngrid1*Ngrid3);
-      k2 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3))/(Ngrid1*Ngrid3);
-      k1 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3))/Ngrid3;  
-      k3 = k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
-
-      weight = Kerker_weight[k2][k1][k3];
-      tmp0 = ReRhok[0][spin][k2][k1][k3] - ReRhok[1][spin][k2][k1][k3];
-      tmp1 = ImRhok[0][spin][k2][k1][k3] - ImRhok[1][spin][k2][k1][k3];
-      Residual_ReRhok[1][spin][k2][k1][k3] = tmp0;
-      Residual_ImRhok[1][spin][k2][k1][k3] = tmp1;
-      My_Norm_threads[OMPID] += (tmp0*tmp0 + tmp1*tmp1)*weight;
+      weight = Kerker_weight[k];
+      tmp0 = (ReRhok[0][spin][k] - ReRhok[1][spin][k])*weight;
+      tmp1 = (ImRhok[0][spin][k] - ImRhok[1][spin][k])*weight;
+      Residual_ReRhok[spin][My_NumGridB_CB+k] = tmp0;
+      Residual_ImRhok[spin][My_NumGridB_CB+k] = tmp1;
+      My_Norm += tmp0*tmp0 + tmp1*tmp1;
 
     } /* k */
-  } /* #pragma omp parallel */
-
-  /* sum of My_Norm_threads */
-  My_Norm = 0.0;
-  for (Nloop=0; Nloop<Nthrds0; Nloop++){
-    My_Norm += My_Norm_threads[Nloop];
-  }
-
-  /* freeing of array */
-  free(My_Norm_threads);
+  } 
 
   /****************************************************
     MPI: 
@@ -320,7 +243,7 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
   MPI_Allreduce(&My_Norm, &Norm, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
   /* normalization by the number of grids */
-  Norm = Norm/(double)Ngrid1/(double)Ngrid2/(double)Ngrid3;
+  Norm = Norm/(double)(Ngrid1*Ngrid2*Ngrid3);
 
   /****************************************************
     find an optimum mixing weight
@@ -424,47 +347,28 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
                         Mixing
   ****************************************************/
 
-#pragma omp parallel shared(ImRhok,ReRhok,Mix_wgt,Kerker_weight,Ngrid3,Ngrid1,My_NGrid2_Poisson,knum_full) private(OMPID,Nthrds,Nprocs,k,spin,k2,k1,k3,weight,wgt0,wgt1)
-  {
-    /* get info. on OpenMP */ 
+  for (spin=0; spin<spinmax; spin++){
+    for (k=0; k<My_NumGridB_CB; k++){
 
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    /* one-dimensionalized loop */
-
-    for (k=OMPID*knum_full/Nthrds; k<(OMPID+1)*knum_full/Nthrds; k++){
-
-      /* get spin, k2, k1, and k3 */
-
-      spin = k/(My_NGrid2_Poisson*Ngrid1*Ngrid3);
-      k2 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3))/(Ngrid1*Ngrid3);
-      k1 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3))/Ngrid3;  
-      k3 = k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
-
-      weight = 1.0/Kerker_weight[k2][k1][k3];
+      weight = 1.0/Kerker_weight[k];
       wgt0  = Mix_wgt*weight;
       wgt1 =  1.0 - wgt0;
 
-      ReRhok[0][spin][k2][k1][k3] = wgt0*ReRhok[0][spin][k2][k1][k3]
- 	                          + wgt1*ReRhok[1][spin][k2][k1][k3];
-
-      ImRhok[0][spin][k2][k1][k3] = wgt0*ImRhok[0][spin][k2][k1][k3]
-	                          + wgt1*ImRhok[1][spin][k2][k1][k3];
+      ReRhok[0][spin][k] = wgt0*ReRhok[0][spin][k] + wgt1*ReRhok[1][spin][k];
+      ImRhok[0][spin][k] = wgt0*ImRhok[0][spin][k] + wgt1*ImRhok[1][spin][k];
 
       /* correction to largely changing components */
 
-      tmp0 = ReRhok[0][spin][k2][k1][k3] - ReRhok[1][spin][k2][k1][k3];  
-      tmp1 = ImRhok[0][spin][k2][k1][k3] - ImRhok[1][spin][k2][k1][k3];  
+      tmp0 = ReRhok[0][spin][k] - ReRhok[1][spin][k];  
+      tmp1 = ImRhok[0][spin][k] - ImRhok[1][spin][k];  
 
       if ( maxima_step<(fabs(tmp0)+fabs(tmp1)) ){
-	ReRhok[0][spin][k2][k1][k3] = sgn(tmp0)*maxima_step + ReRhok[1][spin][k2][k1][k3]; 
-	ImRhok[0][spin][k2][k1][k3] = sgn(tmp1)*maxima_step + ImRhok[1][spin][k2][k1][k3]; 
+	ReRhok[0][spin][k] = sgn(tmp0)*maxima_step + ReRhok[1][spin][k]; 
+	ImRhok[0][spin][k] = sgn(tmp1)*maxima_step + ImRhok[1][spin][k]; 
       }
 
     } /* k */
-  } /* #pragma omp parallel */
+  } /* spin */
 
   /****************************************************
                          shift of rho
@@ -472,13 +376,9 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
 
   for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
     for (spin=0; spin<spinmax; spin++){
-      for (k2=0; k2<My_NGrid2_Poisson; k2++){
-	for (k1=0; k1<Ngrid1; k1++){
-	  for (k3=0; k3<Ngrid3; k3++){
-	    ReRhok[pSCF_iter][spin][k2][k1][k3] = ReRhok[pSCF_iter-1][spin][k2][k1][k3]; 
-	    ImRhok[pSCF_iter][spin][k2][k1][k3] = ImRhok[pSCF_iter-1][spin][k2][k1][k3]; 
-	  }
-	}
+      for (k=0; k<My_NumGridB_CB; k++){
+	ReRhok[pSCF_iter][spin][k] = ReRhok[pSCF_iter-1][spin][k]; 
+	ImRhok[pSCF_iter][spin][k] = ImRhok[pSCF_iter-1][spin][k]; 
       }
     }
   }
@@ -488,196 +388,98 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
   ****************************************************/
 
   for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+    p0 = pSCF_iter*My_NumGridB_CB;
+    p1 = (pSCF_iter-1)*My_NumGridB_CB; 
+
     for (spin=0; spin<spinmax; spin++){
-      for (k2=0; k2<My_NGrid2_Poisson; k2++){
-	for (k1=0; k1<Ngrid1; k1++){
-	  for (k3=0; k3<Ngrid3; k3++){
-	    Residual_ReRhok[pSCF_iter][spin][k2][k1][k3] = Residual_ReRhok[pSCF_iter-1][spin][k2][k1][k3];
-	    Residual_ImRhok[pSCF_iter][spin][k2][k1][k3] = Residual_ImRhok[pSCF_iter-1][spin][k2][k1][k3]; 
-	  }
-	}
+      for (k=0; k<My_NumGridB_CB; k++){
+	Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
+	Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k]; 
       }
     }
   }
 
-  /****************************************************
-        find the charge density in real space 
-  ****************************************************/
+  /************************************************************
+    find the charge density for the partition B in real space 
+  ************************************************************/
 
-  tmp0 = 1.0/(double)Ngrid1/(double)Ngrid2/(double)Ngrid3;
+  tmp0 = 1.0/(double)(Ngrid1*Ngrid2*Ngrid3);
 
   for (spin=0; spin<spinmax; spin++){
 
-    for (k2=0; k2<My_NGrid2_Poisson; k2++){
-      for (k1=0; k1<Ngrid1; k1++){
-        for (k3=0; k3<Ngrid3; k3++){
-          ReV2[k2][k1][k3] = ReRhok[0][spin][k2][k1][k3];
-          ImV2[k2][k1][k3] = ImRhok[0][spin][k2][k1][k3];
-        }
-      }
+    for (k=0; k<My_NumGridB_CB; k++){
+      ReVk[k] = ReRhok[0][spin][k];
+      ImVk[k] = ImRhok[0][spin][k];
     }
 
     if (spin==0 || spin==1){
-      Get_Value_inReal(0,ReV2,ImV2,ReV1,ImV1,Density_Grid[spin],Density_Grid[spin]);
 
-#pragma omp parallel shared(tmp0,spin,Density_Grid) private(OMPID,Nthrds,Nprocs,MN)
-      {
-	/* get info. on OpenMP */ 
+      Get_Value_inReal(0,Density_Grid_B[spin],Density_Grid_B[spin],ReVk,ImVk);
 
-	OMPID = omp_get_thread_num();
-	Nthrds = omp_get_num_threads();
-	Nprocs = omp_get_num_procs();
-
-	for (MN=OMPID*My_NumGrid1/Nthrds; MN<(OMPID+1)*My_NumGrid1/Nthrds; MN++){
-	  Density_Grid[spin][MN] = Density_Grid[spin][MN]*tmp0;
-	}
-
-      } /* #pragma omp parallel */
-
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+	Density_Grid_B[spin][BN_AB] = Density_Grid_B[spin][BN_AB]*tmp0;
+      }
     }
 
     else if (spin==2){
-      Get_Value_inReal(1,ReV2,ImV2,ReV1,ImV1,Density_Grid[2],Density_Grid[3]);
 
+      Get_Value_inReal(1,Density_Grid_B[2],Density_Grid_B[3],ReVk,ImVk);
 
-#pragma omp parallel shared(tmp0,spin,Density_Grid) private(OMPID,Nthrds,Nprocs,MN)
-      {
-	/* get info. on OpenMP */ 
-
-	OMPID = omp_get_thread_num();
-	Nthrds = omp_get_num_threads();
-	Nprocs = omp_get_num_procs();
-
-	for (MN=OMPID*My_NumGrid1/Nthrds; MN<(OMPID+1)*My_NumGrid1/Nthrds; MN++){
-	  Density_Grid[2][MN] = Density_Grid[2][MN]*tmp0;
-	  Density_Grid[3][MN] = Density_Grid[3][MN]*tmp0;
-	}
-
-      } /* #pragma omp parallel */
-
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+	Density_Grid_B[2][BN_AB] = Density_Grid_B[2][BN_AB]*tmp0;
+	Density_Grid_B[3][BN_AB] = Density_Grid_B[3][BN_AB]*tmp0;
+      }
     }
   }
 
-  if (SpinP_switch==0){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Density_Grid[1][MN] = Density_Grid[0][MN];
-    }
-  }
+  /******************************************************
+             MPI: from the partitions B to D
+  ******************************************************/
+
+  Density_Grid_Copy_B2D();
 
   /****************************************************
-     set ReV2 and ImV2 which are used in Poisson.c
+      set ReVk and ImVk which are used in Poisson.c
   ****************************************************/
 
   if (SpinP_switch==0){
-
-#pragma omp parallel shared(ImRhoAtomk,ReRhoAtomk,ImRhok,ReRhok,ImV2,ReV2,Ngrid3,Ngrid1,knum) private(OMPID,Nthrds,Nprocs,k,k2,k1,k3)
-    {
-
-      /* get info. on OpenMP */ 
-
-      OMPID = omp_get_thread_num();
-      Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-
-      /* one-dimensionalized loop */
-
-      for (k=OMPID*knum/Nthrds; k<(OMPID+1)*knum/Nthrds; k++){
-
-	/* get k2, k1, and k3 */
- 
-	k2 = k/(Ngrid1*Ngrid3);
-	k1 = (k - k2*(Ngrid1*Ngrid3))/Ngrid3;
-	k3 = k - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
-
-	ReV2[k2][k1][k3] = 2.0*ReRhok[0][0][k2][k1][k3] - ReRhoAtomk[k2][k1][k3];
-	ImV2[k2][k1][k3] = 2.0*ImRhok[0][0][k2][k1][k3] - ImRhoAtomk[k2][k1][k3];
-      }
-
-    } /* #pragma omp parallel */
-
+    for (k=0; k<My_NumGridB_CB; k++){
+      ReVk[k] = 2.0*ReRhok[0][0][k] - ReRhoAtomk[k];
+      ImVk[k] = 2.0*ImRhok[0][0][k] - ImRhoAtomk[k];
+    }
   }
   
   else {
-
-#pragma omp parallel shared(ImRhoAtomk,ReRhoAtomk,ImRhok,ReRhok,ImV2,ReV2,Ngrid3,Ngrid1,knum) private(OMPID,Nthrds,Nprocs,k,k2,k1,k3)
-    {
-
-      /* get info. on OpenMP */ 
-
-      OMPID = omp_get_thread_num();
-      Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-
-      /* one-dimensionalized loop */
-
-      for (k=OMPID*knum/Nthrds; k<(OMPID+1)*knum/Nthrds; k++){
-
-	/* get k2, k1, and k3 */
- 
-	k2 = k/(Ngrid1*Ngrid3);
-	k1 = (k - k2*(Ngrid1*Ngrid3))/Ngrid3;
-	k3 = k - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
-
-	ReV2[k2][k1][k3] = ReRhok[0][0][k2][k1][k3] + ReRhok[0][1][k2][k1][k3] - ReRhoAtomk[k2][k1][k3];
-	ImV2[k2][k1][k3] = ImRhok[0][0][k2][k1][k3] + ImRhok[0][1][k2][k1][k3] - ImRhoAtomk[k2][k1][k3];
-
-      } /* k */
-    } /* #pragma omp parallel */
-  }
-
-  /****************************************************
-          store the best input charge density 
-  ****************************************************/
-
-  if (Change_switch==0 || NormRD[0]<BestNormRD ){
-
-    BestNormRD = NormRD[0];
-
-    for (spin=0; spin<spinmax; spin++){
-      for (k2=0; k2<My_NGrid2_Poisson; k2++){
-	for (k1=0; k1<Ngrid1; k1++){
-	  for (k3=0; k3<Ngrid3; k3++){
-            ReBestRhok[spin][k2][k1][k3] = ReRhok[2][spin][k2][k1][k3];
-            ImBestRhok[spin][k2][k1][k3] = ImRhok[2][spin][k2][k1][k3];
-	  }
-	}
-      }
+    for (k=0; k<My_NumGridB_CB; k++){
+      ReVk[k] = ReRhok[0][0][k] + ReRhok[0][1][k] - ReRhoAtomk[k];
+      ImVk[k] = ImRhok[0][0][k] + ImRhok[0][1][k] - ImRhoAtomk[k];
     }
   }
 
   /* freeing of arrays */
 
-  for (i=0; i<My_NGrid2_Poisson; i++){
-    for (j=0; j<Ngrid1; j++){
-      free(Kerker_weight[i][j]);
-    }
-    free(Kerker_weight[i]);
-  }
   free(Kerker_weight);
-
 }
 
 
 
 void Kerker_Mixing_Rhok_NEGF(int Change_switch,
 			     double Mix_wgt,
-			     double *****ReRhok,
-			     double *****ImRhok,
-			     double ****ReBestRhok,
-			     double ****ImBestRhok,
-			     double *****Residual_ReRhok,
-			     double *****Residual_ImRhok,
-			     double ***ReV1,
-			     double ***ImV1,
-			     double ***ReV2,
-			     double ***ImV2,
-			     double ***ReRhoAtomk,
-			     double ***ImRhoAtomk)
+			     double ***ReRhok,
+			     double ***ImRhok,
+			     double **Residual_ReRhok,
+			     double **Residual_ImRhok,
+			     double *ReVk,
+			     double *ImVk,
+			     double *ReRhoAtomk,
+			     double *ImRhoAtomk)
 {
   static int firsttime=1;
   int ian,jan,Mc_AN,Gc_AN,spin,spinmax;
-  int h_AN,Gh_AN,m,n,n1,i,j,k,k1,k2,k3,kk2;
-  int knum,knum_full,MN,pSCF_iter;
+  int h_AN,Gh_AN,m,n,n1,i,j,k,k1,k2,k3;
+  int MN,pSCF_iter,p0,p1;
+  int BN_AB,N2D,GN,GNs,N3[4];
   double Mix_wgt2,Norm,My_Norm,tmp0,tmp1;
   double Min_Weight,Max_Weight,wgt0,wgt1;
   double Gx,Gy,Gz,G2,size_Kerker_weight;
@@ -685,7 +487,7 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
   double G0,G02,G02p,weight;
   double Q,sumL,sumR;
   int numprocs,myid,ID;
-  double ***Kerker_weight;
+  double *Kerker_weight;
   /* for OpenMP */
   int OMPID,Nthrds,Nprocs,Nloop,Nthrds0;
   double *My_Norm_threads;
@@ -694,6 +496,11 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
+  /* allocate arrays */
+
+  size_Kerker_weight = My_NumGridB_CB;
+  Kerker_weight = (double*)malloc(sizeof(double)*My_NumGridB_CB);
+  
   /* find an optimum G0 */
 
   G22 = rtv[2][1]*rtv[2][1] + rtv[2][2]*rtv[2][2] + rtv[2][3]*rtv[2][3]; 
@@ -706,7 +513,7 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
   else                  G0 = sqrt(G0);
 
   G02 = Kerker_factor*Kerker_factor*G0*G0;
-  G02p = (0.3*Kerker_factor*G0)*(0.3*Kerker_factor*G0);
+  G02p = (0.1*Kerker_factor*G0)*(0.1*Kerker_factor*G0);
 
   if      (SpinP_switch==0)  spinmax = 1;
   else if (SpinP_switch==1)  spinmax = 2;
@@ -716,101 +523,79 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
             set Kerker_weight 
   ************************************/
 
-  size_Kerker_weight = My_NGrid2_Poisson*Ngrid1*Ngrid3;
-  knum = My_NGrid2_Poisson*Ngrid1*Ngrid3;
-  knum_full = spinmax*My_NGrid2_Poisson*Ngrid1*Ngrid3;
+  N2D = Ngrid3*Ngrid2;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid1;
 
-  Kerker_weight = (double***)malloc(sizeof(double**)*My_NGrid2_Poisson); 
-  for (i=0; i<My_NGrid2_Poisson; i++){
-    Kerker_weight[i] = (double**)malloc(sizeof(double*)*Ngrid1); 
-    for (j=0; j<Ngrid1; j++){
-      Kerker_weight[i][j] = (double*)malloc(sizeof(double)*Ngrid3); 
-    }
-  }
-  
   if (firsttime)
   PrintMemory("Kerker_Mixing_Rhok: Kerker_weight",sizeof(double)*size_Kerker_weight,NULL);
   firsttime=0;
 
-#pragma omp parallel shared(myid,Start_Grid2,knum,G02,Kerker_weight,rtv,Ngrid3,Ngrid2,Ngrid1) private(OMPID,Nthrds,Nprocs,k2,kk2,sk2,k,k1,k3,sk1,sk3,Gx,Gy,Gz,G2,weight)
-  {
+  for (k=0; k<My_NumGridB_CB; k+=Ngrid1){
 
-    /* get info. on OpenMP */ 
+    /* get k3, k2, and k1 */
 
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    /* one-dimensionalized loop */
-
-    for (k=OMPID*knum/Nthrds; k<(OMPID+1)*knum/Nthrds; k++){
-
-      /* get k2, k1, and k3 */
+    GN = k + GNs;     
+    k3 = GN/(Ngrid2*Ngrid1);    
+    k2 = (GN - k3*Ngrid2*Ngrid1)/Ngrid1;
  
-      k2 = k/(Ngrid1*Ngrid3);
-      k1 = (k - k2*(Ngrid1*Ngrid3))/Ngrid3;
-      k3 = k - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
+    if (k2<Ngrid2/2)  sk2 = (double)k2;
+    else              sk2 = (double)(k2 - Ngrid2);
 
-      kk2 = k2 + Start_Grid2[myid];
+    if (k3<Ngrid3/2)  sk3 = (double)k3;
+    else              sk3 = (double)(k3 - Ngrid3);
 
-      if (kk2<Ngrid2/2) sk2 = (double)kk2;
-      else              sk2 = (double)(kk2 - Ngrid2);
+    Gx = sk2*rtv[2][1] + sk3*rtv[3][1];
+    Gy = sk2*rtv[2][2] + sk3*rtv[3][2]; 
+    Gz = sk2*rtv[2][3] + sk3*rtv[3][3];
+    G2 = Gx*Gx + Gy*Gy + Gz*Gz;
 
-      if (k3<Ngrid3/2)  sk3 = (double)k3;
-      else              sk3 = (double)(k3 - Ngrid3);
-
-      Gx = sk2*rtv[2][1] + sk3*rtv[3][1];
-      Gy = sk2*rtv[2][2] + sk3*rtv[3][2]; 
-      Gz = sk2*rtv[2][3] + sk3*rtv[3][3];
-      G2 = Gx*Gx + Gy*Gy + Gz*Gz;
+    for (k1=0; k1<Ngrid1; k1++){
 
       if (Change_switch==0){
-        weight = (G2 + G02 + 0.1)/(G2 + 0.01);
+	weight = (G2 + G02 + 0.1)/(G2 + 0.01);
       }
       else{
 
-        if (kk2==0 && k3==0){
+	if (k2==0 && k3==0){
 
 	  sumL = 0.0;
-          sumR = 0.0; 
+	  sumR = 0.0; 
 
-          if (SpinP_switch==0){
+	  if (SpinP_switch==0){
 
-            for (n1=0; n1<k1; n1++){
-              sumL += 2.0*ReRhok[0][0][k2][n1][k3];
-            }
+	    for (n1=0; n1<k1; n1++){
+	      sumL += 2.0*ReRhok[0][0][k+n1];
+	    }
 
-            for (n1=k1+1; n1<Ngrid1; n1++){
-              sumR += 2.0*ReRhok[0][0][k2][n1][k3];
-            }
+	    for (n1=k1+1; n1<Ngrid1; n1++){
+	      sumR += 2.0*ReRhok[0][0][k+n1];
+	    }
 	  }
         
-          else if (SpinP_switch==1){
+	  else if (SpinP_switch==1 || SpinP_switch==3){
 
-            for (n1=0; n1<k1; n1++){
-              sumL += ReRhok[0][0][k2][n1][k3] + ReRhok[0][1][k2][n1][k3];
-            }
+	    for (n1=0; n1<k1; n1++){
+	      sumL += ReRhok[0][0][k+n1] + ReRhok[0][1][k+n1];
+	    }
 
-            for (n1=k1+1; n1<Ngrid1; n1++){
-              sumR += ReRhok[0][0][k2][n1][k3] + ReRhok[0][1][k2][n1][k3];
-            }
+	    for (n1=k1+1; n1<Ngrid1; n1++){
+	      sumR += ReRhok[0][0][k+n1] + ReRhok[0][1][k+n1];
+	    }
 	  }
 
-          Q = 4.0*fabs(sumL - sumR)*GridVol + 1.0;
-
+	  Q = 4.0*fabs(sumL - sumR)*GridVol + 1.0;
 	}    
-        else {
-          Q = 1.0;
-        }
+	else {
+	  Q = 1.0;
+	}
 
-        weight = (G2 + G02)/(G2 + G02p)*Q;
-
+	weight = (G2 + G02)/(G2 + G02p)*Q;
       }
 
-      Kerker_weight[k2][k1][k3] = weight;
+      Kerker_weight[k+k1] = sqrt(weight);
 
-    } /* k */
-  } /* #pragma omp parallel */
+    } /* k1 */
+  } /* k */
 
   /* start... */
 
@@ -833,52 +618,19 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
        norm of residual charge density in k-space
   ****************************************************/
 
-  /* get Nthrds0 */  
-#pragma omp parallel shared(Nthrds0)
-  {
-    Nthrds0 = omp_get_num_threads();
-  }
-  /* allocation of array */
-  My_Norm_threads = (double*)malloc(sizeof(double)*Nthrds0);
- for (Nloop=0; Nloop<Nthrds0; Nloop++) My_Norm_threads[Nloop] = 0.0;
+  My_Norm = 0.0;
+  for (spin=0; spin<spinmax; spin++){
+    for (k=0; k<My_NumGridB_CB; k++){
 
-#pragma omp parallel shared(Residual_ReRhok,Residual_ImRhok,ImRhok,ReRhok,Kerker_weight,My_Norm_threads,knum_full,My_NGrid2_Poisson,Ngrid1,Ngrid3) private(OMPID,Nthrds,Nprocs,k,spin,k2,k1,k3,Nloop,weight,tmp0,tmp1)
-  {
-    /* get info. on OpenMP */ 
-
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    /* one-dimensionalized loop */
-
-    for (k=OMPID*knum_full/Nthrds; k<(OMPID+1)*knum_full/Nthrds; k++){
-
-      /* get spin, k2, k1, and k3 */
-
-      spin = k/(My_NGrid2_Poisson*Ngrid1*Ngrid3);
-      k2 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3))/(Ngrid1*Ngrid3);
-      k1 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3))/Ngrid3;  
-      k3 = k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
-
-      weight = Kerker_weight[k2][k1][k3];
-      tmp0 = ReRhok[0][spin][k2][k1][k3] - ReRhok[1][spin][k2][k1][k3];
-      tmp1 = ImRhok[0][spin][k2][k1][k3] - ImRhok[1][spin][k2][k1][k3];
-      Residual_ReRhok[1][spin][k2][k1][k3] = tmp0;
-      Residual_ImRhok[1][spin][k2][k1][k3] = tmp1;
-      My_Norm_threads[OMPID] += (tmp0*tmp0 + tmp1*tmp1)*weight;
+      weight = Kerker_weight[k];
+      tmp0 = (ReRhok[0][spin][k] - ReRhok[1][spin][k])*weight;
+      tmp1 = (ImRhok[0][spin][k] - ImRhok[1][spin][k])*weight;
+      Residual_ReRhok[spin][My_NumGridB_CB+k] = tmp0;
+      Residual_ImRhok[spin][My_NumGridB_CB+k] = tmp1;
+      My_Norm += tmp0*tmp0 + tmp1*tmp1;
 
     } /* k */
-  } /* #pragma omp parallel */
-
-  /* sum of My_Norm_threads */
-  My_Norm = 0.0;
-  for (Nloop=0; Nloop<Nthrds0; Nloop++){
-    My_Norm += My_Norm_threads[Nloop];
-  }
-
-  /* freeing of array */
-  free(My_Norm_threads);
+  }/* spin */
 
   /****************************************************
     MPI: 
@@ -990,26 +742,10 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
                         Mixing
   ****************************************************/
 
-#pragma omp parallel shared(ImRhok,ReRhok,Mix_wgt,Kerker_weight,Ngrid3,Ngrid1,My_NGrid2_Poisson,knum_full) private(OMPID,Nthrds,Nprocs,k,spin,k2,k1,k3,weight,wgt0,wgt1)
-  {
-    /* get info. on OpenMP */ 
+  for (spin=0; spin<spinmax; spin++){
+    for (k=0; k<My_NumGridB_CB; k++){
 
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    /* one-dimensionalized loop */
-
-    for (k=OMPID*knum_full/Nthrds; k<(OMPID+1)*knum_full/Nthrds; k++){
-
-      /* get spin, k2, k1, and k3 */
-
-      spin = k/(My_NGrid2_Poisson*Ngrid1*Ngrid3);
-      k2 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3))/(Ngrid1*Ngrid3);
-      k1 = (k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3))/Ngrid3;  
-      k3 = k - spin*(My_NGrid2_Poisson*Ngrid1*Ngrid3) - k2*(Ngrid1*Ngrid3) - k1*Ngrid3;
-
-      weight = 1.0/Kerker_weight[k2][k1][k3];
+      weight = 1.0/Kerker_weight[k];
       wgt0  = Mix_wgt*weight;
       wgt1 =  1.0 - wgt0;
 
@@ -1018,24 +754,21 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
        [1]: input  at n
       ***********************************/
 
-      ReRhok[0][spin][k2][k1][k3] = wgt0*ReRhok[0][spin][k2][k1][k3]
- 	                          + wgt1*ReRhok[1][spin][k2][k1][k3];
-
-      ImRhok[0][spin][k2][k1][k3] = wgt0*ImRhok[0][spin][k2][k1][k3]
-	                          + wgt1*ImRhok[1][spin][k2][k1][k3];
+      ReRhok[0][spin][k] = wgt0*ReRhok[0][spin][k] + wgt1*ReRhok[1][spin][k];
+      ImRhok[0][spin][k] = wgt0*ImRhok[0][spin][k] + wgt1*ImRhok[1][spin][k];
 
       /* correction to large changing components */
 
-      tmp0 = ReRhok[0][spin][k2][k1][k3] - ReRhok[1][spin][k2][k1][k3];  
-      tmp1 = ImRhok[0][spin][k2][k1][k3] - ImRhok[1][spin][k2][k1][k3];  
+      tmp0 = ReRhok[0][spin][k] - ReRhok[1][spin][k];  
+      tmp1 = ImRhok[0][spin][k] - ImRhok[1][spin][k];  
 
       if ( maxima_step<(fabs(tmp0)+fabs(tmp1)) ){
-	ReRhok[0][spin][k2][k1][k3] = sgn(tmp0)*maxima_step + ReRhok[1][spin][k2][k1][k3]; 
-	ImRhok[0][spin][k2][k1][k3] = sgn(tmp1)*maxima_step + ImRhok[1][spin][k2][k1][k3]; 
+	ReRhok[0][spin][k] = sgn(tmp0)*maxima_step + ReRhok[1][spin][k]; 
+	ImRhok[0][spin][k] = sgn(tmp1)*maxima_step + ImRhok[1][spin][k]; 
       }
 
     } /* k */
-  } /* #pragma omp parallel */
+  } /* spin */
 
   /****************************************************
                        shift of rho
@@ -1043,13 +776,9 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
 
   for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
     for (spin=0; spin<spinmax; spin++){
-      for (k2=0; k2<My_NGrid2_Poisson; k2++){
-	for (k1=0; k1<Ngrid1; k1++){
-	  for (k3=0; k3<Ngrid3; k3++){
-	    ReRhok[pSCF_iter][spin][k2][k1][k3] = ReRhok[pSCF_iter-1][spin][k2][k1][k3]; 
-	    ImRhok[pSCF_iter][spin][k2][k1][k3] = ImRhok[pSCF_iter-1][spin][k2][k1][k3]; 
-	  }
-	}
+      for (k=0; k<My_NumGridB_CB; k++){
+	ReRhok[pSCF_iter][spin][k] = ReRhok[pSCF_iter-1][spin][k]; 
+	ImRhok[pSCF_iter][spin][k] = ImRhok[pSCF_iter-1][spin][k];
       }
     }
   }
@@ -1059,14 +788,14 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
   ****************************************************/
 
   for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+    p0 = pSCF_iter*My_NumGridB_CB;
+    p1 = (pSCF_iter-1)*My_NumGridB_CB; 
+
     for (spin=0; spin<spinmax; spin++){
-      for (k2=0; k2<My_NGrid2_Poisson; k2++){
-	for (k1=0; k1<Ngrid1; k1++){
-	  for (k3=0; k3<Ngrid3; k3++){
-	    Residual_ReRhok[pSCF_iter][spin][k2][k1][k3] = Residual_ReRhok[pSCF_iter-1][spin][k2][k1][k3];
-	    Residual_ImRhok[pSCF_iter][spin][k2][k1][k3] = Residual_ImRhok[pSCF_iter-1][spin][k2][k1][k3]; 
-	  }
-	}
+      for (k=0; k<My_NumGridB_CB; k++){
+	Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
+	Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k]; 
       }
     }
   }
@@ -1076,53 +805,28 @@ void Kerker_Mixing_Rhok_NEGF(int Change_switch,
   ****************************************************/
 
   for (spin=0; spin<spinmax; spin++){
-
-    for (k2=0; k2<My_NGrid2_Poisson; k2++){
-      for (k1=0; k1<Ngrid1; k1++){
-        for (k3=0; k3<Ngrid3; k3++){
-          ReV2[k2][k1][k3] = ReRhok[0][spin][k2][k1][k3];
-          ImV2[k2][k1][k3] = ImRhok[0][spin][k2][k1][k3];
-        }
-      }
+    for (k=0; k<My_NumGridB_CB; k++){
+      ReVk[k] = ReRhok[0][spin][k];
+      ImVk[k] = ImRhok[0][spin][k];
     }
 
-    Get_Value_inReal2D(ReV2,ImV2,ReV1,ImV1,Density_Grid[spin]);
-  }
-
-  if (SpinP_switch==0){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Density_Grid[1][MN] = Density_Grid[0][MN];
+    /* revised by Y. Xiao for Noncollinear NEGF calculations */
+    if (spin==0 || spin==1) {
+      Get_Value_inReal2D(0, Density_Grid_B[spin], NULL, ReVk, ImVk);
+    } else {
+      Get_Value_inReal2D(1, Density_Grid_B[2], Density_Grid_B[3], ReVk, ImVk);
     }
+    /* until here by Y. Xiao for Noncollinear NEGF calculations */
+
+    /*  Get_Value_inReal2D(0, Density_Grid_B[spin], NULL, ReVk, ImVk); */
   }
 
-  /****************************************************
-          store the best input charge density 
-  ****************************************************/
+  /******************************************************
+             MPI: from the partitions B to D
+  ******************************************************/
 
-  if (Change_switch==0 || NormRD[0]<BestNormRD ){
+  Density_Grid_Copy_B2D();
 
-    BestNormRD = NormRD[0];
-
-    for (spin=0; spin<spinmax; spin++){
-      for (k2=0; k2<My_NGrid2_Poisson; k2++){
-	for (k1=0; k1<Ngrid1; k1++){
-	  for (k3=0; k3<Ngrid3; k3++){
-            ReBestRhok[spin][k2][k1][k3] = ReRhok[2][spin][k2][k1][k3];
-            ImBestRhok[spin][k2][k1][k3] = ImRhok[2][spin][k2][k1][k3];
-	  }
-	}
-      }
-    }
-  }
-  
   /* freeing of arrays */
-  
-  for (i=0; i<My_NGrid2_Poisson; i++){
-    for (j=0; j<Ngrid1; j++){
-      free(Kerker_weight[i][j]);
-    }
-    free(Kerker_weight[i]);
-  }
   free(Kerker_weight);
-
 }

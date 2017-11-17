@@ -3,18 +3,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
 
 /*---------- added by TOYODA 14/JAN/2010 */
 #include "exx_xc.h"
@@ -37,6 +27,7 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
   static int firsttime=1;
   int MN,MN1,MN2,i,j,k,ri,ri1,ri2;
   int i1,i2,j1,j2,k1,k2,n,nmax;
+  int Ng1,Ng2,Ng3;
   double den_min=1.0e-14; 
   double Ec_unif[1],Vc_unif[2],Exc[2],Vxc[2];
   double Ex_unif[1],Vx_unif[2],tot_den;
@@ -59,13 +50,13 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
   int numprocs,myid;
 
   /* for OpenMP */
-  int OMPID,Nthrds,Nprocs;
+  int OMPID,Nthrds;
 
   /****************************************************
    when GGA, allocation
 
-   double dEXC_dGD[2][3][My_NumGrid1]
-   double dDen_Grid[2][3][My_NumGrid1]
+   double dEXC_dGD[2][3][My_NumGridD]
+   double dDen_Grid[2][3][My_NumGridD]
   ****************************************************/
 
   /* MPI */
@@ -78,8 +69,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
     for (k=0; k<=1; k++){
       dDen_Grid[k] = (double**)malloc(sizeof(double*)*3); 
       for (i=0; i<3; i++){
-        dDen_Grid[k][i] = (double*)malloc(sizeof(double)*My_NumGrid1); 
-        for (j=0; j<My_NumGrid1; j++) dDen_Grid[k][i][j] = 0.0;
+        dDen_Grid[k][i] = (double*)malloc(sizeof(double)*My_NumGridD); 
+        for (j=0; j<My_NumGridD; j++) dDen_Grid[k][i][j] = 0.0;
       }
     }
 
@@ -88,8 +79,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
       for (k=0; k<=1; k++){
         dEXC_dGD[k] = (double**)malloc(sizeof(double*)*3); 
         for (i=0; i<3; i++){
-          dEXC_dGD[k][i] = (double*)malloc(sizeof(double)*My_NumGrid1); 
-          for (j=0; j<My_NumGrid1; j++) dEXC_dGD[k][i][j] = 0.0;
+          dEXC_dGD[k][i] = (double*)malloc(sizeof(double)*My_NumGridD); 
+          for (j=0; j<My_NumGridD; j++) dEXC_dGD[k][i][j] = 0.0;
         }
       }
     }
@@ -97,8 +88,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
     /* PrintMemory */
 
     if (firsttime) {
-      PrintMemory("Set_XC_Grid: dDen_Grid", sizeof(double)*6*My_NumGrid1, NULL);
-      PrintMemory("Set_XC_Grid: dEXC_dGD",  sizeof(double)*6*My_NumGrid1, NULL);
+      PrintMemory("Set_XC_Grid: dDen_Grid", sizeof(double)*6*My_NumGridD, NULL);
+      PrintMemory("Set_XC_Grid: dEXC_dGD",  sizeof(double)*6*My_NumGridD, NULL);
       /* turn off firsttime flag */
       firsttime=0;
     }
@@ -126,79 +117,44 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
     igtv[2][3] = -(gtv[1][1]*gtv[2][3] - gtv[1][3]*gtv[2][1])/detA;
     igtv[3][3] =  (gtv[1][1]*gtv[2][2] - gtv[1][2]*gtv[2][1])/detA; 
 
-#pragma omp parallel shared(igtv,dDen_Grid,PCCDensity_Grid,PCC_switch,Den0,Den1,Den2,Den3,den_min,My_Cell0,My_Cell1,Ngrid3,Ngrid2,Num_Cells0) private(OMPID,Nthrds,Nprocs,nmax,n,i,j,k,ri,ri1,ri2,i1,i2,j1,j2,k1,k2,MN,MN1,MN2,up_a,dn_a,up_b,dn_b,up_c,dn_c)
+#pragma omp parallel shared(My_NumGridD,Min_Grid_Index_D,Max_Grid_Index_D,igtv,dDen_Grid,PCCDensity_Grid_D,PCC_switch,Den0,Den1,Den2,Den3,den_min) private(OMPID,Nthrds,nmax,n,i,j,k,ri,ri1,ri2,i1,i2,j1,j2,k1,k2,MN,MN1,MN2,up_a,dn_a,up_b,dn_b,up_c,dn_c,Ng1,Ng2,Ng3)
     {
 
       OMPID = omp_get_thread_num();
       Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-      nmax = Num_Cells0*Ngrid2*Ngrid3; 
 
-      for (n=OMPID*nmax/Nthrds; n<(OMPID+1)*nmax/Nthrds; n++){
+      Ng1 = Max_Grid_Index_D[1] - Min_Grid_Index_D[1] + 1;
+      Ng2 = Max_Grid_Index_D[2] - Min_Grid_Index_D[2] + 1;
+      Ng3 = Max_Grid_Index_D[3] - Min_Grid_Index_D[3] + 1;
 
-	i = n/(Ngrid2*Ngrid3);
-	j = (n-i*Ngrid2*Ngrid3)/Ngrid3;
-	k = n - i*Ngrid2*Ngrid3 - j*Ngrid3; 
-	ri = My_Cell1[i];
+      for (MN=OMPID; MN<My_NumGridD; MN+=Nthrds){
 
-	/* find ri1, ri2, i1, and i2 */
+        i = MN/(Ng2*Ng3);
+	j = (MN-i*Ng2*Ng3)/Ng3;
+	k = MN - i*Ng2*Ng3 - j*Ng3; 
 
-	if (ri==0){
-	  ri1 = Ngrid1 - 1;
-	  ri2 = 1;        
-	  i1 = My_Cell0[ri1];
-	  i2 = My_Cell0[ri2];
-	}
-	else if (ri==(Ngrid1-1)){
-	  ri1 = Ngrid1 - 2;
-	  ri2 = 0;
-	  i1 = My_Cell0[ri1];
-	  i2 = My_Cell0[ri2];
-	}      
-	else{
-	  ri1 = ri - 1;
-	  ri2 = ri + 1;
-	  i1 = My_Cell0[ri1];
-	  i2 = My_Cell0[ri2];
-	}
+        if ( i==0 || i==(Ng1-1) || j==0 || j==(Ng2-1) || k==0 || k==(Ng3-1) ){
 
-	/* because we have +-1 buffer cells. */
+	  dDen_Grid[0][0][MN] = 0.0;
+	  dDen_Grid[0][1][MN] = 0.0;
+	  dDen_Grid[0][2][MN] = 0.0;
+	  dDen_Grid[1][0][MN] = 0.0;
+	  dDen_Grid[1][1][MN] = 0.0;
+	  dDen_Grid[1][2][MN] = 0.0;
+        }
 
-	if (i1!=-1 && i2!=-1){
+        else {
 
-	  /* find j1 and j2 */
+          /* set i1, i2, j1, j2, k1, and k2 */ 
 
-	  if (j==0){
-	    j1 = Ngrid2 - 1;
-	    j2 = 1;
-	  }
-	  else if (j==(Ngrid2-1)){
-	    j1 = Ngrid2 - 2;
-	    j2 = 0;
-	  }
-	  else{
-	    j1 = j - 1;
-	    j2 = j + 1;
-	  }
+          i1 = i - 1;
+          i2 = i + 1;
 
-	  /* find k1 and k2 */
+          j1 = j - 1;
+          j2 = j + 1;
 
-	  if (k==0){
-	    k1 = Ngrid3 - 1;
-	    k2 = 1;
-	  }
-	  else if (k==(Ngrid3-1)){
-	    k1 = Ngrid3 - 2;
-	    k2 = 0;
-	  }
-	  else{
-	    k1 = k - 1;
-	    k2 = k + 1;
-	  }  
-
-	  /* set MN */
-
-	  MN = i*Ngrid2*Ngrid3 + j*Ngrid3 + k; 
+          k1 = k - 1;
+          k2 = k + 1;
 
 	  /* set dDen_Grid */
 
@@ -206,50 +162,50 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	    /* a-axis */
 
-	    MN1 = i1*Ngrid2*Ngrid3 + j*Ngrid3 + k;
-	    MN2 = i2*Ngrid2*Ngrid3 + j*Ngrid3 + k;
+	    MN1 = i1*Ng2*Ng3 + j*Ng3 + k;
+	    MN2 = i2*Ng2*Ng3 + j*Ng3 + k;
 
 	    if (PCC_switch==0) {
 	      up_a = Den0[MN2] - Den0[MN1];
 	      dn_a = Den1[MN2] - Den1[MN1];
 	    }
 	    else if (PCC_switch==1) {
-	      up_a = Den0[MN2] + PCCDensity_Grid[MN2]
-	           - Den0[MN1] - PCCDensity_Grid[MN1];
-	      dn_a = Den1[MN2] + PCCDensity_Grid[MN2]
-	           - Den1[MN1] - PCCDensity_Grid[MN1];
+	      up_a = Den0[MN2] + PCCDensity_Grid_D[MN2]
+	           - Den0[MN1] - PCCDensity_Grid_D[MN1];
+	      dn_a = Den1[MN2] + PCCDensity_Grid_D[MN2]
+	           - Den1[MN1] - PCCDensity_Grid_D[MN1];
 	    }
 
 	    /* b-axis */
 
-	    MN1 = i*Ngrid2*Ngrid3 + j1*Ngrid3 + k; 
-	    MN2 = i*Ngrid2*Ngrid3 + j2*Ngrid3 + k; 
+	    MN1 = i*Ng2*Ng3 + j1*Ng3 + k; 
+	    MN2 = i*Ng2*Ng3 + j2*Ng3 + k; 
 
 	    if (PCC_switch==0) {
 	      up_b = Den0[MN2] - Den0[MN1];
 	      dn_b = Den1[MN2] - Den1[MN1];
 	    }
 	    else if (PCC_switch==1) {
-	      up_b = Den0[MN2] + PCCDensity_Grid[MN2]
-	           - Den0[MN1] - PCCDensity_Grid[MN1];
-	      dn_b = Den1[MN2] + PCCDensity_Grid[MN2]
-	           - Den1[MN1] - PCCDensity_Grid[MN1];
+	      up_b = Den0[MN2] + PCCDensity_Grid_D[MN2]
+	           - Den0[MN1] - PCCDensity_Grid_D[MN1];
+	      dn_b = Den1[MN2] + PCCDensity_Grid_D[MN2]
+	           - Den1[MN1] - PCCDensity_Grid_D[MN1];
 	    }
 
 	    /* c-axis */
 
-	    MN1 = i*Ngrid2*Ngrid3 + j*Ngrid3 + k1; 
-	    MN2 = i*Ngrid2*Ngrid3 + j*Ngrid3 + k2; 
+	    MN1 = i*Ng2*Ng3 + j*Ng3 + k1; 
+	    MN2 = i*Ng2*Ng3 + j*Ng3 + k2; 
 
 	    if (PCC_switch==0) {
 	      up_c = Den0[MN2] - Den0[MN1];
 	      dn_c = Den1[MN2] - Den1[MN1];
 	    }
 	    else if (PCC_switch==1) {
-	      up_c = Den0[MN2] + PCCDensity_Grid[MN2]
-	           - Den0[MN1] - PCCDensity_Grid[MN1];
-	      dn_c = Den1[MN2] + PCCDensity_Grid[MN2]
-	           - Den1[MN1] - PCCDensity_Grid[MN1];
+	      up_c = Den0[MN2] + PCCDensity_Grid_D[MN2]
+	           - Den0[MN1] - PCCDensity_Grid_D[MN1];
+	      dn_c = Den1[MN2] + PCCDensity_Grid_D[MN2]
+	           - Den1[MN1] - PCCDensity_Grid_D[MN1];
 	    }
 
 	    /* up */
@@ -274,7 +230,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	    dDen_Grid[1][2][MN] = 0.0;
 	  }
 
-	} /* if (i1!=-1 && i2!=-1) */
+	} /* else */
+
       } /* n */
 
 #pragma omp flush(dDen_Grid)
@@ -286,14 +243,13 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
    loop MN
   ****************************************************/
 
-#pragma omp parallel shared(dDen_Grid,dEXC_dGD,den_min,Vxc0,Vxc1,Vxc2,Vxc3,My_NumGrid1,XC_P_switch,XC_switch,Den0,Den1,Den2,Den3,PCC_switch,PCCDensity_Grid) private(OMPID,Nthrds,Nprocs,MN,tot_den,tmp0,tmp1,ED,Exc,Ec_unif,Vc_unif,Vxc,Ex_unif,Vx_unif,GDENS,DEXDD,DECDD,DEXDGD,DECDGD)
+#pragma omp parallel shared(dDen_Grid,dEXC_dGD,den_min,Vxc0,Vxc1,Vxc2,Vxc3,My_NumGridD,XC_P_switch,XC_switch,Den0,Den1,Den2,Den3,PCC_switch,PCCDensity_Grid_D) private(OMPID,Nthrds,MN,tot_den,tmp0,tmp1,ED,Exc,Ec_unif,Vc_unif,Vxc,Ex_unif,Vx_unif,GDENS,DEXDD,DECDD,DEXDGD,DECDGD)
   {
 
     OMPID = omp_get_thread_num();
     Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
 
-    for (MN=OMPID*My_NumGrid1/Nthrds; MN<(OMPID+1)*My_NumGrid1/Nthrds; MN++){
+    for (MN=OMPID; MN<My_NumGridD; MN+=Nthrds){
 
       switch(XC_switch){
         
@@ -316,10 +272,11 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  tot_den += PCCDensity_Grid[MN]*2.0;
+	  tot_den += PCCDensity_Grid_D[MN]*2.0;
 	}
 
 	tmp0 = XC_Ceperly_Alder(tot_den,XC_P_switch);
+
 	Vxc0[MN] = tmp0;
 	Vxc1[MN] = tmp0;
         
@@ -345,8 +302,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  ED[0] += PCCDensity_Grid[MN];
-	  ED[1] += PCCDensity_Grid[MN];
+	  ED[0] += PCCDensity_Grid_D[MN];
+	  ED[1] += PCCDensity_Grid_D[MN];
 	}
 
 	XC_CA_LSDA(ED[0], ED[1], Exc, XC_P_switch);
@@ -369,8 +326,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  ED[0] += PCCDensity_Grid[MN];
-	  ED[1] += PCCDensity_Grid[MN];
+	  ED[0] += PCCDensity_Grid_D[MN];
+	  ED[1] += PCCDensity_Grid_D[MN];
 	}
 
 	if ((ED[0]+ED[1])<den_min){
@@ -514,8 +471,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 	  GDENS[2][1] = dDen_Grid[1][2][MN];
 
 	  if (PCC_switch==1) {
-	    ED[0] += PCCDensity_Grid[MN];
-	    ED[1] += PCCDensity_Grid[MN];
+	    ED[0] += PCCDensity_Grid_D[MN];
+	    ED[1] += PCCDensity_Grid_D[MN];
 	  }
 
 	  XC_PBE(ED, GDENS, Exc, DEXDD, DECDD, DEXDGD, DECDGD);
@@ -561,8 +518,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	/* partial core correction */
 	if (PCC_switch==1) {
-	  ED[0] += PCCDensity_Grid[MN];
-	  ED[1] += PCCDensity_Grid[MN];
+	  ED[0] += PCCDensity_Grid_D[MN];
+	  ED[1] += PCCDensity_Grid_D[MN];
 	}
 
 	EXX_XC_CA_LSDA(ED[0], ED[1], Exc, XC_P_switch);
@@ -586,77 +543,40 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
   if (XC_switch==4 && XC_P_switch!=0){
 
-#pragma omp parallel shared(XC_P_switch,Vxc0,Vxc1,Vxc2,Vxc3,igtv,dEXC_dGD,Den0,Den1,Den2,Den3,den_min,My_Cell0,My_Cell1,Num_Cells0,Ngrid2,Ngrid3) private(OMPID,Nthrds,Nprocs,nmax,n,i,j,k,ri,ri1,ri2,i1,i2,j1,j2,k1,k2,MN,MN1,MN2,up_x_a,up_y_a,up_z_a,dn_x_a,dn_y_a,dn_z_a,up_x_b,up_y_b,up_z_b,dn_x_b,dn_y_b,dn_z_b,up_x_c,up_y_c,up_z_c,dn_x_c,dn_y_c,dn_z_c,tmp0,tmp1)
+#pragma omp parallel shared(My_NumGridD,XC_P_switch,Vxc0,Vxc1,Vxc2,Vxc3,igtv,dEXC_dGD,Den0,Den1,Den2,Den3,den_min) private(OMPID,Nthrds,nmax,i,j,k,ri,ri1,ri2,i1,i2,j1,j2,k1,k2,MN,MN1,MN2,up_x_a,up_y_a,up_z_a,dn_x_a,dn_y_a,dn_z_a,up_x_b,up_y_b,up_z_b,dn_x_b,dn_y_b,dn_z_b,up_x_c,up_y_c,up_z_c,dn_x_c,dn_y_c,dn_z_c,tmp0,tmp1,Ng1,Ng2,Ng3)
     {
 
       OMPID = omp_get_thread_num();
       Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-      nmax = Num_Cells0*Ngrid2*Ngrid3; 
 
-      for (n=OMPID*nmax/Nthrds; n<(OMPID+1)*nmax/Nthrds; n++){
+      Ng1 = Max_Grid_Index_D[1] - Min_Grid_Index_D[1] + 1;
+      Ng2 = Max_Grid_Index_D[2] - Min_Grid_Index_D[2] + 1;
+      Ng3 = Max_Grid_Index_D[3] - Min_Grid_Index_D[3] + 1;
 
-	i = n/(Ngrid2*Ngrid3);
-	j = (n-i*Ngrid2*Ngrid3)/Ngrid3;
-	k = n - i*Ngrid2*Ngrid3 - j*Ngrid3; 
-	ri = My_Cell1[i];
+      for (MN=OMPID; MN<My_NumGridD; MN+=Nthrds){
 
-	/* find ri1, ri2, i1, and i2 */
+        i = MN/(Ng2*Ng3);
+	j = (MN-i*Ng2*Ng3)/Ng3;
+	k = MN - i*Ng2*Ng3 - j*Ng3; 
 
-	if (ri==0){
-	  ri1 = Ngrid1 - 1;
-	  ri2 = 1;        
-	  i1 = My_Cell0[ri1];
-	  i2 = My_Cell0[ri2];
+        if ( i<=1 || (Ng1-2)<=i || j<=1 || (Ng2-2)<=j || k<=1 || (Ng3-2)<=k ){
+
+	  Vxc0[MN] = 0.0;
+	  Vxc1[MN] = 0.0;
 	}
-	else if (ri==(Ngrid1-1)){
-	  ri1 = Ngrid1 - 2;
-	  ri2 = 0;
-	  i1 = My_Cell0[ri1];
-	  i2 = My_Cell0[ri2];
-	}      
-	else{
-	  ri1 = ri - 1;
-	  ri2 = ri + 1;
-	  i1 = My_Cell0[ri1];
-	  i2 = My_Cell0[ri2];
-	}
+ 
+        else {
 
-	if (i1!=-1 && i2!=-1){
+          /* set i1, i2, j1, j2, k1, and k2 */ 
 
-	  /* find j1 and j2 */
+          i1 = i - 1;
+          i2 = i + 1;
 
-	  if (j==0){
-	    j1 = Ngrid2 - 1;
-	    j2 = 1;
-	  }
-	  else if (j==(Ngrid2-1)){
-	    j1 = Ngrid2 - 2;
-	    j2 = 0;
-	  }
-	  else{
-	    j1 = j - 1;
-	    j2 = j + 1;
-	  }
+          j1 = j - 1;
+          j2 = j + 1;
 
-	  /* find k1 and k2 */
-
-	  if (k==0){
-	    k1 = Ngrid3 - 1;
-	    k2 = 1;
-	  }
-	  else if (k==(Ngrid3-1)){
-	    k1 = Ngrid3 - 2;
-	    k2 = 0;
-	  }
-	  else{
-	    k1 = k - 1;
-	    k2 = k + 1;
-	  }  
-
-	  /* set MN */
-
-	  MN = i*Ngrid2*Ngrid3 + j*Ngrid3 + k; 
+          k1 = k - 1;
+          k2 = k + 1;
 
 	  /* set Vxc_Grid */
 
@@ -664,8 +584,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	    /* a-axis */
 
-	    MN1 = i1*Ngrid2*Ngrid3 + j*Ngrid3 + k;
-	    MN2 = i2*Ngrid2*Ngrid3 + j*Ngrid3 + k;
+	    MN1 = i1*Ng2*Ng3 + j*Ng3 + k;
+	    MN2 = i2*Ng2*Ng3 + j*Ng3 + k;
 
 	    up_x_a = dEXC_dGD[0][0][MN2] - dEXC_dGD[0][0][MN1];
 	    up_y_a = dEXC_dGD[0][1][MN2] - dEXC_dGD[0][1][MN1];
@@ -677,8 +597,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	    /* b-axis */
 
-	    MN1 = i*Ngrid2*Ngrid3 + j1*Ngrid3 + k; 
-	    MN2 = i*Ngrid2*Ngrid3 + j2*Ngrid3 + k; 
+	    MN1 = i*Ng2*Ng3 + j1*Ng3 + k; 
+	    MN2 = i*Ng2*Ng3 + j2*Ng3 + k; 
 
 	    up_x_b = dEXC_dGD[0][0][MN2] - dEXC_dGD[0][0][MN1];
 	    up_y_b = dEXC_dGD[0][1][MN2] - dEXC_dGD[0][1][MN1];
@@ -690,8 +610,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
 	    /* c-axis */
 
-	    MN1 = i*Ngrid2*Ngrid3 + j*Ngrid3 + k1; 
-	    MN2 = i*Ngrid2*Ngrid3 + j*Ngrid3 + k2; 
+	    MN1 = i*Ng2*Ng3 + j*Ng3 + k1; 
+	    MN2 = i*Ng2*Ng3 + j*Ng3 + k2; 
 
 	    up_x_c = dEXC_dGD[0][0][MN2] - dEXC_dGD[0][0][MN1];
 	    up_y_c = dEXC_dGD[0][1][MN2] - dEXC_dGD[0][1][MN1];
@@ -744,19 +664,19 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
 
   if (SpinP_switch==3 && XC_P_switch!=0){
 
-#pragma omp parallel shared(Den0,Den1,Den2,Den3,Vxc0,Vxc1,Vxc2,Vxc3,My_NumGrid1) private(OMPID,Nthrds,Nprocs,MN,tmp0,tmp1,theta,phi,sit,cot,sip,cop)
+#pragma omp parallel shared(Den0,Den1,Den2,Den3,Vxc0,Vxc1,Vxc2,Vxc3,My_NumGridD) private(OMPID,Nthrds,MN,tmp0,tmp1,theta,phi,sit,cot,sip,cop)
     {
 
       OMPID = omp_get_thread_num();
       Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
 
-      for (MN=OMPID*My_NumGrid1/Nthrds; MN<(OMPID+1)*My_NumGrid1/Nthrds; MN++){
+      for (MN=OMPID; MN<My_NumGridD; MN+=Nthrds){
 
 	tmp0 = 0.5*(Vxc0[MN] + Vxc1[MN]);
 	tmp1 = 0.5*(Vxc0[MN] - Vxc1[MN]);
 	theta = Den2[MN];
 	phi   = Den3[MN];
+
 	sit = sin(theta);
 	cot = cos(theta);
 	sip = sin(phi);
@@ -767,17 +687,17 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
            
            XC_P_switch = 1;
            Set_XC_Grid( XC_P_switch, 1,
-                        ADensity_Grid,ADensity_Grid,
-                        ADensity_Grid,ADensity_Grid,
-                        RefVxc_Grid, RefVxc_Grid,
-                        RefVxc_Grid, RefVxc_Grid );
+                        ADensity_Grid_D, ADensity_Grid_D,
+                        ADensity_Grid_D, ADensity_Grid_D,
+                        RefVxc_Grid_D,   RefVxc_Grid_D,
+                        RefVxc_Grid_D,   RefVxc_Grid_D );
 
            XC_P_switch = 0;
            Set_XC_Grid( XC_P_switch, 1,
-                        ADensity_Grid,ADensity_Grid,
-                        ADensity_Grid,ADensity_Grid,
-                        RefVxc_Grid, RefVxc_Grid,
-                        RefVxc_Grid, RefVxc_Grid );
+                        ADensity_Grid_D, ADensity_Grid_D,
+                        ADensity_Grid_D, ADensity_Grid_D,
+                        RefVxc_Grid_D,   RefVxc_Grid_D,
+                        RefVxc_Grid_D,   RefVxc_Grid_D );
 
            from Force.c and Total_Energy.c, respectively, 
 
@@ -796,41 +716,8 @@ void Set_XC_Grid(int XC_P_switch, int XC_switch,
     } /* #pragma omp parallel */ 
   }
 
-  /*
-  {
-    int hN1,hN2,hN3,i;
-    double Re11,Re22,Re12,Im12;
-
-    hN1 = Ngrid1/2;
-    hN2 = Ngrid2/2;
-    hN3 = Ngrid3/2;
-
-    for (i=0; i<Num_Cells0; i++){
-
-    MN = i*Ngrid2*Ngrid3 + hN2*Ngrid3 + hN3;
- 
-
-    Re11 = Vxc0[MN];
-    Re22 = Vxc1[MN];
-    Re12 = Vxc2[MN];
-    Im12 = Vxc3[MN];
-
-    printf("MN=%4d %15.12f %15.12f %15.12f %15.12f\n",
-           MN,Re11,Re22,Re12,Im12);
-    }
-  }
-
-
-  MPI_Finalize();
-  exit(0);
-  */
-
-
   /****************************************************
-   In case of GGA,
-   free arrays
-   double dEXC_dGD[2][3][My_NumGrid1]
-   double dDen_Grid[2][3][My_NumGrid1]
+   In case of GGA, free arrays
   ****************************************************/
 
   if (XC_switch==4){

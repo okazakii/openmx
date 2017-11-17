@@ -1,13 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 
 static double eps=1.0e-7;

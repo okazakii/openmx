@@ -22,6 +22,11 @@ typedef struct {
 typedef struct {
   double a;
   int b;
+} dilists;
+
+typedef struct {
+  double a;
+  int b;
   int c;
 } dlist3;
 
@@ -36,6 +41,13 @@ typedef struct {
 
 int dlists_cmp(const dlists *x, const dlists *y);
 int ilists_cmp(const ilists *x, const ilists *y);
+
+
+
+void qsort_int1(long n, int *a)
+{
+  qsort(a, n, sizeof(int), (int(*)(const void*, const void*))ilists_cmp);
+}
 
 
 void qsort_int(long n, int *a, int *b)
@@ -110,6 +122,30 @@ void qsort_double(long n, double *a, double *b)
 
   free(AB);
 }
+
+
+void qsort_double_int(long n, double *a, int *b)
+{
+  int i;
+  dilists *AB;
+
+  AB = (dilists*)malloc(sizeof(dilists)*n);
+
+  for (i=0; i<n; i++){
+    AB[i].a = a[i];     
+    AB[i].b = b[i];
+  }
+
+  qsort(AB, n, sizeof(dilists), (int(*)(const void*, const void*))dlists_cmp);
+
+  for (i=0; i<n; i++){
+    a[i] = AB[i].a;
+    b[i] = AB[i].b;
+  }
+
+  free(AB);
+}
+
 
 
 void qsort_double3(long n, double *a, int *b, int *c)

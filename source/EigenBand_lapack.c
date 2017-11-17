@@ -7,17 +7,17 @@
 #define  measure_time   0
 
 static void Eigen_zheev(dcomplex **A, double *W, int N0);
-static void Eigen_zheevx(dcomplex **A, double *W, int N0);
+static void Eigen_zheevx(dcomplex **A, double *W, int N0, int MaxN, int ev_flag);
 static void Eigen_HH(dcomplex **ac, double *ko, int n, int EVmax, int ev_flag);
 
 
-void EigenBand_lapack(dcomplex **A, double *W, int N0, int ev_flag)
+void EigenBand_lapack(dcomplex **A, double *W, int N0, int MaxN, int ev_flag)
 {
 
-  Eigen_HH(A,W,N0,N0,ev_flag);
+  Eigen_HH(A,W,N0,MaxN,ev_flag);
 
   /*
-  Eigen_zheevx(A,W,N0);
+  Eigen_zheevx(A,W,N0,MaxN,ev_flag);
   */
 
   /*
@@ -34,7 +34,7 @@ void Eigen_HH(dcomplex **ac, double *ko, int n, int EVmax, int ev_flag)
 
     Eigen_HH.c is a subroutine to solve a standard eigenvalue problem
     with a Hermite complex matrix using Householder method and lapack's
-    F77_NAME(dstegr,DSTEGR)() or dstedc_().
+    dstevx, dstegr, or dstedc.
 
     Log of Eigen_HH.c:
 
@@ -153,7 +153,7 @@ void Eigen_HH(dcomplex **ac, double *ko, int n, int EVmax, int ev_flag)
       s3 = sqrt(s3);
     }
 
-    if ( ABSTOL<fabs(s2) || i==(n-1) ){
+    if ( ABSTOL<fabs(s2) || 1.0e-10<fabs(u[i+1].i) || i==(n-1) ){
 
       ss.r = ac[i+1][i].r;
       ss.i = ac[i+1][i].i;
@@ -533,11 +533,12 @@ void Eigen_zheev(dcomplex **A, double *W, int N0)
 
 
 
-void Eigen_zheevx(dcomplex **A, double *W, int N0)
+void Eigen_zheevx(dcomplex **A, double *W, int N0, int MaxN, int ev_flag)
 {
-  char *JOBZ="V";
+  char *JOBZ0="N";
+  char *JOBZ1="V";
   char *UPLO="L";
-  char *RANGE="A";
+  char *RANGE="I";
   INTEGER N=N0;
   INTEGER LDA=N;
   double VL,VU;
@@ -553,6 +554,9 @@ void Eigen_zheevx(dcomplex **A, double *W, int N0)
   INTEGER *IFAIL,INFO;
   dcomplex *A0;
   int i,j;
+
+  IL = 1;
+  IU = MaxN; 
 
   A0=(dcomplex*)malloc(sizeof(dcomplex)*N*N);
   for (i=0; i<N*N; i++){
@@ -590,23 +594,29 @@ void Eigen_zheevx(dcomplex **A, double *W, int N0)
   IFAIL=(INTEGER*)malloc(sizeof(INTEGER)*N);
   for (i=0; i<N; i++) IFAIL[i] = 0;
 
-  F77_NAME(zheevx,ZHEEVX)(JOBZ, RANGE, UPLO, &N, A0, &LDA, &VL, &VU, &IL, &IU,
-                        &ABSTOL, &M, W, Z, &LDZ, WORK, &LWORK, RWORK,
-                        IWORK, IFAIL, &INFO );
+  if (ev_flag==1){
+    F77_NAME(zheevx,ZHEEVX)(JOBZ1, RANGE, UPLO, &N, A0, &LDA, &VL, &VU, &IL, &IU,
+                            &ABSTOL, &M, W, Z, &LDZ, WORK, &LWORK, RWORK,
+                            IWORK, IFAIL, &INFO );
 
+    for (i=1;i<=N;i++) {
+      for (j=1;j<=N;j++) {
+	/* A[i,j] */
+	A[i][j].r = Z[(j-1)*N+i-1].r;
+	A[i][j].i = Z[(j-1)*N+i-1].i;
+      }
+    }
+  }
+  else {
+    F77_NAME(zheevx,ZHEEVX)(JOBZ0, RANGE, UPLO, &N, A0, &LDA, &VL, &VU, &IL, &IU,
+                            &ABSTOL, &M, W, Z, &LDZ, WORK, &LWORK, RWORK,
+                            IWORK, IFAIL, &INFO );
+  }
 
   /*
   printf("ret=%d\n",INFO);
   for (i=0;i<N;i++) printf("%lf ",W[i]);
   */
-
-  for (i=1;i<=N;i++) {
-    for (j=1;j<=N;j++) {
-      /* A[i,j] */
-      A[i][j].r = Z[(j-1)*N+i-1].r;
-      A[i][j].i = Z[(j-1)*N+i-1].i;
-    }
-  }
 
   /* shift by 1 */
   for (i=N;i>=1;i--) {

@@ -15,12 +15,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 
 int Get_OneD_HS_Col(int set_flag, double ****RH, double *H1, int *MP, 

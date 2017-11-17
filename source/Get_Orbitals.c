@@ -1,7 +1,7 @@
 /**********************************************************************
   Get_Orbitals.c:
 
-     Get_Orbitals.c is a subrutine to calculate basis orbitals
+     Get_Orbitals.c is a subroutine to calculate basis orbitals
 
   Log of Get_Orbitals.c:
 
@@ -34,7 +34,7 @@ void Get_Orbitals(int wan, double x, double y, double z, double *Chi)
   double g1,g2,x1,x2,y1,y2,y12,y22,f;
 
   /****************************************************
-     allocation of arrays:
+   allocation of arrays:
 
    double RF[List_YOUSO[25]+1][List_YOUSO[24]];
    double AF[List_YOUSO[25]+1][2*(List_YOUSO[25]+1)+1];
@@ -274,7 +274,6 @@ void Get_Orbitals(int wan, double x, double y, double z, double *Chi)
 	}              
 
       }
-
     }
   }
 
@@ -290,7 +289,7 @@ void Get_Orbitals(int wan, double x, double y, double z, double *Chi)
   }
 
   /****************************************************
-     freeing of arrays:
+   freeing of arrays:
 
    double RF[List_YOUSO[25]+1][List_YOUSO[24]];
    double AF[List_YOUSO[25]+1][2*(List_YOUSO[25]+1)+1];

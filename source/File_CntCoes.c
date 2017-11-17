@@ -16,12 +16,8 @@
 #include <string.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 static int   Input_CntCoes();
 static void Output_CntCoes();
@@ -32,7 +28,6 @@ int File_CntCoes(char *mode)
   int numprocs,myid;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return 1;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 

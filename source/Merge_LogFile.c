@@ -19,12 +19,8 @@
 #include <unistd.h>
 /*  end stat section */
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Merge_LogFile(char *file)
 {
@@ -37,9 +33,10 @@ void Merge_LogFile(char *file)
   char fexn[50][YOUSO10];
   FILE *fp,*fp1,*fp2;
   int numprocs,myid;
+  struct tm *date;
+  time_t timer;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -81,6 +78,17 @@ void Merge_LogFile(char *file)
     fp1 = fopen(fname1,"a");
     fseek(fp1,0,SEEK_END);
 
+    timer = time(NULL);
+    date = localtime(&timer);
+
+    fprintf(fp1,"***********************************************************\n");
+    fprintf(fp1,"***********************************************************\n\n");
+    fprintf(fp1,"  This calculation was performed by OpenMX Ver. %s\n",Version_OpenMX); 
+    fprintf(fp1,"  using %d MPI processes and %d OpenMP threads.\n\n",numprocs,openmp_threads_num);
+    fprintf(fp1,"  %s\n",asctime(date));
+    fprintf(fp1,"***********************************************************\n");
+    fprintf(fp1,"***********************************************************\n\n");
+
     fp2 = fopen(file,"r");
     if (fp2!=NULL){
       for (c=getc(fp2); c!=EOF; c=getc(fp2))  putc(c,fp1); 
@@ -108,10 +116,7 @@ void Merge_LogFile(char *file)
     for (i=0; i<NumFile; i++){
 
       /* skip the "SD" file due to Nishio-san's request */
-
-      /*
-      if (i!=7){
-      */
+      /* if (i!=7){ */
 
       if (1){
 

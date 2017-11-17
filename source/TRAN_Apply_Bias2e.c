@@ -9,18 +9,13 @@
      11/Dec/2005   Released by H.Kino
 
 ***********************************************************************/
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 
 
@@ -43,13 +38,12 @@ void  TRAN_Apply_Bias2e(
        int Ngrid1,
        int Ngrid2,
        int Ngrid3,
+       double ****OLP,
 
-        double ****OLP,
-
-                  /* output: overwritten */
-        double *ChemP, 
-        double *****H, 
-        double *dVHart_Grid
+       /* output: overwritten */
+       double *ChemP, 
+       double *****H, 
+       double *dVHart_Grid
 )
 {
   int myid;
@@ -80,10 +74,17 @@ void  TRAN_Apply_Bias2e(
 
         for (i=0; i<tnoA; i++){
           for (j=0; j<tnoB; j++){
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+           if (SpinP_switch<2) {
             for (k=0; k<=SpinP_switch; k++) {
 	      H[k][GA_AN][LB_AN][i][j] += voltage*OLP[GA_AN][LB_AN][i][j];
             }
-          }
+           } else {
+            H[0][GA_AN][LB_AN][i][j] += voltage*OLP[GA_AN][LB_AN][i][j];
+            H[1][GA_AN][LB_AN][i][j] += voltage*OLP[GA_AN][LB_AN][i][j];
+           }
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
+          }  /* j */
         } /* i */
       } /* LB_AN */
     }   /* GA_AN */

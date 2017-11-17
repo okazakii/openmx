@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-  Ver. 3.6 (Nov./8/2011)
+  Ver. 3.7 (15/May/2013)
 
   OpenMX (Open source package for Material eXplorer) is a program package
   for linear scaling density functional calculations of large-scale materials.
@@ -33,9 +33,8 @@
 
      Taisuke Ozaki
 
-     Present (Nov./8/2011) official address
+     Present (15/May/2013) official address
 
-       Research Center for Integrated Sciences (RCIS), 
        Japan Advanced Institute of Science and Technology (JAIST)
        Asahidai 1-1, Nomi, Ishikawa 923-1292, Japan
 
@@ -66,23 +65,11 @@
 #include <unistd.h>
 /*  end stat section */
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
   
 #include "tran_prototypes.h"
 #include "tran_variables.h"
-
-
 
 
 int main(int argc, char *argv[]) 
@@ -221,6 +208,19 @@ int main(int argc, char *argv[])
   }
 
   /****************************************************
+   ./openmx -maketestL2
+
+    making of *.out files in order to check whether 
+    OpenMX normally runs for large systems on many 
+    platforms or not
+  ****************************************************/
+
+  if ( (argc==2 || argc==3) && strcmp(argv[1],"-maketestL2")==0){
+    Maketest("L2",argc,argv);
+    exit(1);
+  }
+
+  /****************************************************
    ./openmx -runtestL
 
    check whether OpenMX normally runs for relatively
@@ -230,6 +230,18 @@ int main(int argc, char *argv[])
 
   if (strcmp(argv[1],"-runtestL")==0){
     Runtest("L",argc,argv);
+  }
+
+  /****************************************************
+   ./openmx -runtestL2
+
+   check whether OpenMX normally runs for large systems 
+   on many platforms or not by comparing the stored *.out 
+   and generated *.out on your machine.
+  ****************************************************/
+
+  if (strcmp(argv[1],"-runtestL2")==0){
+    Runtest("L2",argc,argv);
   }
 
   /*******************************************************
@@ -313,6 +325,7 @@ int main(int argc, char *argv[])
 
   if (strcmp(argv[1],"-runtestNEGF")==0){
     Runtest("NEGF",argc,argv);
+    MPI_Finalize();
     exit(1);
   }
 
@@ -339,7 +352,7 @@ int main(int argc, char *argv[])
     Force_test(argc,argv);
     exit(1);
   }
-
+  
   /*******************************************************
     check the NEB calculation or not, and if yes, go to 
     the NEB calculation.
@@ -353,15 +366,15 @@ int main(int argc, char *argv[])
 
   CompTime = (double**)malloc(sizeof(double*)*numprocs); 
   for (i=0; i<numprocs; i++){
-    CompTime[i] = (double*)malloc(sizeof(double)*20); 
-    for (j=0; j<20; j++) CompTime[i][j] = 0.0;
+    CompTime[i] = (double*)malloc(sizeof(double)*30); 
+    for (j=0; j<30; j++) CompTime[i][j] = 0.0;
   }
 
   if (myid==Host_ID){  
     printf("\n*******************************************************\n"); 
     printf("*******************************************************\n"); 
     printf(" Welcome to OpenMX   Ver. %s                           \n",Version_OpenMX); 
-    printf(" Copyright (C), 2002-2011, T. Ozaki                    \n"); 
+    printf(" Copyright (C), 2002-2013, T. Ozaki                    \n"); 
     printf(" OpenMX comes with ABSOLUTELY NO WARRANTY.             \n"); 
     printf(" This is free software, and you are welcome to         \n"); 
     printf(" redistribute it under the constitution of the GNU-GPL.\n");
@@ -374,15 +387,13 @@ int main(int argc, char *argv[])
   ScaleSize = 1.2; 
 
   /****************************************************
-                     Read the input file
+                   Read the input file
   ****************************************************/
 
-  /* setup CPU group */
-
-  setup_CPU_group(argv[1]);
   init_alloc_first();
 
   CompTime[myid][1] = readfile(argv);
+
   MPI_Barrier(MPI_COMM_WORLD1);
 
   /* initialize PrintMemory routine */
@@ -439,14 +450,19 @@ int main(int argc, char *argv[])
     ForceConsistency_flag = 1;
   }
 
-  /* check force consistency */
+  /* check force consistency 
+     the number of processes 
+     should be less than 2.
+  */
 
   if (ForceConsistency_flag==1){
+
     Check_Force(argv);
-    OutData(argv[1]);
+    CompTime[myid][20] = OutData(argv[1]);
     Merge_LogFile(argv[1]);
     Free_Arrays(0);
     MPI_Finalize();
+    exit(0); 
     return 1;
   }
 
@@ -459,11 +475,14 @@ int main(int argc, char *argv[])
 
   do {
 
-    CompTime[myid][2] += truncation(MD_iter,Solver==6,1);
+    if (MD_switch==12)
+      CompTime[myid][2] += truncation(1,1);  /* EvsLC */
+    else 
+      CompTime[myid][2] += truncation(MD_iter,1);
 
-    if (ML_flag==1 && myid==Host_ID) Get_VSZ(MD_iter);  
+    if (ML_flag==1 && myid==Host_ID) Get_VSZ(MD_iter);
 
-    if (Solver==4 && MYID_MPI_COMM_WORLD<atomnum) {
+    if (Solver==4) {
       TRAN_Calc_GridBound( mpi_comm_level1, atomnum, WhatSpecies, Spe_Atom_Cut1,
                            Ngrid1, Grid_Origin, Gxyz, tv, gtv, rgtv, Left_tv, Right_tv );
 
@@ -472,7 +491,7 @@ int main(int argc, char *argv[])
 
     CompTime[myid][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
 
-    if (myid==Host_ID) iterout(MD_iter,MD_TimeStep*(MD_iter-1),fileE,fileDRC);
+    iterout(MD_iter+MD_Current_Iter,MD_TimeStep*(MD_iter+MD_Current_Iter-1),fileE,fileDRC);
 
     /* MD or geometry optimization */
 
@@ -481,8 +500,6 @@ int main(int argc, char *argv[])
     MD_iter++;
 
   } while(MD_Opt_OK==0 && MD_iter<=MD_IterNumber);
-
-  if (atomnum<=MYID_MPI_COMM_WORLD) goto LAST_Proc;
 
   if ( TRAN_output_hks ) {
      /* left is dummy */
@@ -522,7 +539,10 @@ int main(int argc, char *argv[])
                   Making of output files
   ****************************************************/
 
-  OutData(argv[1]);
+  if (OutData_bin_flag) 
+    CompTime[myid][20] = OutData_Binary(argv[1]);
+  else 
+    CompTime[myid][20] = OutData(argv[1]);
 
   /****************************************************
     write connectivity, Hamiltonian, overlap, density
@@ -561,9 +581,10 @@ int main(int argc, char *argv[])
 
   PrintMemory("total",0,"sum");
 
- LAST_Proc:
-
-  printf("\nThe calculation was normally finished. (proc=%3d)\n",myid);
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (myid==Host_ID){
+    printf("\nThe calculation was normally finished.\n");
+  }
 
   MPI_Finalize();
 

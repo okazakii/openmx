@@ -3,33 +3,22 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
-
-void Shift_Rhok(double *****ReRhok, double *****ImRhok, double *****Residual_ReRhok, double *****Residual_ImRhok);
 
 
 double Mixing_DM(int MD_iter,
                  int SCF_iter,
                  int SCF_iter0,
                  int SucceedReadingDMfile,
-                 double *****ReRhok,
-                 double *****ImRhok,
-                 double ****ReBestRhok,
-                 double ****ImBestRhok,
-                 double *****Residual_ReRhok,
-                 double *****Residual_ImRhok,
-                 double ***ReV1,
-                 double ***ImV1,
-                 double ***ReV2,
-                 double ***ImV2,
-                 double ***ReRhoAtomk,
-                 double ***ImRhoAtomk)
+                 double ***ReRhok,
+                 double ***ImRhok,
+                 double **Residual_ReRhok,
+                 double **Residual_ImRhok,
+                 double *ReVk,
+                 double *ImVk,
+                 double *ReRhoAtomk,
+                 double *ImRhoAtomk)
 {
   int pSCF_iter,NumMix,NumSlide;
   int spin,ct_AN,wan1,TNO1,h_AN,Gh_AN,wan2;
@@ -41,7 +30,6 @@ double Mixing_DM(int MD_iter,
   int numprocs,myid,ID;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return 0.0;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -53,6 +41,7 @@ double Mixing_DM(int MD_iter,
   *******************************************************/
 
   if (Mixing_switch==0){
+
     if (MD_iter==1 && SCF_iter==1){
 
      /*---------- modified by TOYODA 18/JAN/2010 */
@@ -60,16 +49,17 @@ double Mixing_DM(int MD_iter,
 #if EXX_MIX_DM
 
       if (g_exx_switch) {
-        Simple_Mixing_DM(0,Mixing_weight,DM[0],DM[1],DM[2], 
+        Simple_Mixing_DM(0,1.0,DM[0],DM[1],DM[2], 
           iDM[0],iDM[1],iDM[2],ResidualDM[2],iResidualDM[2],
           g_exx, g_exx_DM[0], g_exx_DM[1], g_exx_DM[2]);
       } else {
-        Simple_Mixing_DM(0,Mixing_weight,DM[0],DM[1],DM[2], 
+        Simple_Mixing_DM(0,1.0,DM[0],DM[1],DM[2], 
           iDM[0],iDM[1],iDM[2],ResidualDM[2],iResidualDM[2],
           NULL, NULL, NULL, NULL);
       }
 #else
-      Simple_Mixing_DM(0,Mixing_weight,DM[0],DM[1],DM[2],iDM[0],iDM[1],iDM[2],ResidualDM[2],iResidualDM[2]);
+      Simple_Mixing_DM( 0,1.0,DM[0],DM[1],DM[2],
+                        iDM[0],iDM[1],iDM[2],ResidualDM[2],iResidualDM[2]);
 #endif
       /*---------- until here */
 
@@ -170,30 +160,30 @@ double Mixing_DM(int MD_iter,
 
     if (MD_iter==1 && SCF_iter0==1 && SucceedReadingDMfile==0){
       Kerker_Mixing_Rhok(0, Mixing_weight,
-                         ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                         ReRhok,ImRhok,
                          Residual_ReRhok,Residual_ImRhok,
-                         ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                         ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
 
     else if (MD_iter==1 && SCF_iter==1){
       Kerker_Mixing_Rhok(0, Mixing_weight,
-                         ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                         ReRhok,ImRhok,
                          Residual_ReRhok,Residual_ImRhok,
-                         ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                         ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
 
     else if ( (SCF_iter%30)==1) {
       Kerker_Mixing_Rhok(1,Max_Mixing_weight,
-                         ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                         ReRhok,ImRhok,
                          Residual_ReRhok,Residual_ImRhok,
-                         ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                         ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
 
     else{
       Kerker_Mixing_Rhok(1,Mixing_weight,
-                         ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                         ReRhok,ImRhok,
                          Residual_ReRhok,Residual_ImRhok,
-                         ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                         ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
   }
 
@@ -205,24 +195,25 @@ double Mixing_DM(int MD_iter,
  
     if (MD_iter==1 && SCF_iter==1){
       Kerker_Mixing_Rhok(0,Mixing_weight,
-                         ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                         ReRhok,ImRhok,
                          Residual_ReRhok,Residual_ImRhok,
-                         ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                         ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
 
     else if (SCF_iter<Pulay_SCF){
       Kerker_Mixing_Rhok(1,Mixing_weight,
-                         ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                         ReRhok,ImRhok,
                          Residual_ReRhok,Residual_ImRhok,
-                         ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                         ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
 
     else{
+
       DIIS_Mixing_Rhok(SCF_iter-(Pulay_SCF-3),
                        Mixing_weight,
-                       ReRhok,ImRhok,ReBestRhok,ImBestRhok,
+                       ReRhok,ImRhok,
                        Residual_ReRhok,Residual_ImRhok,
-                       ReV1,ImV1,ReV2,ImV2,ReRhoAtomk,ImRhoAtomk);
+                       ReVk,ImVk,ReRhoAtomk,ImRhoAtomk);
     }
 
   }

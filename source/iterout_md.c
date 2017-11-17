@@ -92,6 +92,24 @@ void iterout_md(int iter, double drctime, char fileSE[YOUSO10])
 
   }  
 
+  /* for calculation of the delta factor */
+
+  if (MD_switch==16){
+
+    sprintf(fileEvsLC,"%s%s.DF",filepath,filename);
+
+    if ((fp = fopen(fileEvsLC,"a")) != NULL){
+
+      fprintf(fp,"%18.12f ",Cell_Volume*BohrR*BohrR*BohrR/(double)atomnum);
+      fprintf(fp,"%18.12f\n",Utot*eV2Hartree/(double)atomnum);
+
+      fclose(fp);
+    }
+    else
+      printf("error in saving *.EvsLC\n");
+
+  }  
+
 }
 
 

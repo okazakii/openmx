@@ -71,7 +71,6 @@ void init_alloc_first()
      ResidualDM
      EDM
      PDM
-     IOLP 
      CntCoes
   ***********************************************/
   alloc_first[4] = 1;
@@ -148,53 +147,29 @@ void init_alloc_first()
   alloc_first[13] = 1;
 
   /***********************************************
-   allocate_grids2atoms() of truncation.c.
-
-     My_Cell1
+    none
   ***********************************************/
   alloc_first[14] = 1;
 
   /***********************************************
-   allocate_grids2atoms() of truncation.c.
-
-     My_Cell0
-     Cell_ID0
+    none
   ***********************************************/
   alloc_first[15] = 1;
 
   /***********************************************
-   allocate_grids2atoms() of truncation.c.
-
-     Num_Rcv_Grid1
-     Num_Snd_Grid1
-     Rcv_Grid1
-     Snd_Grid1
+    none
   ***********************************************/
   alloc_first[16] = 1;
 
   /***********************************************
-   allocate_grids2atoms() of truncation.c.
-
-     Num_IRcv_Grid1
-     Num_ISnd_Grid1
-     IRcv_Grid1
-     ISnd_Grid1
+    none
   ***********************************************/
   alloc_first[17] = 1;
 
   /***********************************************
-   allocate_grids2atoms() of truncation.c.
-
-     Rcv_FNAN2_MN
-     Rcv_FNAN2_GA
-     TopMAN2_Grid
-     Num_Rcv_FNAN2_Grid
-     Num_Snd_FNAN2_Grid
-     Snd_FNAN2_At
-     Snd_FNAN2_Nc
+    none
   ***********************************************/
   alloc_first[18] = 1;
-
 
   /***********************************************
    GDC_Allocation() of Set_Allocate_Atom2CPU.c.
@@ -247,6 +222,40 @@ void init_alloc_first()
   ***********************************************/
   alloc_first[24] = 1;
 
+  /***********************************************
+   Wannier_Select_Matrix
+   Wannier_Projector_Hybridize_Matrix
+  ***********************************************/
   alloc_first[25] = 1;
+
+  /***********************************************
+   Index_Snd_Grid_A2B
+   Index_Rcv_Grid_A2B
+  ***********************************************/
+  alloc_first[26] = 1;
+
+  /***********************************************
+   Index_Snd_Grid_B2C
+   Index_Rcv_Grid_B2C
+  ***********************************************/
+  alloc_first[27] = 1;
+
+  /***********************************************
+   Index_Snd_Grid_B_AB2CA
+   Index_Rcv_Grid_B_AB2CA
+  ***********************************************/
+  alloc_first[28] = 1;
+
+  /***********************************************
+   Index_Snd_Grid_B_CA2CB
+   Index_Rcv_Grid_B_CA2CB
+  ***********************************************/
+  alloc_first[29] = 1;
+
+  /***********************************************
+   Index_Snd_Grid_B2D
+   Index_Rcv_Grid_B2D
+  ***********************************************/
+  alloc_first[30] = 1;
 
 }

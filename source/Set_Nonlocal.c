@@ -10,27 +10,27 @@
 
 ***********************************************************************/
 
+#define  measure_time   0
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/times.h>
+#include <sys/time.h> 
+#include <sys/stat.h>
+#include <unistd.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
 
 
 static double NLRF_BesselF(int Gensi, int L, int so, double R);
 static void Nonlocal0(double *****HNL, double ******DS_NL);
+static void Multiply_DS_NL(int Mc_AN, int Mj_AN, int k, int kl, 
+                           int Cwan, int Hwan, int wakg, dcomplex ***NLH);
+
 
 double Set_Nonlocal(double *****HNL, double ******DS_NL)
 {
@@ -54,17 +54,22 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
    in the KB or Blochl separable form in momentum space.
   ****************************************************/
   static int firsttime=1;
-  int i,j,kl,n,kan;
+  int i,j,kl,n,m;
   int Mc_AN,Gc_AN,h_AN,k,Cwan,Gh_AN,Hwan,so;
   int tno0,tno1,tno2,i1,j1,p,ct_AN,spin;
-  int fan,jg,kg,wakg;
+  int fan,jg,kg,wakg,jg0,Mj_AN0,j0;
   int size_NLH,size_SumNL0,size_TmpNL;
   int Mj_AN,num,size1,size2;
-  double time0;
-  
+  int *Snd_DS_NL_Size,*Rcv_DS_NL_Size;
+  int Original_Mc_AN,po; 
+  double rcutA,rcutB,rcut,dmp;
+  double time1,time2,time3;
+  double stime,etime;
+  dcomplex ***NLH;
   double *tmp_array;
   double *tmp_array2;
   double TStime,TEtime;
+  double Stime_atom,Etime_atom;
   int numprocs,myid,tag=999,ID,IDS,IDR;
 
   MPI_Status stat;
@@ -74,7 +79,6 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
   int OneD_Nloop,*OneD2Mc_AN,*OneD2h_AN;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -130,6 +134,9 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
   /****************************************************
                     calculate DS_NL
   ****************************************************/
+
+  MPI_Barrier(mpi_comm_level1);
+  if (measure_time) dtime(&stime);
 
 #pragma omp parallel shared(List_YOUSO,time_per_atom,DS_NL,Comp2Real,OneD_Grid,Spe_Num_RVPS,Spe_VPS_List,Spe_Num_Basis,Spe_MaxL_Basis,PAO_Nkmax,VPS_j_dependency,atv,Gxyz,WhatSpecies,ncn,natn,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop,Ngrid_NormK,NormK,Spe_NLRF_Bessel) 
   {
@@ -767,196 +774,340 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
 
   } /* #pragma omp parallel */
 
-  /****************************************************
-   MPI: 
-
-   DS_NL
-  ****************************************************/
-
-  /***********************************
-             set data size
-  ************************************/
-
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    tag = 999;
-
-    /* find data size to send block data */
-    if (F_Snd_Num[IDS]!=0){
-
-      size1 = 0;
-      for (k=0; k<=3; k++){
-	for (n=0; n<F_Snd_Num[IDS]; n++){
-	  Mc_AN = Snd_MAN[IDS][n];
-	  Gc_AN = Snd_GAN[IDS][n];
-	  Cwan = WhatSpecies[Gc_AN]; 
-	  tno1 = Spe_Total_NO[Cwan];
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	    Gh_AN = natn[Gc_AN][h_AN];        
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno2 = Spe_Total_VPS_Pro[Hwan];
-
-	    for (so=0; so<=VPS_j_dependency[Hwan]; so++){
-	      for (i=0; i<tno1; i++){
-		for (j=0; j<tno2; j++){
-		  size1++; 
-		} 
-	      } 
-	    }
-	  }
-	}
-      }
- 
-      Snd_DS_NL_Size[IDS] = size1;
-      MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-    }
-    else{
-      Snd_DS_NL_Size[IDS] = 0;
-    }
-
-    /* receiving of size of data */
-
-    if (F_Rcv_Num[IDR]!=0){
-      MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-      Rcv_DS_NL_Size[IDR] = size2;
-    }
-    else{
-      Rcv_DS_NL_Size[IDR] = 0;
-    }
-
-    if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
+  if (measure_time){
+    dtime(&etime);
+    time1 = etime - stime;
   }
 
-  /*
-  for (ID=0; ID<numprocs; ID++){
-    printf("myid=%2d ID=%2d Snd=%5d Rcv=%5d\n",myid,ID,Snd_DS_NL_Size[ID],Rcv_DS_NL_Size[ID]);
+  /*******************************************************
+   *******************************************************
+     multiplying overlap integrals WITH COMMUNICATION
+
+     MPI: communicate only for k=0
+     DS_NL
+  *******************************************************
+  *******************************************************/
+
+  MPI_Barrier(mpi_comm_level1);
+  if (measure_time) dtime(&stime);
+
+  /* allocation of arrays */
+
+  NLH = (dcomplex***)malloc(sizeof(dcomplex**)*3); 
+  for (k=0; k<3; k++){
+    NLH[k] = (dcomplex**)malloc(sizeof(dcomplex*)*List_YOUSO[7]); 
+    for (i=0; i<List_YOUSO[7]; i++){
+      NLH[k][i] = (dcomplex*)malloc(sizeof(dcomplex)*List_YOUSO[7]); 
+    }
   }
-  */
 
-  /***********************************
-             data transfer
-  ************************************/
+  Snd_DS_NL_Size = (int*)malloc(sizeof(int)*numprocs);
+  Rcv_DS_NL_Size = (int*)malloc(sizeof(int)*numprocs);
 
-  tag = 999;
   for (ID=0; ID<numprocs; ID++){
+    F_Snd_Num_WK[ID] = 0;
+    F_Rcv_Num_WK[ID] = 0;
+  }
 
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
+  do {
 
-    /*****************************
-           sending of data 
-    *****************************/
+    /***********************************                                                            
+          set the size of data                                                                      
+    ************************************/
 
-    if (F_Snd_Num[IDS]!=0){
+    for (ID=0; ID<numprocs; ID++){
 
-      size1 = Snd_DS_NL_Size[IDS];
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
 
-      /* allocation of array */
+      /* find the data size to send the block data */
 
-      tmp_array = (double*)malloc(sizeof(double)*size1);
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
 
-      /* multidimentional array to vector array */
+        size1 = 0;
+        n = F_Snd_Num_WK[IDS];
 
-      num = 0;
-      for (k=0; k<=3; k++){
-	for (n=0; n<F_Snd_Num[IDS]; n++){
-	  Mc_AN = Snd_MAN[IDS][n];
-	  Gc_AN = Snd_GAN[IDS][n];
-	  Cwan = WhatSpecies[Gc_AN]; 
-	  tno1 = Spe_Total_NO[Cwan];
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	    Gh_AN = natn[Gc_AN][h_AN];        
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno2 = Spe_Total_VPS_Pro[Hwan];
+        Mc_AN = Snd_MAN[IDS][n];
+        Gc_AN = Snd_GAN[IDS][n];
+        Cwan = WhatSpecies[Gc_AN];
+        tno1 = Spe_Total_NO[Cwan];
 
-	    for (so=0; so<=VPS_j_dependency[Hwan]; so++){
-	      for (i=0; i<tno1; i++){
-		for (j=0; j<tno2; j++){
-		  tmp_array[num] = DS_NL[so][k][Mc_AN][h_AN][i][j];
-		  num++;
-		} 
-	      } 
-	    }
-	  }
-	}
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+          Gh_AN = natn[Gc_AN][h_AN];
+          Hwan = WhatSpecies[Gh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Hwan];
+          size1 += (VPS_j_dependency[Hwan]+1)*tno1*tno2;
+        }
+
+        Snd_DS_NL_Size[IDS] = size1;
+        MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+      }
+      else{
+        Snd_DS_NL_Size[IDS] = 0;
       }
 
-      /*
-      printf("S myid=%2d ID=%2d IDS=%2d IDR=%2d  size1=%2d\n",myid,ID,IDS,IDR,size1);fflush(stdout);
-      */
+      /* receiving of the size of the data */
 
-      MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
+        MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+        Rcv_DS_NL_Size[IDR] = size2;
+      }
+      else{
+        Rcv_DS_NL_Size[IDR] = 0;
+      }
 
-    }
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) )  MPI_Wait(&request,&stat);
 
-    /*****************************
-         receiving of block data
-    *****************************/
+    } /* ID */
 
-    if (F_Rcv_Num[IDR]!=0){
+    /***********************************
+               data transfer
+    ************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      /******************************
+         sending of the data 
+      ******************************/
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ){
+
+	size1 = Snd_DS_NL_Size[IDS];
+
+	/* allocation of the array */
+
+	tmp_array = (double*)malloc(sizeof(double)*size1);
+
+	/* multidimentional array to the vector array */
+
+	num = 0;
+	n = F_Snd_Num_WK[IDS];
+
+	Mc_AN = Snd_MAN[IDS][n];
+	Gc_AN = Snd_GAN[IDS][n];
+	Cwan = WhatSpecies[Gc_AN]; 
+	tno1 = Spe_Total_NO[Cwan];
+
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];        
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Hwan];
+
+          for (so=0; so<=VPS_j_dependency[Hwan]; so++){
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+	        tmp_array[num] = DS_NL[so][0][Mc_AN][h_AN][i][j];
+	        num++;
+	      } 
+	    } 
+	  }
+	}
+
+	MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
+      }
+
+      /******************************
+        receiving of the block data
+      ******************************/
+
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ){
         
-      size2 = Rcv_DS_NL_Size[IDR];
-        
-      /* allocation of array */
-      tmp_array2 = (double*)malloc(sizeof(double)*size2);
+	size2 = Rcv_DS_NL_Size[IDR];
+	tmp_array2 = (double*)malloc(sizeof(double)*size2);
+	MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
-      /*
-      printf("R myid=%2d ID=%2d IDS=%2d IDR=%2d  size2=%2d\n",myid,ID,IDS,IDR,size2);fflush(stdout);
-      */
+	/* store */
 
-      MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-        
-      num = 0;
-      for (k=0; k<=3; k++){
-	Mc_AN = F_TopMAN[IDR] - 1;
-	for (n=0; n<F_Rcv_Num[IDR]; n++){
-	  Mc_AN++;
-	  Gc_AN = Rcv_GAN[IDR][n];
-	  Cwan = WhatSpecies[Gc_AN]; 
-	  tno1 = Spe_Total_NO[Cwan];
+	num = 0;
+	n = F_Rcv_Num_WK[IDR];
+	Original_Mc_AN = F_TopMAN[IDR] + n;
 
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	    Gh_AN = natn[Gc_AN][h_AN];        
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno2 = Spe_Total_VPS_Pro[Hwan];
+	Gc_AN = Rcv_GAN[IDR][n];
+	Cwan = WhatSpecies[Gc_AN];
+	tno1 = Spe_Total_NO[Cwan];
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  Gh_AN = natn[Gc_AN][h_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+	  tno2 = Spe_Total_VPS_Pro[Hwan];
 
-	    for (so=0; so<=VPS_j_dependency[Hwan]; so++){
-	      for (i=0; i<tno1; i++){
-		for (j=0; j<tno2; j++){
-		  DS_NL[so][k][Mc_AN][h_AN][i][j] = tmp_array2[num];
-		  num++;
-		}
+          for (so=0; so<=VPS_j_dependency[Hwan]; so++){
+	    for (i=0; i<tno1; i++){
+	      for (j=0; j<tno2; j++){
+	        DS_NL[so][0][Matomnum+1][h_AN][i][j] = tmp_array2[num];
+	        num++;
 	      }
 	    }
 	  }
-	}        
+	}
+
+	/* free tmp_array2 */
+	free(tmp_array2);
+
+	/*****************************************************************
+                           multiplying overlap integrals
+	*****************************************************************/
+
+        for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+	  dtime(&Stime_atom);
+
+          Gc_AN = M2G[Mc_AN];
+          Cwan = WhatSpecies[Gc_AN];
+          fan = FNAN[Gc_AN];
+          rcutA = Spe_Atom_Cut1[Cwan];
+
+          n = F_Rcv_Num_WK[IDR];
+          jg = Rcv_GAN[IDR][n];
+
+          for (j0=0; j0<=fan; j0++){
+
+            jg0 = natn[Gc_AN][j0];
+            Mj_AN0 = F_G2M[jg0];
+
+            po = 0;
+            if (Original_Mc_AN==Mj_AN0){
+              po = 1;
+              j = j0;
+            }
+
+            if (po==1){
+
+	      Hwan = WhatSpecies[jg];
+              rcutB = Spe_Atom_Cut1[Hwan];
+              rcut = rcutA + rcutB;
+
+	      for (m=0; m<Spe_Total_NO[Cwan]; m++){
+		for (n=0; n<Spe_Total_NO[Hwan]; n++){
+		  NLH[0][m][n].r = 0.0;     /* <up|VNL|up> */
+		  NLH[1][m][n].r = 0.0;     /* <dn|VNL|dn> */
+		  NLH[2][m][n].r = 0.0;     /* <up|VNL|dn> */
+		  NLH[0][m][n].i = 0.0;
+		  NLH[1][m][n].i = 0.0;
+		  NLH[2][m][n].i = 0.0;
+		}
+	      }
+
+              for (k=0; k<=fan; k++){
+
+                kg = natn[Gc_AN][k];
+                wakg = WhatSpecies[kg];
+                kl = RMI1[Mc_AN][j][k];
+
+                if (0<=kl){
+
+                  Multiply_DS_NL(Mc_AN, Matomnum+1, k, kl, Cwan, Hwan, wakg, NLH);
+
+		} /* if (0<=kl) */
+
+	      } /* k */
+
+              /****************************************************
+                      adding NLH to HNL
+  
+                 HNL[0] and iHNL[0] for up-up
+                 HNL[1] and iHNL[1] for dn-dn
+                 HNL[2] and iHNL[2] for up-dn
+	      ****************************************************/
+
+              dmp = dampingF(rcut,Dis[Gc_AN][j]);
+
+	      for (p=0; p<List_YOUSO[5]; p++){
+		for (i1=0; i1<Spe_Total_NO[Cwan]; i1++){
+		  for (j1=0; j1<Spe_Total_NO[Hwan]; j1++){
+
+		    HNL[p][Mc_AN][j][i1][j1] = dmp*NLH[p][i1][j1].r*F_NL_flag;
+
+		    if (SO_switch==1){
+		      iHNL[p][Mc_AN][j][i1][j1]  = dmp*NLH[p][i1][j1].i*F_NL_flag;
+		      iHNL0[p][Mc_AN][j][i1][j1] = dmp*NLH[p][i1][j1].i*F_NL_flag;
+		    }
+		  }
+		}
+	      }
+
+	    } /* if (po==1) */
+	  } /* j0 */
+
+          dtime(&Etime_atom);
+          time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+	} /* Mc_AN */
+
+        /********************************************                                               
+            increment of F_Rcv_Num_WK[IDR]                                                          
+	********************************************/
+
+        F_Rcv_Num_WK[IDR]++;
+
       }
 
-      /* freeing of array */
-      free(tmp_array2);
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) {
+
+        MPI_Wait(&request,&stat);
+        free(tmp_array);  /* freeing of array */
+
+        /********************************************                                               
+             increment of F_Snd_Num_WK[IDS]                                                         
+	********************************************/
+
+        F_Snd_Num_WK[IDS]++;
+      }
+
+    } /* ID */
+
+    /*****************************************************                                          
+      check whether all the communications have finished                                            
+    *****************************************************/
+
+    po = 0;
+    for (ID=0; ID<numprocs; ID++){
+
+      IDS = (myid + ID) % numprocs;
+      IDR = (myid - ID + numprocs) % numprocs;
+
+      if ( 0<(F_Snd_Num[IDS]-F_Snd_Num_WK[IDS]) ) po += F_Snd_Num[IDS]-F_Snd_Num_WK[IDS];
+      if ( 0<(F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR]) ) po += F_Rcv_Num[IDR]-F_Rcv_Num_WK[IDR];
     }
 
-    if (F_Snd_Num[IDS]!=0){
-      MPI_Wait(&request,&stat);
-      free(tmp_array);  /* freeing of array */
-    } 
+  } while (po!=0);
+
+  /* freeing of array */
+
+  free(Rcv_DS_NL_Size);
+  free(Snd_DS_NL_Size);
+
+  for (k=0; k<3; k++){
+    for (i=0; i<List_YOUSO[7]; i++){
+      free(NLH[k][i]);
+    }
+    free(NLH[k]);
+  }
+  free(NLH);
+
+  if (measure_time){
+    dtime(&etime);
+    time2 = etime - stime;
   }
 
-  /****************************************************
-            "multiplying overlap integrals"
-  ****************************************************/
+  /*******************************************************
+   *******************************************************
+     multiplying overlap integrals WITHOUT COMMUNICATION
+  *******************************************************
+  *******************************************************/
+
+  MPI_Barrier(mpi_comm_level1);
+  if (measure_time) dtime(&stime);
 
   /* allocation of arrays */
 
 #pragma omp parallel shared(time_per_atom,HNL,iHNL,iHNL0,F_NL_flag,List_YOUSO,Dis,SpinP_switch,Spe_Total_NO,DS_NL,Spe_VPS_List,Spe_VNLE,Spe_Num_RVPS,VPS_j_dependency,Spe_Total_VPS_Pro,RMI1,F_G2M,natn,Spe_Atom_Cut1,FNAN,WhatSpecies,M2G,OneD2h_AN,OneD2Mc_AN,OneD_Nloop,SO_switch) 
   {
-
     int OMPID,Nthrds,Nprocs,Nloop;
     int Mc_AN,j,Gc_AN,Cwan,fan,jg,i1,j1,i;
-    int Mj_AN,Hwan,k,kg,wakg,kan,kl;
+    int Mj_AN,Hwan,k,kg,wakg,kl;
     int p,m,n,L,L1,L2,L3;
     double rcutA,rcutB,rcut,sum,ene;
     double Stime_atom, Etime_atom;
@@ -1004,383 +1155,62 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
   
       jg = natn[Gc_AN][j];
       Mj_AN = F_G2M[jg];
-      Hwan = WhatSpecies[jg];
-      rcutB = Spe_Atom_Cut1[Hwan];
-      rcut = rcutA + rcutB;
 
-      for (m=0; m<Spe_Total_NO[Cwan]; m++){
-	for (n=0; n<Spe_Total_NO[Hwan]; n++){
-	  NLH[0][m][n].r = 0.0;     /* <up|VNL|up> */
-	  NLH[1][m][n].r = 0.0;     /* <dn|VNL|dn> */
-	  NLH[2][m][n].r = 0.0;     /* <up|VNL|dn> */
-	  NLH[0][m][n].i = 0.0;
-	  NLH[1][m][n].i = 0.0;
-	  NLH[2][m][n].i = 0.0;
+      if (Mj_AN<=Matomnum){
+
+	Hwan = WhatSpecies[jg];
+	rcutB = Spe_Atom_Cut1[Hwan];
+	rcut = rcutA + rcutB;
+
+	for (m=0; m<Spe_Total_NO[Cwan]; m++){
+	  for (n=0; n<Spe_Total_NO[Hwan]; n++){
+	    NLH[0][m][n].r = 0.0;     /* <up|VNL|up> */
+	    NLH[1][m][n].r = 0.0;     /* <dn|VNL|dn> */
+	    NLH[2][m][n].r = 0.0;     /* <up|VNL|dn> */
+	    NLH[0][m][n].i = 0.0;
+	    NLH[1][m][n].i = 0.0;
+	    NLH[2][m][n].i = 0.0;
+	  }
 	}
-      }
 
-      for (k=0; k<=fan; k++){
+	for (k=0; k<=fan; k++){
 
-	kg = natn[Gc_AN][k];
-	wakg = WhatSpecies[kg];
-	kan = Spe_Total_VPS_Pro[wakg];
-	kl = RMI1[Mc_AN][j][k];
+	  kg = natn[Gc_AN][k];
+	  wakg = WhatSpecies[kg];
+	  kl = RMI1[Mc_AN][j][k];
         
-        /****************************************************
-                     l-dependent non-local part
-        ****************************************************/
-        
-	if (0<=kl && VPS_j_dependency[wakg]==0){
-        
-	  for (m=0; m<Spe_Total_NO[Cwan]; m++){
-	    for (n=0; n<Spe_Total_NO[Hwan]; n++){
+	  if (0<=kl){
 
-	      sum = 0.0;
+	    Multiply_DS_NL(Mc_AN, Mj_AN, k, kl, Cwan, Hwan, wakg, NLH);
 
-	      L = 0;
-	      for (L1=1; L1<=Spe_Num_RVPS[wakg]; L1++){
+	  } /* if (0<=kl) */
+	} /* k */
 
-                ene = Spe_VNLE[0][wakg][L1-1];
-                L2 = 2*Spe_VPS_List[wakg][L1];
-
-		for (L3=0; L3<=L2; L3++){
-		  sum += ene*DS_NL[0][0][Mc_AN][k][m][L]*DS_NL[0][0][Mj_AN][kl][n][L];
-		  L++;
-		}
-	      }
-
-              NLH[0][m][n].r += sum;    /* <up|VNL|up> */
-              NLH[1][m][n].r += sum;    /* <dn|VNL|dn> */
-
-	    }
-	  }
-
-	} /* if */
-
-        /****************************************************
-                     j-dependent non-local part
-        ****************************************************/
-
-	else if (0<=kl && VPS_j_dependency[wakg]==1){
-
-	  for (m=0; m<Spe_Total_NO[Cwan]; m++){
-	    for (n=0; n<Spe_Total_NO[Hwan]; n++){
-
-	      sum0 = Complex(0.0,0.0);
-	      sum1 = Complex(0.0,0.0);
-	      sum2 = Complex(0.0,0.0);
-
-	      L = 0;
-	      for (L1=1; L1<=Spe_Num_RVPS[wakg]; L1++){
-
-		ene_p = Spe_VNLE[0][wakg][L1-1];
-		ene_m = Spe_VNLE[1][wakg][L1-1];
-
-		if      (Spe_VPS_List[wakg][L1]==0) { L2=0; PFp=1.0;     PFm=0.0;     }  
-		else if (Spe_VPS_List[wakg][L1]==1) { L2=2; PFp=2.0/3.0; PFm=1.0/3.0; }
-		else if (Spe_VPS_List[wakg][L1]==2) { L2=4; PFp=3.0/5.0; PFm=2.0/5.0; }
-		else if (Spe_VPS_List[wakg][L1]==3) { L2=6; PFp=4.0/7.0; PFm=3.0/7.0; }
-
-                /****************************************************
-                  off-diagonal contribution on up-dn
-                  for spin non-collinear
-                ****************************************************/
-
-		if (SpinP_switch==3){
-
-                  /***************
-                          p
-                  ***************/ 
-
-                  if (L2==2){
-
-                    /* real contribution of l+1/2 to off diagonal up-down matrix */ 
-                    sum2.r +=  ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		              -ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L  ]; 
-
-                    /* imaginary contribution of l+1/2 to off diagonal up-down matrix */ 
-                    sum2.i += -ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		      +ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+1]; 
-
-                    /* real contribution of l-1/2 for to diagonal up-down matrix */ 
-		    sum2.r -=  ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		      -ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L  ]; 
-
-                    /* imaginary contribution of l-1/2 to off diagonal up-down matrix */ 
-                    sum2.i -= -ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		      +ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+1]; 
-	  	  }
-
-                  /***************
-                          d
-                  ***************/ 
-
-                  else if (L2==4){
-
-                    /* real contribution of l+1/2 to off diagonal up-down matrix */ 
-                    tmp0 = sqrt(3.0);
-                    tmp1 = ene_p/5.0; 
-                    tmp2 = tmp0*tmp1;
-
-                    sum2.r += -tmp2*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      +tmp2*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L  ]
-		      +tmp1*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      -tmp1*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		      +tmp1*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		      -tmp1*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+2];
-
-                    /* imaginary contribution of l+1/2 to off diagonal up-down matrix */ 
-
-                    sum2.i +=  tmp2*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		      -tmp2*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L  ]
-		      +tmp1*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		      -tmp1*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		      -tmp1*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      +tmp1*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+2];
-
-                    /* real contribution of l-1/2 for to diagonal up-down matrix */ 
-
-                    tmp1 = ene_m/5.0; 
-                    tmp2 = tmp0*tmp1;
-
-                    sum2.r -= -tmp2*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      +tmp2*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L  ]
-		      +tmp1*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      -tmp1*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		      +tmp1*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		      -tmp1*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+2];
-
-                    /* imaginary contribution of l-1/2 to off diagonal up-down matrix */ 
-
-                    sum2.i -=  tmp2*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		      -tmp2*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L  ]
-		      +tmp1*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		      -tmp1*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		      -tmp1*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      +tmp1*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+2];
-
-		  }
-
-                  /***************
-                          f
-                  ***************/ 
-
-                  else if (L2==6){
-
-                    /* real contribution of l+1/2 to off diagonal up-down matrix */ 
-
-                    tmp0 = sqrt(6.0);
-                    tmp1 = sqrt(3.0/2.0);
-                    tmp2 = sqrt(5.0/2.0);
-
-                    tmp3 = ene_p/7.0; 
-                    tmp4 = tmp1*tmp3; /* sqrt(3.0/2.0) */
-                    tmp5 = tmp2*tmp3; /* sqrt(5.0/2.0) */
-                    tmp6 = tmp0*tmp3; /* sqrt(6.0)     */
-
-                    sum2.r += -tmp6*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		      +tmp6*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L  ]
-		      -tmp5*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      +tmp5*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		      -tmp5*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		      +tmp5*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		      -tmp4*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+5]
-		      +tmp4*DS_NL[0][0][Mc_AN][k][m][L+5]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      -tmp4*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+6]
-		      +tmp4*DS_NL[0][0][Mc_AN][k][m][L+6]*DS_NL[0][0][Mj_AN][kl][n][L+4];
-
-                    /* imaginary contribution of l+1/2 to off diagonal up-down matrix */ 
-
-                    sum2.i +=  tmp6*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		      -tmp6*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L  ]
-		      +tmp5*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		      -tmp5*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		      -tmp5*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      +tmp5*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		      +tmp4*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+6]
-		      -tmp4*DS_NL[0][0][Mc_AN][k][m][L+6]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		      -tmp4*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+5]
-		      +tmp4*DS_NL[0][0][Mc_AN][k][m][L+5]*DS_NL[0][0][Mj_AN][kl][n][L+4];
-
-                    /* real contribution of l-1/2 for to diagonal up-down matrix */ 
-
-                    tmp3 = ene_m/7.0; 
-                    tmp4 = tmp1*tmp3; /* sqrt(3.0/2.0) */
-                    tmp5 = tmp2*tmp3; /* sqrt(5.0/2.0) */
-                    tmp6 = tmp0*tmp3; /* sqrt(6.0)     */
-
-                    sum2.r -= -tmp6*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		      +tmp6*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L  ]
-		      -tmp5*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      +tmp5*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		      -tmp5*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		      +tmp5*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		      -tmp4*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+5]
-		      +tmp4*DS_NL[1][0][Mc_AN][k][m][L+5]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      -tmp4*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+6]
-		      +tmp4*DS_NL[1][0][Mc_AN][k][m][L+6]*DS_NL[1][0][Mj_AN][kl][n][L+4];
-
-                    /* imaginary contribution of l-1/2 to off diagonal up-down matrix */ 
-
-                    sum2.i -=  tmp6*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		      -tmp6*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L  ]
-		      +tmp5*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		      -tmp5*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		      -tmp5*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      +tmp5*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		      +tmp4*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+6]
-		      -tmp4*DS_NL[1][0][Mc_AN][k][m][L+6]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		      -tmp4*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+5]
-		      +tmp4*DS_NL[1][0][Mc_AN][k][m][L+5]*DS_NL[1][0][Mj_AN][kl][n][L+4];
-
-		  }
-
-		}
-
-                /****************************************************
-                  off-diagonal contribution on up-up and dn-dn
-                ****************************************************/
-
-                /* p */ 
-
-                if (L2==2){
-
-                  tmp0 = ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		    -ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L  ]; 
-
-                  /* contribution of l+1/2 for up spin */ 
-                  sum0.i += -tmp0;
-
-                  /* contribution of l+1/2 for down spin */ 
-                  sum1.i += tmp0;
-
-                  tmp0 = ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		    -ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L  ];
-
-                  /* contribution of l-1/2 for up spin */
-                  sum0.i += tmp0;
-
-                  /* contribution of l+1/2 for down spin */ 
-                  sum1.i += -tmp0;
-                }
-
-                /* d */ 
-
-                else if (L2==4){
-
-                  tmp0 = ene_p*2.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		    -ene_p*2.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		    +ene_p*1.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		    -ene_p*1.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+3]; 
-
-                  /* contribution of l+1/2 for up spin */ 
-                  sum0.i += -tmp0;
-
-                  /* contribution of l+1/2 for down spin */ 
-                  sum1.i += tmp0;
-
-                  tmp0 = ene_m*2.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		    -ene_m*2.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		    +ene_m*1.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		    -ene_m*1.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+3]; 
-
-                  /* contribution of l-1/2 for up spin */ 
-                  sum0.i += tmp0;
-
-                  /* contribution of l-1/2 for down spin */ 
-                  sum1.i += -tmp0;
-
-		}
-
-                /* f */ 
-
-                else if (L2==6){
-
-                  tmp0 = ene_p*1.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+2]
-		    -ene_p*1.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+1]
-		    +ene_p*2.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+4]
-		    -ene_p*2.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+3]
-		    +ene_p*3.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+5]*DS_NL[0][0][Mj_AN][kl][n][L+6]
-		    -ene_p*3.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+6]*DS_NL[0][0][Mj_AN][kl][n][L+5];
-
-                  /* contribution of l+1/2 for up spin */ 
-                  sum0.i += -tmp0;
-
-                  /* contribution of l+1/2 for down spin */ 
-                  sum1.i += tmp0;
-
-                  tmp0 = ene_m*1.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+2]
-		    -ene_m*1.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+1]
-		    +ene_m*2.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+4]
-		    -ene_m*2.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+3]
-		    +ene_m*3.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+5]*DS_NL[1][0][Mj_AN][kl][n][L+6]
-		    -ene_m*3.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+6]*DS_NL[1][0][Mj_AN][kl][n][L+5];
-
-                  /* contribution of l-1/2 for up spin */ 
-                  sum0.i += tmp0;
-
-                  /* contribution of l-1/2 for down spin */ 
-                  sum1.i += -tmp0;
-
-		}
-
-                /****************************************************
-                  diagonal contribution on up-up and dn-dn
-                ****************************************************/
-
-		for (L3=0; L3<=L2; L3++){
-
-                  /* VNL for j=l+1/2 */
-		  sum0.r += PFp*ene_p*DS_NL[0][0][Mc_AN][k][m][L]*DS_NL[0][0][Mj_AN][kl][n][L];
-		  sum1.r += PFp*ene_p*DS_NL[0][0][Mc_AN][k][m][L]*DS_NL[0][0][Mj_AN][kl][n][L];
-
-                  /* VNL for j=l-1/2 */
-		  sum0.r += PFm*ene_m*DS_NL[1][0][Mc_AN][k][m][L]*DS_NL[1][0][Mj_AN][kl][n][L];
-		  sum1.r += PFm*ene_m*DS_NL[1][0][Mc_AN][k][m][L]*DS_NL[1][0][Mj_AN][kl][n][L];
-
-		  L++;
-		}
-
-	      }
-
-	      NLH[0][m][n].r += sum0.r;    /* <up|VNL|up> */
-	      NLH[1][m][n].r += sum1.r;    /* <dn|VNL|dn> */
-	      NLH[2][m][n].r += sum2.r;    /* <up|VNL|dn> */
-
-	      NLH[0][m][n].i += sum0.i;    /* <up|VNL|up> */
-	      NLH[1][m][n].i += sum1.i;    /* <dn|VNL|dn> */
-	      NLH[2][m][n].i += sum2.i;    /* <up|VNL|dn> */
-
-	    }
-	  }
-
-	} /* else if */
-
-      } /* k */
-
-      /****************************************************
+	/****************************************************
                        adding NLH to HNL
   
                  HNL[0] and iHNL[0] for up-up
                  HNL[1] and iHNL[1] for dn-dn
                  HNL[2] and iHNL[2] for up-dn
-      ****************************************************/
+	****************************************************/
 
-      dmp = dampingF(rcut,Dis[Gc_AN][j]);
+	dmp = dampingF(rcut,Dis[Gc_AN][j]);
 
-      for (p=0; p<List_YOUSO[5]; p++){
-        for (i1=0; i1<Spe_Total_NO[Cwan]; i1++){
-	  for (j1=0; j1<Spe_Total_NO[Hwan]; j1++){
+	for (p=0; p<List_YOUSO[5]; p++){
+	  for (i1=0; i1<Spe_Total_NO[Cwan]; i1++){
+	    for (j1=0; j1<Spe_Total_NO[Hwan]; j1++){
 
-             HNL[p][Mc_AN][j][i1][j1] = dmp*NLH[p][i1][j1].r*F_NL_flag;
+	      HNL[p][Mc_AN][j][i1][j1] = dmp*NLH[p][i1][j1].r*F_NL_flag;
 
-	    if (SO_switch==1){
-	      iHNL[p][Mc_AN][j][i1][j1]  = dmp*NLH[p][i1][j1].i*F_NL_flag;
- 	      iHNL0[p][Mc_AN][j][i1][j1] = dmp*NLH[p][i1][j1].i*F_NL_flag;
+	      if (SO_switch==1){
+		iHNL[p][Mc_AN][j][i1][j1]  = dmp*NLH[p][i1][j1].i*F_NL_flag;
+		iHNL0[p][Mc_AN][j][i1][j1] = dmp*NLH[p][i1][j1].i*F_NL_flag;
+	      }
 	    }
 	  }
-        }
-      }
+	}
+
+      } /* if (Mj_AN<=Matomnum) */
 
       dtime(&Etime_atom);
       time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
@@ -1409,12 +1239,384 @@ static void Nonlocal0(double *****HNL, double ******DS_NL)
   free(OneD2Mc_AN);
   free(OneD2h_AN);
 
+  if (measure_time){
+    dtime(&etime);
+    time3 = etime - stime;
+  }
+
+  if (measure_time){
+    printf("Set_Nonlocal: myid=%2d time1=%10.5f time2=%10.5f time3=%10.5f\n",
+           myid,time1,time2,time3);
+  }
+
   /****************************************************
    MPI_Barrier
   ****************************************************/
 
   MPI_Barrier(mpi_comm_level1);
 } 
+
+
+void Multiply_DS_NL(int Mc_AN, int Mj_AN, int k, int kl, 
+                    int Cwan, int Hwan, int wakg, dcomplex ***NLH)
+{
+  int m,n,L,L1,L2,L3;
+  double sum,ene,PFp,PFm,ene_p,ene_m; 
+  double tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6;
+  dcomplex sum0,sum1,sum2; 
+
+  /****************************************************
+                     l-dependent non-local part
+  ****************************************************/
+        
+  if (VPS_j_dependency[wakg]==0){
+        
+    for (m=0; m<Spe_Total_NO[Cwan]; m++){
+      for (n=0; n<Spe_Total_NO[Hwan]; n++){
+
+	sum = 0.0;
+
+	L = 0;
+	for (L1=1; L1<=Spe_Num_RVPS[wakg]; L1++){
+
+	  ene = Spe_VNLE[0][wakg][L1-1];
+	  L2 = 2*Spe_VPS_List[wakg][L1];
+
+	  for (L3=0; L3<=L2; L3++){
+	    sum += ene*DS_NL[0][0][Mc_AN][k][m][L]*DS_NL[0][0][Mj_AN][kl][n][L];
+	    L++;
+	  }
+	}
+
+	NLH[0][m][n].r += sum;    /* <up|VNL|up> */
+	NLH[1][m][n].r += sum;    /* <dn|VNL|dn> */
+
+      }
+    }
+
+  } /* if */
+
+  /****************************************************
+                     j-dependent non-local part
+  ****************************************************/
+
+  else if (VPS_j_dependency[wakg]==1){
+
+    for (m=0; m<Spe_Total_NO[Cwan]; m++){
+      for (n=0; n<Spe_Total_NO[Hwan]; n++){
+
+	sum0 = Complex(0.0,0.0);
+	sum1 = Complex(0.0,0.0);
+	sum2 = Complex(0.0,0.0);
+
+	L = 0;
+	for (L1=1; L1<=Spe_Num_RVPS[wakg]; L1++){
+
+	  ene_p = Spe_VNLE[0][wakg][L1-1];
+	  ene_m = Spe_VNLE[1][wakg][L1-1];
+
+	  if      (Spe_VPS_List[wakg][L1]==0) { L2=0; PFp=1.0;     PFm=0.0;     }  
+	  else if (Spe_VPS_List[wakg][L1]==1) { L2=2; PFp=2.0/3.0; PFm=1.0/3.0; }
+	  else if (Spe_VPS_List[wakg][L1]==2) { L2=4; PFp=3.0/5.0; PFm=2.0/5.0; }
+	  else if (Spe_VPS_List[wakg][L1]==3) { L2=6; PFp=4.0/7.0; PFm=3.0/7.0; }
+
+	  /****************************************************
+                  off-diagonal contribution on up-dn
+                  for spin non-collinear
+	  ****************************************************/
+
+	  if (SpinP_switch==3){
+
+	    /***************
+                          p
+	    ***************/ 
+
+	    if (L2==2){
+
+	      /* real contribution of l+1/2 to off diagonal up-down matrix */ 
+	      sum2.r += 
+		 ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+		-ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L  ]; 
+
+	      /* imaginary contribution of l+1/2 to off diagonal up-down matrix */ 
+	      sum2.i +=
+		-ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+		+ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+1]; 
+
+	      /* real contribution of l-1/2 for to diagonal up-down matrix */ 
+	      sum2.r -=
+		 ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+		-ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L  ]; 
+
+	      /* imaginary contribution of l-1/2 to off diagonal up-down matrix */ 
+	      sum2.i -=
+		-ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+		+ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+1]; 
+	    }
+
+	    /***************
+                   d
+	    ***************/ 
+
+	    else if (L2==4){
+
+	      /* real contribution of l+1/2 to off diagonal up-down matrix */ 
+	      tmp0 = sqrt(3.0);
+	      tmp1 = ene_p/5.0; 
+	      tmp2 = tmp0*tmp1;
+
+	      sum2.r +=
+		-tmp2*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		+tmp2*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L  ]
+		+tmp1*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		-tmp1*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+		+tmp1*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+		-tmp1*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+2];
+
+	      /* imaginary contribution of l+1/2 to off diagonal up-down matrix */ 
+
+	      sum2.i +=
+		 tmp2*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+		-tmp2*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L  ]
+		+tmp1*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+		-tmp1*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+		-tmp1*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		+tmp1*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+2];
+
+	      /* real contribution of l-1/2 for to diagonal up-down matrix */ 
+
+	      tmp1 = ene_m/5.0; 
+	      tmp2 = tmp0*tmp1;
+
+	      sum2.r -=
+		-tmp2*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		+tmp2*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L  ]
+		+tmp1*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		-tmp1*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+		+tmp1*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+		-tmp1*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+2];
+
+	      /* imaginary contribution of l-1/2 to off diagonal up-down matrix */ 
+
+	      sum2.i -=
+		 tmp2*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+		-tmp2*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L  ]
+		+tmp1*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+		-tmp1*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+		-tmp1*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		+tmp1*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+2];
+
+	    }
+
+	    /***************
+                   f
+	    ***************/ 
+
+	    else if (L2==6){
+
+	      /* real contribution of l+1/2 to off diagonal up-down matrix */ 
+
+	      tmp0 = sqrt(6.0);
+	      tmp1 = sqrt(3.0/2.0);
+	      tmp2 = sqrt(5.0/2.0);
+
+	      tmp3 = ene_p/7.0; 
+	      tmp4 = tmp1*tmp3; /* sqrt(3.0/2.0) */
+	      tmp5 = tmp2*tmp3; /* sqrt(5.0/2.0) */
+	      tmp6 = tmp0*tmp3; /* sqrt(6.0)     */
+
+	      sum2.r += 
+                -tmp6*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+		+tmp6*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L  ]
+		-tmp5*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		+tmp5*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+		-tmp5*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+		+tmp5*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+		-tmp4*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+5]
+		+tmp4*DS_NL[0][0][Mc_AN][k][m][L+5]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		-tmp4*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+6]
+		+tmp4*DS_NL[0][0][Mc_AN][k][m][L+6]*DS_NL[0][0][Mj_AN][kl][n][L+4];
+
+	      /* imaginary contribution of l+1/2 to off diagonal up-down matrix */ 
+
+	      sum2.i +=
+                 tmp6*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+		-tmp6*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L  ]
+		+tmp5*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+		-tmp5*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+		-tmp5*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		+tmp5*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+		+tmp4*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+6]
+		-tmp4*DS_NL[0][0][Mc_AN][k][m][L+6]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+		-tmp4*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+5]
+		+tmp4*DS_NL[0][0][Mc_AN][k][m][L+5]*DS_NL[0][0][Mj_AN][kl][n][L+4];
+
+	      /* real contribution of l-1/2 for to diagonal up-down matrix */ 
+
+	      tmp3 = ene_m/7.0; 
+	      tmp4 = tmp1*tmp3; /* sqrt(3.0/2.0) */
+	      tmp5 = tmp2*tmp3; /* sqrt(5.0/2.0) */
+	      tmp6 = tmp0*tmp3; /* sqrt(6.0)     */
+
+	      sum2.r -=
+                -tmp6*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+		+tmp6*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L  ]
+		-tmp5*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		+tmp5*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+		-tmp5*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+		+tmp5*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+		-tmp4*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+5]
+		+tmp4*DS_NL[1][0][Mc_AN][k][m][L+5]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		-tmp4*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+6]
+		+tmp4*DS_NL[1][0][Mc_AN][k][m][L+6]*DS_NL[1][0][Mj_AN][kl][n][L+4];
+
+	      /* imaginary contribution of l-1/2 to off diagonal up-down matrix */ 
+
+	      sum2.i -= 
+                 tmp6*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+		-tmp6*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L  ]
+		+tmp5*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+		-tmp5*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+		-tmp5*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		+tmp5*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+		+tmp4*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+6]
+		-tmp4*DS_NL[1][0][Mc_AN][k][m][L+6]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+		-tmp4*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+5]
+		+tmp4*DS_NL[1][0][Mc_AN][k][m][L+5]*DS_NL[1][0][Mj_AN][kl][n][L+4];
+
+	    }
+
+	  }
+
+	  /****************************************************
+                  off-diagonal contribution on up-up and dn-dn
+	  ****************************************************/
+
+	  /* p */ 
+
+	  if (L2==2){
+
+	    tmp0 =
+	       ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L  ]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+	      -ene_p/3.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L  ]; 
+
+	    /* contribution of l+1/2 for up spin */ 
+	    sum0.i += -tmp0;
+
+	    /* contribution of l+1/2 for down spin */ 
+	    sum1.i += tmp0;
+
+	    tmp0 = 
+	       ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L  ]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+	      -ene_m/3.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L  ];
+
+	    /* contribution of l-1/2 for up spin */
+	    sum0.i += tmp0;
+
+	    /* contribution of l+1/2 for down spin */ 
+	    sum1.i += -tmp0;
+	  }
+
+	  /* d */ 
+
+	  else if (L2==4){
+
+	    tmp0 =
+	       ene_p*2.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+	      -ene_p*2.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+	      +ene_p*1.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+	      -ene_p*1.0/5.0*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+3]; 
+
+	    /* contribution of l+1/2 for up spin */ 
+	    sum0.i += -tmp0;
+
+	    /* contribution of l+1/2 for down spin */ 
+	    sum1.i += tmp0;
+
+	    tmp0 =
+	       ene_m*2.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+	      -ene_m*2.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+	      +ene_m*1.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+	      -ene_m*1.0/5.0*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+3]; 
+
+	    /* contribution of l-1/2 for up spin */ 
+	    sum0.i += tmp0;
+
+	    /* contribution of l-1/2 for down spin */ 
+	    sum1.i += -tmp0;
+
+	  }
+
+	  /* f */ 
+
+	  else if (L2==6){
+
+	    tmp0 =
+	       ene_p*1.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+1]*DS_NL[0][0][Mj_AN][kl][n][L+2]
+	      -ene_p*1.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+2]*DS_NL[0][0][Mj_AN][kl][n][L+1]
+	      +ene_p*2.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+3]*DS_NL[0][0][Mj_AN][kl][n][L+4]
+	      -ene_p*2.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+4]*DS_NL[0][0][Mj_AN][kl][n][L+3]
+	      +ene_p*3.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+5]*DS_NL[0][0][Mj_AN][kl][n][L+6]
+	      -ene_p*3.0/7.0*DS_NL[0][0][Mc_AN][k][m][L+6]*DS_NL[0][0][Mj_AN][kl][n][L+5];
+
+	    /* contribution of l+1/2 for up spin */ 
+	    sum0.i += -tmp0;
+
+	    /* contribution of l+1/2 for down spin */ 
+	    sum1.i += tmp0;
+
+	    tmp0 =
+	       ene_m*1.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+1]*DS_NL[1][0][Mj_AN][kl][n][L+2]
+	      -ene_m*1.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+2]*DS_NL[1][0][Mj_AN][kl][n][L+1]
+	      +ene_m*2.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+3]*DS_NL[1][0][Mj_AN][kl][n][L+4]
+	      -ene_m*2.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+4]*DS_NL[1][0][Mj_AN][kl][n][L+3]
+	      +ene_m*3.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+5]*DS_NL[1][0][Mj_AN][kl][n][L+6]
+	      -ene_m*3.0/7.0*DS_NL[1][0][Mc_AN][k][m][L+6]*DS_NL[1][0][Mj_AN][kl][n][L+5];
+
+	    /* contribution of l-1/2 for up spin */ 
+	    sum0.i += tmp0;
+
+	    /* contribution of l-1/2 for down spin */ 
+	    sum1.i += -tmp0;
+
+	  }
+
+	  /****************************************************
+                  diagonal contribution on up-up and dn-dn
+	  ****************************************************/
+
+	  for (L3=0; L3<=L2; L3++){
+
+	    /* VNL for j=l+1/2 */
+	    sum0.r += PFp*ene_p*DS_NL[0][0][Mc_AN][k][m][L]*DS_NL[0][0][Mj_AN][kl][n][L];
+	    sum1.r += PFp*ene_p*DS_NL[0][0][Mc_AN][k][m][L]*DS_NL[0][0][Mj_AN][kl][n][L];
+
+	    /* VNL for j=l-1/2 */
+	    sum0.r += PFm*ene_m*DS_NL[1][0][Mc_AN][k][m][L]*DS_NL[1][0][Mj_AN][kl][n][L];
+	    sum1.r += PFm*ene_m*DS_NL[1][0][Mc_AN][k][m][L]*DS_NL[1][0][Mj_AN][kl][n][L];
+
+	    L++;
+	  }
+
+	}
+
+	NLH[0][m][n].r += sum0.r;    /* <up|VNL|up> */
+	NLH[1][m][n].r += sum1.r;    /* <dn|VNL|dn> */
+	NLH[2][m][n].r += sum2.r;    /* <up|VNL|dn> */
+
+	NLH[0][m][n].i += sum0.i;    /* <up|VNL|up> */
+	NLH[1][m][n].i += sum1.i;    /* <dn|VNL|dn> */
+	NLH[2][m][n].i += sum2.i;    /* <up|VNL|dn> */
+
+      } /* n */
+    } /* m */
+
+  } /* else if */
+
+}
+
+
+
 
 
 static double NLRF_BesselF(int Gensi, int L, int so, double R)

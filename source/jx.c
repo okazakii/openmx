@@ -21,12 +21,8 @@
 #include "read_scfout.h"
 #include "lapack_prototypes.h"
 #include "f77func.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 #define Host_ID       0         /* ID of the host CPU in MPI */
 
@@ -557,9 +553,9 @@ int main(int argc, char *argv[])
 		  sum = 0.0; sumi=0.0;
 		  for (l=P_min; l<=n; l++){
 		    sum  +=  S[i1][l].r*M1[l]*C[l-(P_min-1)][j1].r
-		      - S[i1][l].i*M1[l]*C[l-(P_min-1)][j1].i;
+		           - S[i1][l].i*M1[l]*C[l-(P_min-1)][j1].i;
 		    sumi +=  S[i1][l].r*M1[l]*C[l-(P_min-1)][j1].i
-		      + S[i1][l].i*M1[l]*C[l-(P_min-1)][j1].r;
+		           + S[i1][l].i*M1[l]*C[l-(P_min-1)][j1].r;
 		  }
 		  Coes[spin][i1][j1].r = sum;
 		  Coes[spin][i1][j1].i = sumi;

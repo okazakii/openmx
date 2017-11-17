@@ -14,17 +14,11 @@
 #include <stdlib.h>
 #include <math.h>
 #include <complex.h>
-
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 static void InitV();
-
 static void HGF();
 static void Matsubara();
 static void MM();
@@ -75,6 +69,10 @@ void init()
 
   InitV();
 
+  /* set Beta */
+
+  Beta = 1.0/kB/E_Temp;
+
   /****************************************************
    (1+(1+x/n)^n)^{-1}
    Complex poles for the modified Matsubara summation
@@ -101,8 +99,6 @@ void init()
   expansion of exponential function used in integration
   of Green's functions with Fermi-Dirac distribution
   ****************************************************/
-
-  Beta = 1.0/kB/E_Temp;
 
   if (Solver==1) {
 
@@ -516,19 +512,20 @@ void InitV()
 {
   /******************************************************* 
    1 a.u.=2.4189*10^-2 fs, 1fs=41.341105 a.u. 
-   Atom weight trasformation: proton=1836.1526 a.u 
   ********************************************************/
 
   double ax,ay,az,bx,by,bz,tmp,Wscale,sum,v;
   int j,Mc_AN,Gc_AN,ID,myid,numprocs;
 
-  Wscale = 1836.1526;
+  Wscale = unified_atomic_mass_unit/electron_mass;
 
   /* MPI */
   MPI_Comm_size(MPI_COMM_WORLD1,&numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD1,&myid);
 
-  if ( (MD_switch==2 || MD_switch==9 || MD_switch==11) && MD_Init_Velocity==0 ){ 
+
+  if ( (MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==14 || MD_switch==15)
+       && MD_Init_Velocity==0 ){
 
     if (myid==Host_ID){
       for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
@@ -581,7 +578,6 @@ void InitV()
    calculate the initial Ukc:
 
    1 a.u.=2.4189*10^-2 fs, 1fs=41.341105 a.u. 
-   Atom weight trasformation: proton = 1836.1526 a.u 
   ***********************************************************/
 
   Ukc = 0.0;

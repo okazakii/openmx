@@ -13,15 +13,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-
 #include "Inputtools.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 
@@ -150,12 +143,12 @@ void TRAN_Input_std(
 
   /* Poisson solver */
 
-  TRAN_Poisson_flag = 5;
+  TRAN_Poisson_flag = 1;
 
-  s_vec[0]="FD";  s_vec[1]="FD_TCN";  s_vec[2]="FD_LCN";  s_vec[3]="FFT";  s_vec[4]="FFTE"; 
-  i_vec[0]=1   ;  i_vec[1]=2    ;     i_vec[2]=3    ;     i_vec[3]=4    ;  i_vec[4]=5;
+  s_vec[0]="FD";  s_vec[1]="FFT"; 
+  i_vec[0]=1   ;  i_vec[1]=2    ; 
 
-  input_string2int("NEGF.Poisson.Solver", &TRAN_Poisson_flag, 5, s_vec,i_vec);
+  input_string2int("NEGF.Poisson.Solver", &TRAN_Poisson_flag, 2, s_vec,i_vec);
 
   /* parameter to scale terms with Gpara=0 */
 
@@ -297,6 +290,7 @@ void TRAN_Input_std(
   ********************************************************/
 
   input_int("NEGF.Num.Poles", &tran_num_poles,150);
+
   TRAN_Set_IntegPath( comm1, TRAN_eV2Hartree, kBvalue, Electronic_Temperature );
 }
 

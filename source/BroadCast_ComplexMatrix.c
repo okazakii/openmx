@@ -14,12 +14,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
+
 
 void BroadCast_ComplexMatrix(MPI_Comm MPI_Curret_Comm_WD, 
                              dcomplex **Mat, int n, int *is1, int *ie1, int myid, int numprocs, 

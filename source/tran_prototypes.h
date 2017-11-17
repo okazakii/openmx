@@ -386,16 +386,9 @@ int TRAN_Output_HKS(char *fileHKS);
 void TRAN_Output_HKS_Write_Grid(
 				MPI_Comm comm1,
                                 int mode,
-				int My_NGrid1_Poisson,
+				int Ngrid1,
 				int Ngrid2,
 				int Ngrid3,
-				int  *Num_Snd_Grid1,
-				int **Snd_Grid1,
-				int *Num_Rcv_Grid1,
-				int **Rcv_Grid1, 
-				int *My_Cell0,
-				int *Start_Grid1,
-				int *End_Grid1, 
 				double *data,
 				double *data1,
 				double *data2,
@@ -403,12 +396,14 @@ void TRAN_Output_HKS_Write_Grid(
 				);
 
 /* TRAN_Output_Trans_HS.c  */
+/* revised by Y. Xiao for Noncollinear NEGF calculations */ /* iHNL is added */
 void  TRAN_Output_Trans_HS(
         MPI_Comm comm1,
         int Solver,
         int SpinP_switch, 
         double ChemP ,
         double *****H,
+        double *****iHNL,
         double *****OLP,
         int atomnum,
         int SpeciesNum,
@@ -427,6 +422,7 @@ void  TRAN_Output_Trans_HS(
         char *filepath,
         char *filename,
         char *fname  );
+/* until here  by Y. Xiao for Noncollinear NEGF calculations */
 
 /* TRAN_Output_Transmission.c  */ 
 void TRAN_Output_Transmission(int SpinP_switch);
@@ -438,11 +434,8 @@ void TRAN_Add_Density_Lead(
             int Ngrid1,
             int Ngrid2,
             int Ngrid3,
-            int Num_Cells0, 
-            int *My_Cell0, 
-            int *My_Cell1,
-            double **Density_Grid 
-);
+            int My_NumGridB_AB,
+            double **Density_Grid_B);
 
 /* TRAN_Add_ADensity_Lead.c */
 void TRAN_Add_ADensity_Lead(
@@ -451,23 +444,20 @@ void TRAN_Add_ADensity_Lead(
             int Ngrid1,
             int Ngrid2,
             int Ngrid3,
-            int Num_Cells0, 
-            int *My_Cell0, 
-            int *My_Cell1,
-            double *ADensity_Grid 
-	    );
+            int My_NumGridB_AB,
+            double *ADensity_Grid_B);
 
 /* TRAN_Poisson.c  */
-double TRAN_Poisson(double ***ReV1, double ***ImV1,
-		    double ***ReV2, double ***ImV2);
+double TRAN_Poisson(double *ReRhok, double *ImRhok);
 
 /* FFT2D_Density.c  */
-void FFT2D_Density(int den_flag,
-		   double ***ReV1, double ***ImV1,
-		   double ***ReV2, double ***ImV2);
+double FFT2D_Density(int den_flag, 
+                     double *ReRhok, double *ImRhok);
 
 /* Get_Value_inReal2D.c  */
-void Get_Value_inReal2D(double ***ReV2, double ***ImV2, double ***ReV1, double ***ImV1, double *Value_Grid);
+void Get_Value_inReal2D(int complex_flag,
+                        double *ReVr, double *ImVr, 
+                        double *ReVk, double *ImVk);
 
 /* TRAN_Print.c  */
 void TRAN_Print2_set_eps(double e1);
@@ -613,8 +603,7 @@ void TRAN_Set_Electrode_Grid(MPI_Comm comm1,
 			     double gtv[4][4],      /* unit vector of the grid point, which is gtv*integer */
 			     int Ngrid1,
 			     int Ngrid2,
-			     int Ngrid3,            /* # of c grid points */
-			     double *Density_Grid   /* work */
+			     int Ngrid3             /* # of c grid points */
 			     );
 
 
@@ -684,3 +673,78 @@ int TRAN_Check_Region(
                       double *Spe_Atom_Cut1,
                       double **Gxyz
                       );
+
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+double TRAN_DFT_NC(
+                MPI_Comm comm1,
+                int SucceedReadingDMfile,
+                int level_stdout,
+                int iter,
+                int SpinP_switch,
+                double *****nh,
+                double *****ImNL,
+                double ****CntOLP,
+                int atomnum,
+                int Matomnum,
+                int *WhatSpecies,
+                int *Spe_Total_CNO,
+                int *FNAN,
+                int **natn,
+                int **ncn,
+                int *M2G,
+                int *G2ID,
+                int *F_G2M,
+                int **atv_ijk,
+                int *List_YOUSO,
+                double *koS,
+                dcomplex **S,                
+                double *****CDM,
+                double *****iCDM,
+                double *****EDM,
+                double ***TRAN_DecMulP,
+                double Eele0[2], double Eele1[2],
+                double ChemP_e0[2]);
+
+void TRAN_Allocate_Cregion_NC(MPI_Comm mpi_comm_level1,
+                           int SpinP_switch,
+                           int atomnum,
+                           int *WhatSpecies,
+                           int *Spe_Total_CNO
+                           );
+
+void TRAN_Deallocate_Cregion_NC(int SpinP_switch);
+
+void TRAN_Allocate_Lead_Region_NC( MPI_Comm mpi_comm_level1 );
+
+void TRAN_Deallocate_Lead_Region_NC();
+
+void TRAN_Set_CentOverlap_NC(
+                          MPI_Comm comm1,
+                          int job,
+                          int SpinP_switch,
+                          double k2,
+                          double k3,
+                          int *order_GA,
+                          double **H1,
+                          double **H2,
+                          double *S1,
+                          double *****H,
+                          double ****OLP,
+                          int atomnum,
+                          int Matomnum,
+                          int *M2G,
+                          int *G2ID,
+                          int *WhatSpecies,
+                          int *Spe_Total_CNO,
+                          int *FNAN,
+                          int **natn,
+                          int **ncn,
+                          int **atv_ijk
+                          );
+
+void TRAN_Set_SurfOverlap_NC( MPI_Comm comm1,
+                           char *position,
+                           double k2,
+                           double k3);
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
+

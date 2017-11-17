@@ -16,12 +16,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Hamiltonian_Cluster_SO(double ****RH, double ****IH, dcomplex **H, int *MP)
 {

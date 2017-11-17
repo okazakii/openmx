@@ -16,12 +16,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 
 static double Cluster_Col_Dosout( int SpinP_switch, 
@@ -1125,7 +1121,7 @@ double Cluster_NonCol_Dosout( int SpinP_switch,
     /* solve eigenvalue problem */
 
     n1 = 2*n;
-    EigenBand_lapack(C,ko,n1,1);
+    EigenBand_lapack(C,ko,n1,n1,1);
 
     for (i1=1; i1<=n1; i1++){
       for (j1=1; j1<=n1; j1++){

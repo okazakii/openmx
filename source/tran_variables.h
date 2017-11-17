@@ -165,5 +165,19 @@ int Tran_bias_neq_num_energy_step;
 /* for the contour integrals */
 double *TRAN_GL_Abs,*TRAN_GL_Wgt;
 
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+double *****iHNL_e[2];
 
+dcomplex **S00_nc_e;
+dcomplex **S01_nc_e;
+dcomplex **H00_nc_e;
+dcomplex **H01_nc_e;
+
+dcomplex *SCC_nc;
+dcomplex *SCL_nc;
+dcomplex *SCR_nc;
+dcomplex *HCC_nc;
+dcomplex *HCL_nc;
+dcomplex *HCR_nc;
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
 

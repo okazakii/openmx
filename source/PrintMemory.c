@@ -13,9 +13,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "openmx_common.h"
 
+static void PrintMemory_Output(char *name, long int size0, char *mode);
 
 void PrintMemory(char *name, long int size0, char *mode)
+{
+
+  if (memoryusage_fileout){
+    PrintMemory_Output(name, size0, mode);
+  }
+}
+
+
+void PrintMemory_Output(char *name, long int size0, char *mode)
 {
   FILE *fp;
   double size;
@@ -46,7 +57,7 @@ void PrintMemory(char *name, long int size0, char *mode)
 
     if (strcmp(mode,"sum")==0) {
       fp = fopen(filename,"a");
-      fprintf(fp,"Memory: %-35s %10.2f MBytes\n","total",(double)sumsize);
+      fprintf(fp,"Memory: %-45s %10.2f MBytes\n","total",(double)sumsize);
       fclose(fp);
       return;
     }
@@ -57,7 +68,7 @@ void PrintMemory(char *name, long int size0, char *mode)
   size = (double)size0/(1024*1024);
   sumsize += size;
   fp = fopen(filename,"a");
-  fprintf(fp,"Memory: %-35s %10.2f MBytes\n",name,size);
+  fprintf(fp,"Memory: %-45s %10.2f MBytes\n",name,size);
   fclose(fp);
 
 }

@@ -309,27 +309,20 @@ double rnd(double width)
   double result;
 
   result = rand();
-
-  while (width<result){
-    result = result/2.0;
-  }
-  result = result - width*0.75;
+  result = result*width/(double)RAND_MAX - 0.5*width;
   return result;
 }
 
 double rnd0to1()
 {
-
   /****************************************************
    This rnd() function generates random number 0 to 1
   ****************************************************/
 
   double result;
+
   result = rand();
-  while (2.0<result){
-    result = result/2.0;
-  }
-  result = result - 1.0;
+  result /= (double)RAND_MAX;
   return result;
 }
 

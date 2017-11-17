@@ -1,5 +1,5 @@
 /**********************************************************************
-  SetParaDFT.c:
+  SetPara_DFT.c:
 
      SetPara_DFT.c is a subroutine to set several parameters which
      are required in DFT calculations.
@@ -16,12 +16,8 @@
 #include <string.h>
 #include "openmx_common.h"
 #include "Inputtools.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 static void Set_Atom_Weight();
 static void Set_Atom_Symbol();
@@ -35,9 +31,6 @@ static double V_Hart_atom(int Gensi, double R);
 static double Int_phi0_phi1( double *phi0, double *phi1,
                              double *MXV, double *MRV, int Grid_Num );
 static void Inverse(int n, double **a, double **ia);
-static void Generate_PAO_Mixed_Basis(int spe);
-static void Generate_VPS_Mixed_Basis(int spe);
-
 static void output_structures();
 
 void SetPara_DFT()
@@ -79,24 +72,11 @@ void SetPara_DFT()
   nf = FineGL_Mesh;
   Gauss_Legendre(FineGL_Mesh,FineGL_Abscissae,FineGL_Weight,&nf,&fg);
 
-  /* Exc0_GL_Mesh1 */  
-
-  fg = 1;
-  nf = Exc0_GL_Mesh1;
-  Gauss_Legendre(Exc0_GL_Mesh1,Exc0_GL_Abscissae1,Exc0_GL_Weight1,&nf,&fg);
-
-  /* Exc0_GL_Mesh2 */  
-
-  fg = 1;
-  nf = Exc0_GL_Mesh2;
-  Gauss_Legendre(Exc0_GL_Mesh2,Exc0_GL_Abscissae2,Exc0_GL_Weight2,&nf,&fg);
-
   /****************************************************
            Read parameters for DFT calculations
   ****************************************************/
 
   ReadPara_DFT();
-
   Check_InitDensity();
 
   Set_Atom_Weight();
@@ -199,13 +179,13 @@ void SetPara_DFT()
     }
     Size_Total_Matrix = j;
 
-    S = (double**)malloc(sizeof(double*)*(Size_Total_Matrix+2));
-    for (i=0; i<(Size_Total_Matrix+2); i++){
-      S[i]  = (double*)malloc(sizeof(double)*(Size_Total_Matrix+2));
+    S = (double**)malloc(sizeof(double*)*(Size_Total_Matrix+1));
+    for (i=0; i<(Size_Total_Matrix+1); i++){
+      S[i]  = (double*)malloc(sizeof(double)*(Size_Total_Matrix+1));
     }
 
-    EV_S = (double*)malloc(sizeof(double)*(Size_Total_Matrix+2));
-    IEV_S = (double*)malloc(sizeof(double)*(Size_Total_Matrix+2));
+    EV_S = (double*)malloc(sizeof(double)*(Size_Total_Matrix+1));
+    IEV_S = (double*)malloc(sizeof(double)*(Size_Total_Matrix+1));
 
     alloc_first[9] = 0;
   }
@@ -331,14 +311,6 @@ void ReadPara_DFT()
     }
   }
 
-  /********************************
-    generate mixed basis functions
-  ********************************/
-
-  if (Mixed_Basis_flag==1){
-    Generate_PAO_Mixed_Basis(SpeciesNum-1);
-  }
-
   /****************************************************
       Read the data of pseudopotentials and pcc
   ****************************************************/
@@ -446,13 +418,6 @@ void ReadPara_DFT()
     }
   }
 
-  /********************************
-    generate mixed basis functions
-  ********************************/
-
-  if (Mixed_Basis_flag==1){
-    Generate_VPS_Mixed_Basis(SpeciesNum-1);
-  }
 }
 
 void Read_PAO(int spe, char *file)
@@ -500,7 +465,10 @@ void Read_PAO(int spe, char *file)
 	  else{
 	    if      (j==0) Spe_PAO_XV[spe][i] = dum;
 	    else if (j==1) Spe_PAO_RV[spe][i] = dum;
-	    else if (j==2) Spe_Atomic_Den[spe][i] = dum;
+	    else if (j==2){
+              Spe_Atomic_Den[spe][i+1]    = dum;
+              Spe_Atomic_Den2[spe][i+1] = dum;
+	    }
 	  }
 	}
       }    
@@ -567,8 +535,6 @@ void Read_PAO(int spe, char *file)
   ****************************************************/
 
   input_close();
-
-
 }
 
 
@@ -631,9 +597,10 @@ void Read_VPS(int spe, char *file)
   } 
   else if (dv_EH0[spe]!=dum0 && tmp0==0){
 
-    /*set zero */ 
+    /* set zero */ 
     for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
-      Spe_Atomic_Den[spe][i] = 0.0;   
+      Spe_Atomic_Den[spe][i+1]    = 0.0;   
+      Spe_Atomic_Den2[spe][i+1] = 0.0;   
     }
 
     Spe_WhatAtom[spe] = 0;
@@ -647,24 +614,6 @@ void Read_VPS(int spe, char *file)
 
   if (List_YOUSO[22]<=(Spe_Num_Mesh_VPS[spe]+2)){
     List_YOUSO[22] = Spe_Num_Mesh_VPS[spe] + 2;
-  }
-
-  /****************************************************
-        re-normalization of atomic charge density 
-  ****************************************************/
-
-  if (remake_headfile==0){
-
-    sum = 0.0;
-    dx = Spe_PAO_XV[spe][1] - Spe_PAO_XV[spe][0];
-    for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
-      sum += Spe_Atomic_Den[spe][i]*exp(3.0*Spe_PAO_XV[spe][i]);
-    }
-    sum *= 4.0*PI*dx; 
-
-    for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
-      Spe_Atomic_Den[spe][i] *= (Spe_Core_Charge[spe]/sum);
-    }
   }
 
   /**************************************************
@@ -968,7 +917,7 @@ void Read_VPS(int spe, char *file)
     input_logical("charge.pcc.calc",&charge_pcc_calc,0);
 
     /* initialize Spe_Atomic_PCC */
-    for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++) {
+    for (i=0; i<(Spe_Num_Mesh_VPS[spe]+2); i++) {
       Spe_Atomic_PCC[spe][i]=0.0;
     }
 
@@ -982,7 +931,7 @@ void Read_VPS(int spe, char *file)
 	    }
 	    else{
 	      if (j==2){
-		Spe_Atomic_PCC[spe][i] = dum;
+		Spe_Atomic_PCC[spe][i+1] = dum;
 	      }
 	    }
 	  }
@@ -997,6 +946,12 @@ void Read_VPS(int spe, char *file)
 	printf("There is no data for PCC in %s\n",file);
 	exit(1);
       }
+
+      /* set [0] and [Spe_Num_Mesh_VPS[spe]+1] */
+      Spe_Atomic_PCC[spe][0] = 2.0*Spe_Atomic_PCC[spe][1] - Spe_Atomic_PCC[spe][2];
+      Spe_Atomic_PCC[spe][Spe_Num_Mesh_VPS[spe]+1] =
+                     2.0*Spe_Atomic_PCC[spe][Spe_Num_Mesh_VPS[spe]] 
+                       - Spe_Atomic_PCC[spe][Spe_Num_Mesh_VPS[spe]-1];
     }
   }
 
@@ -1005,7 +960,41 @@ void Read_VPS(int spe, char *file)
   ****************************************************/
   
   input_close();
-  
+
+  /****************************************************
+        re-normalization of atomic charge density 
+  ****************************************************/
+
+  if (remake_headfile==0){
+
+    sum = 0.0;
+    dx = Spe_PAO_XV[spe][1] - Spe_PAO_XV[spe][0];
+    for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
+      sum += Spe_Atomic_Den[spe][i+1]*exp(3.0*Spe_PAO_XV[spe][i]);
+    }
+    sum *= 4.0*PI*dx; 
+
+    if (Spe_WhatAtom[spe]!=0){
+      for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
+	Spe_Atomic_Den[spe][i+1]    = Spe_Atomic_Den[spe][i+1]*(Spe_Core_Charge[spe]/sum);
+ 
+	Spe_Atomic_Den2[spe][i+1] = Spe_Atomic_Den2[spe][i+1]*(Spe_Core_Charge[spe]/sum)
+                                   +  KumoF( Spe_Num_Mesh_VPS[spe], Spe_PAO_XV[spe][i], 
+ 			                     Spe_VPS_XV[spe], Spe_VPS_RV[spe], Spe_Atomic_PCC[spe]);
+      }
+
+      Spe_Atomic_Den[spe][0] = 2.0*Spe_Atomic_Den[spe][1] - Spe_Atomic_Den[spe][2];
+      Spe_Atomic_Den[spe][Spe_Num_Mesh_PAO[spe]+1] =
+                     2.0*Spe_Atomic_Den[spe][Spe_Num_Mesh_PAO[spe]] 
+                       - Spe_Atomic_Den[spe][Spe_Num_Mesh_PAO[spe]-1];
+
+      Spe_Atomic_Den2[spe][0] = 2.0*Spe_Atomic_Den2[spe][1] - Spe_Atomic_Den2[spe][2];
+      Spe_Atomic_Den2[spe][Spe_Num_Mesh_PAO[spe]+1] =
+                     2.0*Spe_Atomic_Den2[spe][Spe_Num_Mesh_PAO[spe]] 
+                       - Spe_Atomic_Den2[spe][Spe_Num_Mesh_PAO[spe]-1];
+    }
+  }
+
   /****************************************************
                 calculate VH_Atom and Vna
   ****************************************************/
@@ -1016,19 +1005,17 @@ void Read_VPS(int spe, char *file)
 
     for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
       r = Spe_VPS_RV[spe][i];
-
-      /* empty atom */ 
-      if (Spe_WhatAtom[spe]==0)
-        Spe_VH_Atom[spe][i] = 0.0;
+      
+      if (Spe_WhatAtom[spe]==0) /* empty atom */ 
+        Spe_VH_Atom[spe][i+1] = 0.0;
       else 
-        Spe_VH_Atom[spe][i] = V_Hart_atom(spe,r);
-
-      /*
-     printf("A1 %2d %15.12f %15.12f %15.12f %15.12f\n",
-              spe,r,Vcore[i],Spe_VH_Atom[spe][i],Spe_Vna[spe][i]);
-      */
-
+        Spe_VH_Atom[spe][i+1] = V_Hart_atom(spe,r);
     }
+
+    Spe_VH_Atom[spe][0] = 2.0*Spe_VH_Atom[spe][1] - Spe_VH_Atom[spe][2];
+    Spe_VH_Atom[spe][Spe_Num_Mesh_VPS[spe]+1] =
+                     2.0*Spe_VH_Atom[spe][Spe_Num_Mesh_VPS[spe]] 
+                       - Spe_VH_Atom[spe][Spe_Num_Mesh_VPS[spe]-1];
 
 
     /* the nearest point to Spe_Atom_Cut1[spe] */
@@ -1050,14 +1037,13 @@ void Read_VPS(int spe, char *file)
 
     if (1.0e-15<Spe_Core_Charge[spe]){
 
-      dum = -Vcore[ii]/Spe_VH_Atom[spe][ii];
-      for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
+      dum = -Vcore[ii]/Spe_VH_Atom[spe][ii+1];
+      for (i=0; i<(Spe_Num_Mesh_VPS[spe]+2); i++){
         Spe_VH_Atom[spe][i] *= dum;
       }
     }
 
     /* calculation of Spe_Vna */
-
 
     for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
       r = Spe_VPS_RV[spe][i];
@@ -1067,7 +1053,7 @@ void Read_VPS(int spe, char *file)
       if (Spe_WhatAtom[spe]==0)
         Spe_Vna[spe][i] = 0.0;
       else 
-        Spe_Vna[spe][i] = dumping*(Vcore[i] + Spe_VH_Atom[spe][i]);
+        Spe_Vna[spe][i] = dumping*(Vcore[i] + Spe_VH_Atom[spe][i+1]);
 
       /*
       printf("%2d %15.12f %15.12f %15.12f %15.12f\n",
@@ -1108,7 +1094,7 @@ void Read_VPS(int spe, char *file)
         else if (L<=Spe_PAO_LMAX[spe]){
           for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
             r = Spe_VPS_RV[spe][i];
-  	    phi[m][i] = pow(0.1*Spe_Vna[spe][i],(double)m)*phi[0][i];
+  	    phi[m][i] = pow((0.1*Spe_Vna[spe][i]+1.0e-13),(double)m)*phi[0][i];
 	  }
         }
 
@@ -1124,7 +1110,7 @@ void Read_VPS(int spe, char *file)
           for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
             r = Spe_VPS_RV[spe][i];
   	    phi[m][i] = RadialF(spe,Spe_PAO_LMAX[spe],Spe_PAO_Mul[spe]-1,r)*
-                        pow(0.1*Spe_Vna[spe][i],(double)(m-Spe_PAO_Mul[spe]+1));
+                        pow((0.1*Spe_Vna[spe][i]+1.0e-13),(double)(m-Spe_PAO_Mul[spe]+1));
 	  }
         }
 
@@ -1368,8 +1354,11 @@ double V_Hart_atom(int spe, double R)
   for (i=0; i<=(FineGL_Mesh-1); i++){
     x = 0.50*(Dx*FineGL_Abscissae[i] + Sx);
     rp = exp(x);
-    Inside = Inside + AtomicDenF(spe,rp)*FineGL_Weight[i]*rp*rp*rp;
+    Inside = Inside +
+        KumoF( Spe_Num_Mesh_PAO[spe], x, 
+        Spe_PAO_XV[spe], Spe_PAO_RV[spe], Spe_Atomic_Den[spe])*FineGL_Weight[i]*rp*rp*rp;
   } 
+
   Inside = 0.50*Dx*Inside;
   Inside = 4.0*PI*Inside/R;
 
@@ -1411,8 +1400,11 @@ double V_Hart_atom(int spe, double R)
   for (i=0; i<=(FineGL_Mesh-1); i++){
     x = 0.50*(Dx*FineGL_Abscissae[i] + Sx);
     rp = exp(x);
-    Outside = Outside + AtomicDenF(spe,rp)*FineGL_Weight[i]*rp*rp;
+    Outside = Outside +
+        KumoF( Spe_Num_Mesh_PAO[spe], x, 
+        Spe_PAO_XV[spe], Spe_PAO_RV[spe], Spe_Atomic_Den[spe])*FineGL_Weight[i]*rp*rp;
   } 
+
   Outside = 0.50*Dx*Outside;
   Outside = 4.0*PI*Outside;
 
@@ -1751,113 +1743,114 @@ void Set_Comp2Real()
 void Set_Atom_Weight()
 {
   /****************************************************
-               Atomic weight (Hydrogen=1.0)
+      Atomic weight in unified atomic mass unit 
+     (Principal isotope of carbon atom = 12.0)
   ****************************************************/
 
   Atom_Weight[  0] =   1.00;
-  Atom_Weight[  1] =   1.00;
-  Atom_Weight[  2] =   4.00;
-  Atom_Weight[  3] =   7.00;
-  Atom_Weight[  4] =   9.00;
-  Atom_Weight[  5] =  11.00;
+  Atom_Weight[  1] =   1.00782503207;
+  Atom_Weight[  2] =   4.00260325415;
+  Atom_Weight[  3] =   7.01600455;
+  Atom_Weight[  4] =   9.0121822;
+  Atom_Weight[  5] =  11.0093054;
   Atom_Weight[  6] =  12.00;
-  Atom_Weight[  7] =  14.00;
-  Atom_Weight[  8] =  16.00;
-  Atom_Weight[  9] =  19.00;
-  Atom_Weight[ 10] =  20.00;
-  Atom_Weight[ 11] =  23.00;
-  Atom_Weight[ 12] =  24.00;
-  Atom_Weight[ 13] =  27.00;
-  Atom_Weight[ 14] =  28.00;
-  Atom_Weight[ 15] =  31.00;
-  Atom_Weight[ 16] =  32.00;
-  Atom_Weight[ 17] =  35.00;
-  Atom_Weight[ 18] =  40.00;
-  Atom_Weight[ 19] =  39.00;
-  Atom_Weight[ 20] =  40.00;
-  Atom_Weight[ 21] =  45.00;
-  Atom_Weight[ 22] =  48.00;
-  Atom_Weight[ 23] =  51.00;
-  Atom_Weight[ 24] =  52.00;
-  Atom_Weight[ 25] =  55.00;
-  Atom_Weight[ 26] =  56.00;
-  Atom_Weight[ 27] =  59.00;
-  Atom_Weight[ 28] =  59.00;
-  Atom_Weight[ 29] =  64.00;
-  Atom_Weight[ 30] =  65.00;
-  Atom_Weight[ 31] =  70.00;
-  Atom_Weight[ 32] =  73.00;
-  Atom_Weight[ 33] =  75.00;
-  Atom_Weight[ 34] =  79.00;
-  Atom_Weight[ 35] =  80.00;
-  Atom_Weight[ 36] =  84.00;
-  Atom_Weight[ 37] =  85.00;
-  Atom_Weight[ 38] =  88.00;
-  Atom_Weight[ 39] =  89.00;
-  Atom_Weight[ 40] =  91.00;
-  Atom_Weight[ 41] =  93.00;
-  Atom_Weight[ 42] =  96.00;
-  Atom_Weight[ 43] =  98.00;
-  Atom_Weight[ 44] = 101.00;
-  Atom_Weight[ 45] = 103.00;
-  Atom_Weight[ 46] = 106.00;
-  Atom_Weight[ 47] = 108.00;
-  Atom_Weight[ 48] = 112.00;
-  Atom_Weight[ 49] = 115.00;
-  Atom_Weight[ 50] = 119.00;
-  Atom_Weight[ 51] = 122.00;
-  Atom_Weight[ 52] = 128.00;
-  Atom_Weight[ 53] = 127.00;
-  Atom_Weight[ 54] = 131.00;
-  Atom_Weight[ 55] = 133.00;
-  Atom_Weight[ 56] = 137.00;
-  Atom_Weight[ 57] = 139.00;
-  Atom_Weight[ 58] = 140.00;
-  Atom_Weight[ 59] = 141.00;
-  Atom_Weight[ 60] = 144.00;
-  Atom_Weight[ 61] = 145.00;
-  Atom_Weight[ 62] = 150.00;
-  Atom_Weight[ 63] = 152.00;
-  Atom_Weight[ 64] = 157.00;
-  Atom_Weight[ 65] = 159.00;
-  Atom_Weight[ 66] = 163.00;
-  Atom_Weight[ 67] = 165.00;
-  Atom_Weight[ 68] = 167.00;
-  Atom_Weight[ 69] = 169.00;
-  Atom_Weight[ 70] = 173.00;
-  Atom_Weight[ 71] = 175.00;
-  Atom_Weight[ 72] = 178.00;
-  Atom_Weight[ 73] = 181.00;
-  Atom_Weight[ 74] = 184.00;
-  Atom_Weight[ 75] = 186.00;
-  Atom_Weight[ 76] = 190.00;
-  Atom_Weight[ 77] = 192.00;
-  Atom_Weight[ 78] = 195.00;
-  Atom_Weight[ 79] = 197.00;
-  Atom_Weight[ 80] = 201.00;
-  Atom_Weight[ 81] = 204.00;
-  Atom_Weight[ 82] = 207.00;
-  Atom_Weight[ 83] = 209.00;
-  Atom_Weight[ 84] = 209.00;
-  Atom_Weight[ 85] = 210.00;
-  Atom_Weight[ 86] = 222.00;
-  Atom_Weight[ 87] = 223.00;
-  Atom_Weight[ 88] = 226.00;
-  Atom_Weight[ 89] = 227.00;
-  Atom_Weight[ 90] = 232.00;
-  Atom_Weight[ 91] = 231.00;
-  Atom_Weight[ 92] = 238.00;
-  Atom_Weight[ 93] = 237.00;
-  Atom_Weight[ 94] = 244.00;
-  Atom_Weight[ 95] = 243.00;
-  Atom_Weight[ 96] = 247.00;
-  Atom_Weight[ 97] = 247.00;
-  Atom_Weight[ 98] = 251.00;
-  Atom_Weight[ 99] = 252.00;
-  Atom_Weight[100] = 257.00;
-  Atom_Weight[101] = 258.00;
-  Atom_Weight[102] = 259.00;
-  Atom_Weight[103] = 260.00;
+  Atom_Weight[  7] =  14.0030740048;
+  Atom_Weight[  8] =  15.99491461956;
+  Atom_Weight[  9] =  18.99840322;
+  Atom_Weight[ 10] =  19.9924401754;
+  Atom_Weight[ 11] =  22.9897692809;
+  Atom_Weight[ 12] =  23.9850417;
+  Atom_Weight[ 13] =  26.98153863;
+  Atom_Weight[ 14] =  27.9769265325;
+  Atom_Weight[ 15] =  30.97376163;
+  Atom_Weight[ 16] =  31.972071;
+  Atom_Weight[ 17] =  34.96885268;
+  Atom_Weight[ 18] =  39.9623831225;
+  Atom_Weight[ 19] =  38.96370668;
+  Atom_Weight[ 20] =  39.96259098;
+  Atom_Weight[ 21] =  44.9559119;
+  Atom_Weight[ 22] =  47.9479463;
+  Atom_Weight[ 23] =  50.9439595;
+  Atom_Weight[ 24] =  51.9405075;
+  Atom_Weight[ 25] =  54.9380451;
+  Atom_Weight[ 26] =  55.9349375;
+  Atom_Weight[ 27] =  58.933195;
+  Atom_Weight[ 28] =  57.9353429;
+  Atom_Weight[ 29] =  62.9295975;
+  Atom_Weight[ 30] =  63.9291422;
+  Atom_Weight[ 31] =  68.9255736;
+  Atom_Weight[ 32] =  73.9211778;
+  Atom_Weight[ 33] =  74.9215965;
+  Atom_Weight[ 34] =  79.9165213;
+  Atom_Weight[ 35] =  78.9183371;
+  Atom_Weight[ 36] =  83.911507;
+  Atom_Weight[ 37] =  84.911789738;
+  Atom_Weight[ 38] =  87.9056121;
+  Atom_Weight[ 39] =  88.9058483;
+  Atom_Weight[ 40] =  89.9047044;
+  Atom_Weight[ 41] =  92.9063781;
+  Atom_Weight[ 42] =  97.9054082;
+  Atom_Weight[ 43] =  98.906254747;
+  Atom_Weight[ 44] = 101.9043493;
+  Atom_Weight[ 45] = 102.905504;
+  Atom_Weight[ 46] = 105.903486;
+  Atom_Weight[ 47] = 106.905097;
+  Atom_Weight[ 48] = 113.9033585;
+  Atom_Weight[ 49] = 114.903878;
+  Atom_Weight[ 50] = 119.9021947;
+  Atom_Weight[ 51] = 120.9038157;
+  Atom_Weight[ 52] = 129.9062244;
+  Atom_Weight[ 53] = 126.904473;
+  Atom_Weight[ 54] = 131.9041535;
+  Atom_Weight[ 55] = 132.905451933;
+  Atom_Weight[ 56] = 137.9052472;
+  Atom_Weight[ 57] = 138.9063533;
+  Atom_Weight[ 58] = 139.9054387;
+  Atom_Weight[ 59] = 140.9076528;
+  Atom_Weight[ 60] = 143.910083;
+  Atom_Weight[ 61] = 144.912749023;
+  Atom_Weight[ 62] = 151.9197324;
+  Atom_Weight[ 63] = 152.9212303;
+  Atom_Weight[ 64] = 157.9241039;
+  Atom_Weight[ 65] = 158.9253468;
+  Atom_Weight[ 66] = 163.9291748;
+  Atom_Weight[ 67] = 164.9303221;
+  Atom_Weight[ 68] = 165.9302931;
+  Atom_Weight[ 69] = 168.9342133;
+  Atom_Weight[ 70] = 173.9388621;
+  Atom_Weight[ 71] = 174.9407718;
+  Atom_Weight[ 72] = 179.94655;
+  Atom_Weight[ 73] = 180.9479958;
+  Atom_Weight[ 74] = 183.9509312;
+  Atom_Weight[ 75] = 186.9557531;
+  Atom_Weight[ 76] = 191.9614807;
+  Atom_Weight[ 77] = 192.9629264;
+  Atom_Weight[ 78] = 197.967893;
+  Atom_Weight[ 79] = 196.9665687;
+  Atom_Weight[ 80] = 201.970643;
+  Atom_Weight[ 81] = 204.9744275;
+  Atom_Weight[ 82] = 207.9766521;
+  Atom_Weight[ 83] = 208.9803987;
+  Atom_Weight[ 84] = 209.982873673;
+  Atom_Weight[ 85] = 209.987147710;
+  Atom_Weight[ 86] = 222.017577738;
+  Atom_Weight[ 87] = 223.019735857;
+  Atom_Weight[ 88] = 226.025409823;
+  Atom_Weight[ 89] = 227.027752127;
+  Atom_Weight[ 90] = 232.0380553;
+  Atom_Weight[ 91] = 231.035884;
+  Atom_Weight[ 92] = 238.0507882;
+  Atom_Weight[ 93] = 237.048173444;
+  Atom_Weight[ 94] = 239.052163381;
+  Atom_Weight[ 95] = 243.061381080;
+  Atom_Weight[ 96] = 247.070353540;
+  Atom_Weight[ 97] = 247.070307080;
+  Atom_Weight[ 98] = 252.081625846;
+  Atom_Weight[ 99] = 252.082978512;
+  Atom_Weight[100] = 257.095104724;
+  Atom_Weight[101] = 258.098431319;
+  Atom_Weight[102] = 259.101031;
+  Atom_Weight[103] = 262.109634;
 }
 
 void Set_Atom_Symbol()
@@ -1970,18 +1963,25 @@ void Set_Atom_Symbol()
 
 void Check_InitDensity()
 {
-
   int ct_AN,cwan,po,wan;
   double charge;
+  int myid;
+  
+  MPI_Comm_rank(MPI_COMM_WORLD1,&myid);
 
   po = 0;  
   for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
+
     cwan = WhatSpecies[ct_AN];
     charge = Spe_Core_Charge[cwan] - (InitN_USpin[ct_AN] + InitN_DSpin[ct_AN]);
 
     if (10e-14<fabs(charge)){
-      printf("Invalid values for the initial densities of atom %i (valid sum: %6.3f)\n",
-              ct_AN,Spe_Core_Charge[cwan]);
+
+     if (myid==Host_ID){
+        printf("Invalid values for the initial densities of atom %i (valid sum: %6.3f)\n",
+                ct_AN,Spe_Core_Charge[cwan]);
+     }
+
       po++;
     }
   }
@@ -2120,88 +2120,6 @@ void Inverse(int n, double **a, double **ia)
 
 
 
-
-
-static void Generate_PAO_Mixed_Basis(int spe)
-{
-  int i,j,L;
-  double dx,xmin,xmax,rs,r; 
-
-  Spe_WhatAtom[spe] = 0;
-  Spe_Num_Mesh_PAO[spe] = Spe_Num_Mesh_PAO[spe-1];
-
-  rcut_FEB *= 1.7; 
-
-  xmin = -7.0;
-  xmax = log(1.2*rcut_FEB);
-  dx = (xmax - xmin)/Spe_Num_Mesh_PAO[spe];
-
-  for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
-    Spe_PAO_XV[spe][i] = xmin + (double)i*dx;
-    Spe_PAO_RV[spe][i] = exp(Spe_PAO_XV[spe][i]);
-    Spe_Atomic_Den[spe][i] = 0.0;
-  }
-
-  Spe_Atom_Cut1[spe] = rcut_FEB;
-  Spe_PAO_LMAX[spe] = Spe_MaxL_Basis[spe];
-  Spe_PAO_Mul[spe] = 1;
-
-  for (L=0; L<=Spe_PAO_LMAX[spe]; L++){
-    for (j=0; j<Spe_PAO_Mul[spe]; j++){
-      for (i=0; i<Spe_Num_Mesh_PAO[spe]; i++){
-
-        r = Spe_PAO_RV[spe][i];
-        rs = r/rcut_FEB;
-
-        if (rs<1.0)
-          Spe_PAO_RWF[spe][L][j][i] = (1.0 - 3.0*rs*rs + 2.0*rs*rs*rs)*1.0e+3; 
-        else 
-          Spe_PAO_RWF[spe][L][j][i] = 0.0;
-      }
-    }
-  }
-}
-
-
-
-
-
-
-
-static void Generate_VPS_Mixed_Basis(int spe)
-{
-  int i,j,L,m;
-  double dx,xmin,xmax,rs,r; 
-
-  Spe_Core_Charge[spe] = 0.0;
-  Spe_Num_Mesh_VPS[spe] = Spe_Num_Mesh_VPS[spe-1];
-  VPS_j_dependency[spe] = 0;
-  Spe_Num_RVPS[spe] = 0;
-  Spe_Total_VPS_Pro[spe] = 0; 
-
-  xmin = -7.0;
-  xmax = log(1.2*rcut_FEB);
-  dx = (xmax - xmin)/Spe_Num_Mesh_VPS[spe];
-
-  for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
-    Spe_VPS_XV[spe][i] = xmin + (double)i*dx;
-    Spe_VPS_RV[spe][i] = exp(Spe_VPS_XV[spe][i]);
-    Spe_VH_Atom[spe][i] = 0.0;
-    Spe_Vna[spe][i] = 0.0;
-  }
-
-  if (ProExpn_VNA==1){
-    for (L=0; L<=List_YOUSO[35]; L++){ 
-      for (m=0; m<List_YOUSO[34]; m++){
-	VNA_proj_ene[spe][L][m] = 0.0;
-	for (i=0; i<Spe_Num_Mesh_VPS[spe]; i++){
-	  Projector_VNA[spe][L][m][i] = 0.0;
-	}
-      }
-    }
-  }
-
-}
 
 
 

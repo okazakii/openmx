@@ -22,12 +22,8 @@
 /*  end stat section */
 #include "openmx_common.h"
 #include "Inputtools.h"
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+ 
 
 
 void Check_Force(char *argv[]);
@@ -48,6 +44,7 @@ static int
   {0,0,0,0,0,1,0},
   {0,0,0,0,0,0,1}
 };
+
 
 
 void Force_test(int argc, char *argv[]) 
@@ -74,7 +71,7 @@ void Force_test(int argc, char *argv[])
   printf("\n*******************************************************\n");   fflush(stdout);
   printf("*******************************************************\n");     fflush(stdout);
   printf(" Welcome to OpenMX                                     \n");     fflush(stdout);
-  printf(" Copyright (C), 2002-2009, T.Ozaki                     \n");     fflush(stdout);
+  printf(" Copyright (C), 2002-2013, T.Ozaki                     \n");     fflush(stdout);
   printf(" OpenMX comes with ABSOLUTELY NO WARRANTY.             \n");     fflush(stdout);
   printf(" This is free software, and you are welcome to         \n");     fflush(stdout);
   printf(" redistribute it under the constitution of the GNU-GPL.\n");     fflush(stdout);
@@ -211,7 +208,6 @@ void Force_test(int argc, char *argv[])
 
 
 
-
 void Check_Force(char *argv[])
 {
   int ixyz;
@@ -266,7 +262,7 @@ void Check_Force(char *argv[])
     Gxyz[1][3] = original_z;
 
     MD_iter = 1;
-    time1 = truncation(MD_iter,Solver==6,1);
+    time1 = truncation(MD_iter,1);
     time2 = DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
     Utot1 = Utot;
 
@@ -283,7 +279,7 @@ void Check_Force(char *argv[])
 
     MD_iter = 2;
     Gxyz[1][ixyz] -= step; 
-    time1 = truncation(MD_iter,Solver==6,1);
+    time1 = truncation(MD_iter,1);
     time2 = DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
     Utot2 = Utot;
 
@@ -292,7 +288,7 @@ void Check_Force(char *argv[])
 
     MD_iter = 3;
     Gxyz[1][ixyz] += 2.0*step; 
-    time1 = truncation(MD_iter,Solver==6,1);
+    time1 = truncation(MD_iter,1);
     time2 = DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
     Utot3 = Utot;
 

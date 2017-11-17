@@ -1,7 +1,7 @@
 /**********************************************************************
-  Cont_Matrix0.c:
+  Cont_Matrix3.c:
 
-     Cont_Matrix3.c is a subroutine to contract a Matrix3 (HVNA2)
+     Cont_Matrix3.c is a subroutine to contract a Matrix3 (HVNA2).
 
   Log of Cont_Matrix3.c:
 

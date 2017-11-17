@@ -14,14 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
-
 #include "tran_prototypes.h"
 #include "lapack_prototypes.h"
 

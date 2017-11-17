@@ -16,12 +16,7 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 
 void Orbitals_on_Grid(int wan, int Lmax, int Nmul, double x, double y, double z, 
@@ -450,11 +445,19 @@ void Voronoi_Orbital_Moment()
 
               sum = 0.0;
 
-              for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
-                Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
-                Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
-                sum += Tmp_Orb[L][M][p][Nc]*Orbs_Grid[Mh_AN][j][Nh];
- 	      }
+              if (G2ID[Gh_AN]==myid){
+		for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+		  Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+		  Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+		  sum += Tmp_Orb[L][M][p][Nc]*Orbs_Grid[Mh_AN][Nh][j];/* AITUNE */
+		}
+	      }
+              else{
+		for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
+		  Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+		  sum += Tmp_Orb[L][M][p][Nc]*Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];/* AITUNE */
+		}
+              } 
 
               WOLP[Mc_AN][h_AN][L][M][p][j] = sum*GridVol;
             } 

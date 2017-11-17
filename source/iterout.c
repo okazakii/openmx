@@ -8,6 +8,7 @@
 
      22/Nov/2001  Released by T.Ozaki
      14/May/2004  Modified by M.Ohfuti
+     22/Nov/2011  Modified by T.Ohwaki
 
 ***********************************************************************/
 
@@ -16,11 +17,21 @@
 
 void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10])
 {
-  int i,j,k;
+  int i,j,k,kk,myid;
   double dt,itermax,aa,dx,dy,dz,xido,yido,zido;
   char fileXYZ[YOUSO10];
   FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
+
+  if(MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==15){
+    Calc_Temp_Atoms(iter);
+  }
+
+  if(MD_switch==14){
+  }
+
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+  if (myid!=Host_ID) return;
 
   /****************************************************
      cartesian coordinates for MD or geometry opt.
@@ -36,11 +47,20 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
 
       fprintf(fp,"%i \n",atomnum);
 
-      if(MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11) {
-        fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hatree) Temperature= %8.3f\n",drctime,Utot,Temp);
+      if(MD_switch==1 || MD_switch==2 || MD_switch==9 || MD_switch==11 || MD_switch==15) {
+        fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) Temperature= %8.3f (Given Temp.= %8.3f)\n",drctime,Utot,Temp,GivenTemp);
       }
+
+      else if (MD_switch==14) {
+        fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) ",drctime,Utot);
+        for (kk=1; kk<=num_AtGr; kk++){ 
+          fprintf(fp,"Temperature[%d]= %8.3f ",kk,Temp_AtGr[kk]);
+        }
+        fprintf(fp,"\n");
+      }
+
       else {
-        fprintf(fp,"   time= %8.3f (fs)  Energy= %8.5f (Hatree)\n",drctime,Utot);
+        fprintf(fp,"   time= %8.3f (fs)  Energy= %8.5f (Hartree)\n",drctime,Utot);
       } 
 
       for (k=1; k<=atomnum; k++){
@@ -50,15 +70,25 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
         if ( MD_switch==1 || 
              MD_switch==2 ||  
              MD_switch==9 ||
-             MD_switch==11
+             MD_switch==11||
+             MD_switch==14||
+             MD_switch==15
             ) {
+
+          /***********************************************
+             5.291772083*10^{-11} m / 2.418884*10^{-17} s 
+             = 2.1876917*10^6 m/s                         
+             = 1 a.u. for velocity 
+
+             1 m/s = 0.4571028 * 10^{-6} a.u.
+          ***********************************************/
 
           fprintf(fp,"%4s   %8.5f  %8.5f  %8.5f  %14.6f %14.6f %14.6f  %8.5f  %8.5f  %8.5f  %8.5f\n",
                   Atom_Symbol[j],                
 	   	  Gxyz[k][1]*BohrR,Gxyz[k][2]*BohrR,Gxyz[k][3]*BohrR,
-		  Gxyz[k][24]*2.36852*1000000,
-                  Gxyz[k][25]*2.36852*1000000,
-                  Gxyz[k][26]*2.36852*1000000,
+		  Gxyz[k][24]/(0.4571028*0.000001),
+                  Gxyz[k][25]/(0.4571028*0.000001),
+                  Gxyz[k][26]/(0.4571028*0.000001),
                   InitN_USpin[k],
                   InitN_DSpin[k],
                   InitN_USpin[k]+InitN_DSpin[k],
@@ -95,11 +125,11 @@ void iterout(int iter,double drctime,char fileSE[YOUSO10],char fileSDRC[YOUSO10]
 
     fprintf(fp,"%i \n",atomnum);
 
-    if (MD_switch==2 || MD_switch==11) {
-      fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hatree) Temperature= %8.3f\n",drctime,Utot,Temp);
+    if (MD_switch==2 || MD_switch==11 || MD_switch==14 || MD_switch==15) {
+      fprintf(fp,"time= %8.3f (fs) Energy= %8.5f (Hartree) Temperature= %8.3f\n",drctime,Utot,Temp);
     }
     else {
-      fprintf(fp,"   time= %8.3f (fs)  Energy= %8.5f (Hatree)\n",drctime,Utot);
+      fprintf(fp,"   time= %8.3f (fs)  Energy= %8.5f (Hartree)\n",drctime,Utot);
     } 
 
     for (k=1; k<=atomnum; k++){

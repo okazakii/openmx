@@ -21,32 +21,29 @@
 #include <unistd.h>
 /*  end stat section */
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-
 
 
 static int  Input_HKS( int MD_iter, double *Uele, double *****CH );
 static void Output_HKS(int MD_iter, double *Uele, double *****CH );
 static void Output_Charge_Density(int MD_iter);
-static void Input_Charge_Density(int MD_iter, double *extpln_coes);
+static int Input_Charge_Density(int MD_iter, double *extpln_coes);
 static void Inverse(int n, double **a, double **ia);
 static void Extp_Charge(int MD_iter, double *extpln_coes);
 
 
-int RestartFileDFT(char *mode, int MD_iter, double *Uele, double *****H, double *****CntH)
+
+int RestartFileDFT(char *mode, int MD_iter, double *Uele, double *****H, double *****CntH, double *etime)
 {
-  int ret;
+  int ret,ret1;
   int numprocs,myid;
   double *extpln_coes;
+  double Stime,Etime;
+
+  *etime = 0.0; 
+  dtime(&Stime);
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return 1;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -85,12 +82,16 @@ int RestartFileDFT(char *mode, int MD_iter, double *Uele, double *****H, double 
 
     /* read charge density */
 
-    Input_Charge_Density(MD_iter,extpln_coes);
+    ret1 = Input_Charge_Density(MD_iter,extpln_coes);
+    ret *= ret1; 
 
     /* free */
 
     free(extpln_coes);
   }
+
+  dtime(&Etime);
+  *etime = Etime - Stime;
 
   return ret;
 }
@@ -534,7 +535,7 @@ void Output_HKS(int MD_iter, double *Uele, double *****CH )
   int wan1,wan2,TNO1,TNO2,spin,Rn,po;
   int i_vec[20],*p_vec;
   int numprocs,myid;
-  char operate[300];
+  char operate[1000];
   char fileHKS[YOUSO10];
   FILE *fp;
   char buf[fp_bsize];          /* setvbuf */
@@ -678,214 +679,83 @@ void Output_HKS(int MD_iter, double *Uele, double *****CH )
 
 void Output_Charge_Density(int MD_iter)
 {
-  int i,j,k,i1,i2,i3,c;
-  int GN,mul,n1,n2,n3,nn1,nn0;
-  int cmd,MN,MN0,MN1,MN2,MN3;
-  double ***V;
-  double *tmp_array0;
-  double *tmp_array1;
-  int numprocs,myid,ID,IDS,IDR,tag=999;
-  char operate[300];
-  char fname1[300];
-  char fname2[300];
+  int i,spin,BN;
+  int numprocs,myid;
+  double *TmpRho;
   FILE *fp;
+  char file_check[YOUSO10];
   char fileCD0[YOUSO10];
   char fileCD1[YOUSO10];
   char fileCD2[YOUSO10];
-  char buf[fp_bsize];          /* setvbuf */
-
-  MPI_Status stat;
-  MPI_Request request;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  if      (SpinP_switch==0) mul = 1;
-  else if (SpinP_switch==1) mul = 2;
-  else if (SpinP_switch==3) mul = 4;
-  
-  /****************************************************
-   allocation of arrays:
+  /* allocation of array */
+  TmpRho = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
 
-   double V[mul][My_NGrid1_Poisson][Ngrid2*Ngrid3];
-  ****************************************************/
+  /* save numprocs, Ngrid1, Ngrid2, and Ngrid3 */
 
-  V = (double***)malloc(sizeof(double**)*mul); 
-  for (k=0; k<mul; k++){
-    V[k] = (double**)malloc(sizeof(double*)*My_NGrid1_Poisson); 
-    for (i=0; i<My_NGrid1_Poisson; i++){
-      V[k][i] = (double*)malloc(sizeof(double)*Ngrid2*Ngrid3); 
-    }
+  sprintf(file_check,"%s%s_rst/%s.crst_check",filepath,filename,filename);
+
+  if ((fp = fopen(file_check,"w")) != NULL){
+    fprintf(fp,"%d %d %d %d",numprocs,Ngrid1,Ngrid2,Ngrid3);
+    fclose(fp);
   }
-
-  /****************************************************
-                    set V0 and V1
-  ****************************************************/
-
-  /* initialize */
-
-  for (k=0; k<mul; k++){
-    for (n1=0; n1<My_NGrid1_Poisson; n1++){
-      for (n2=0; n2<Ngrid2*Ngrid3; n2++){
-        V[k][n1][n2] = 0.0;
-      }
-    }
+  else{
+    printf("Failure of saving %s\n",file_check);
   }
-
-  /* use their densities using MPI */
-
-  for (k=0; k<mul; k++){
-
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      /* Isend */
-      if (Num_Snd_Grid1[IDS]!=0){
-
-        tmp_array0 = (double*)malloc(sizeof(double)*Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3); 
-  
-        for (i=0; i<Num_Snd_Grid1[IDS]; i++){ 
-
-	  n1 = Snd_Grid1[IDS][i];
-          nn1 = My_Cell0[n1];
-          MN1 = nn1*Ngrid2*Ngrid3;
-          MN0 = i*Ngrid2*Ngrid3;
-          for (n2=0; n2<Ngrid2; n2++){
-            MN2 = n2*Ngrid3;
-
-            if (k<=1){
-	      for (n3=0; n3<Ngrid3; n3++){
-		MN = MN1 + MN2 + n3;
-		tmp_array0[MN0+MN2+n3] = Density_Grid[k][MN] - ADensity_Grid[MN];
-	      }
-	    }
-
-            else {
-	      for (n3=0; n3<Ngrid3; n3++){
-		MN = MN1 + MN2 + n3;
-		tmp_array0[MN0+MN2+n3] = Density_Grid[k][MN];
-	      }
-            }
-
-	  }
-        }
-
-        MPI_Isend(&tmp_array0[0], Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3,
-                  MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-      }
-
-      /* Recv */
-      if (Num_Rcv_Grid1[IDR]!=0){
-
-        tmp_array1 = (double*)malloc(sizeof(double)*Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3); 
-
-        MPI_Recv(&tmp_array1[0], Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3,
-                MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-        for (i=0; i<Num_Rcv_Grid1[IDR]; i++){ 
-	  n1 = Rcv_Grid1[IDR][i];
-          nn1 = My_Cell0[n1];
-          nn0 = n1 - Start_Grid1[myid];
-          MN0 = i*Ngrid2*Ngrid3;
-          for (n2=0; n2<Ngrid2; n2++){
-            MN2 = n2*Ngrid3;
-	    for (n3=0; n3<Ngrid3; n3++){
-	      MN = MN0 + MN2 + n3;
-	      V[k][nn0][MN2+n3] = tmp_array1[MN];
-	    }
-	  }
-        }
-
-        free(tmp_array1);
-      }
-
-      if (Num_Snd_Grid1[IDS]!=0){
-        MPI_Wait(&request,&stat);
-        free(tmp_array0);
-      }
-
-    }
-
-    /* use own densities */
-    for (n1=Start_Grid1[myid]; n1<=End_Grid1[myid]; n1++){
-      nn1 = My_Cell0[n1];
-      nn0 = n1 - Start_Grid1[myid]; 
-      if (nn1!=-1){
-        MN1 = nn1*Ngrid2*Ngrid3;
-        for (n2=0; n2<Ngrid2; n2++){
-          MN2 = n2*Ngrid3;
-
-          if (k<=1){
-	    for (n3=0; n3<Ngrid3; n3++){
-	      MN = MN1 + MN2 + n3;
-	      V[k][nn0][MN2+n3] = Density_Grid[k][MN] - ADensity_Grid[MN];
-	    }    
-	  }
-          else {
-	    for (n3=0; n3<Ngrid3; n3++){
-	      MN = MN1 + MN2 + n3;
-	      V[k][nn0][MN2+n3] = Density_Grid[k][MN];
-	    }    
-	  }
-        }    
-      }
-    }
-
-  } /* mul */
 
   /****************************************************
                     output data 
   ****************************************************/
 
+  for (spin=0; spin<=SpinP_switch; spin++){
 
-  for (k=0; k<mul; k++){
-    for (n1=0; n1<My_NGrid1_Poisson; n1++){
+    /* store data to TmpRho */
 
-      nn0 = n1 + Start_Grid1[myid]; 
+    if (spin<=1){
+      for (BN=0; BN<My_NumGridB_AB; BN++){
+        TmpRho[BN] = Density_Grid_B[spin][BN] - ADensity_Grid_B[BN];
+      }
+    }
+    else{
+      for (BN=0; BN<My_NumGridB_AB; BN++){
+        TmpRho[BN] = Density_Grid_B[spin][BN];
+      }
+    } 
 
-      if (Cnt_switch!=1){ 
+    /* shift the index of stored data */
 
-	for (i=(Extrapolated_Charge_History-2); 0<=i; i--){
+    for (i=(Extrapolated_Charge_History-2); 0<=i; i--){
  
-	  sprintf(fileCD1,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,k,nn0,i);
-	  sprintf(fileCD2,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,k,nn0,i+1);
+      sprintf(fileCD1,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,spin,myid,i);
+      sprintf(fileCD2,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,spin,myid,i+1);
 
-	  if ((fp = fopen(fileCD1,"rb")) != NULL){
-	    fclose(fp);
-	    rename(fileCD1,fileCD2); 
-	  }
-	} 
-      }
-
-      sprintf(fileCD0,"%s%s_rst/%s.crst%i_%i_0",filepath,filename,filename,k,nn0);
-
-      if ((fp = fopen(fileCD0,"wb")) != NULL){
-        fwrite(V[k][n1],sizeof(double),Ngrid2*Ngrid3,fp);
+      if ((fp = fopen(fileCD1,"rb")) != NULL){
 	fclose(fp);
+	rename(fileCD1,fileCD2); 
       }
-      else{
-        printf("Could not open a file %s\n",fileCD0);
-      }
+    } 
+
+    /* save current data */
+
+    sprintf(fileCD0,"%s%s_rst/%s.crst%i_%i_0",filepath,filename,filename,spin,myid);
+
+    if ((fp = fopen(fileCD0,"wb")) != NULL){
+
+      fwrite(TmpRho,sizeof(double),My_NumGridB_AB,fp);
+      fclose(fp);
     }
-  }
-
-  /****************************************************
-   freeing of arrays:
-
-   double V[mul][My_NGrid1_Poisson][Ngrid2*Ngrid3];
-  ****************************************************/
-
-  for (k=0; k<mul; k++){
-    for (i=0; i<My_NGrid1_Poisson; i++){
-      free(V[k][i]);
+    else{
+      printf("Could not open a file %s\n",fileCD0);
     }
-    free(V[k]);
-  }
-  free(V);
 
+  } /* spin */
+
+  /* freeing of array */
+  free(TmpRho);
 }
 
 
@@ -895,84 +765,93 @@ void Output_Charge_Density(int MD_iter)
 
 
 
-void Input_Charge_Density(int MD_iter, double *extpln_coes)
+int Input_Charge_Density(int MD_iter, double *extpln_coes)
 {
-  int i,j,k,i1,i2,i3,c,spin,ri;
-  int GN,mul,n1,n2,n3,nn1,nn0;
-  int cmd,MN,MN0,MN1,MN2,MN3;
-  int numprocs,myid,ID,IDS,IDR,tag=999;
-  char operate[300];
-  char fname1[300];
-  char fname2[300];
+  int spin,i,BN,ret;
+  int numprocs,myid;
   FILE *fp;
   char fileCD[YOUSO10];
-  char buf[fp_bsize];          /* setvbuf */
+  char file_check[YOUSO10];
   double *tmp_array;
-
-  MPI_Status stat;
-  MPI_Request request;
+  int i_vec[10];
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  /* allocation */
-  tmp_array = (double*)malloc(sizeof(double)*Ngrid2*Ngrid3);
+  /* check consistency in the number of grids */
 
-  for (spin=0; spin<=SpinP_switch; spin++){
+  sprintf(file_check,"%s%s_rst/%s.crst_check",filepath,filename,filename);
 
-    for (i=0; i<Num_Cells0; i++){
-      ri = My_Cell1[i];
-      MN = i*Ngrid2*Ngrid3;
+  i_vec[1] = 0; i_vec[2] = 0; i_vec[3] = 0;       
+  if ((fp = fopen(file_check,"r")) != NULL){
+    fscanf(fp,"%d %d %d %d",&i_vec[0],&i_vec[1],&i_vec[2],&i_vec[3]);
+    fclose(fp);
+  }
 
-      for (k=0; k<Extrapolated_Charge_History; k++){
+  /* read files */
 
-        sprintf(fileCD,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,spin,ri,k);
+  if ( i_vec[1]==Ngrid1 && i_vec[2]==Ngrid2 && i_vec[3]==Ngrid3 ){
+
+    /* allocation of array */
+
+    tmp_array = (double*)malloc(sizeof(double)*My_NumGridB_AB);
+
+    /* read data and extrapolate data */
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+      for (i=0; i<Extrapolated_Charge_History; i++){
+
+	sprintf(fileCD,"%s%s_rst/%s.crst%i_%i_%i",filepath,filename,filename,spin,myid,i);
 
 	if ((fp = fopen(fileCD,"rb")) != NULL){
 
-	  fread(tmp_array,sizeof(double),Ngrid2*Ngrid3,fp);
+	  fread(tmp_array,sizeof(double),My_NumGridB_AB,fp);
 	  fclose(fp);
 
-          if (k==0){
+	  if (i==0){
 
-            if (spin<=1){
-	      for (MN1=0; MN1<Ngrid2*Ngrid3; MN1++){
-		Density_Grid[spin][MN+MN1] = ADensity_Grid[MN+MN1] + extpln_coes[k]*tmp_array[MN1];
+	    if (spin<=1){
+	      for (BN=0; BN<My_NumGridB_AB; BN++){
+		Density_Grid_B[spin][BN] = ADensity_Grid_B[BN] + extpln_coes[i]*tmp_array[BN];
 	      }
 	    }
-            else{
-	      for (MN1=0; MN1<Ngrid2*Ngrid3; MN1++){
-		Density_Grid[spin][MN+MN1] = extpln_coes[k]*tmp_array[MN1];
+	    else{
+	      for (BN=0; BN<My_NumGridB_AB; BN++){
+		Density_Grid_B[spin][BN] = extpln_coes[i]*tmp_array[BN];
 	      }
 	    }
 
-          }
+	  }
 
-          else{
-            for (MN1=0; MN1<Ngrid2*Ngrid3; MN1++){
-              Density_Grid[spin][MN+MN1] += extpln_coes[k]*tmp_array[MN1];
+	  else{
+	    for (BN=0; BN<My_NumGridB_AB; BN++){
+	      Density_Grid_B[spin][BN] += extpln_coes[i]*tmp_array[BN];
 	    }
-          }
+	  }
 
 	}
 	else{
-	  /*
-	  printf("Could not open a file %s\n",fileCD);
-	  */
+	  /* printf("Could not open a file %s\n",fileCD); */
 	}
       }
-
     }
+
+    /* MPI: from the partitions B to D */
+
+    Density_Grid_Copy_B2D();  
+
+    /* free */
+    free(tmp_array);
+
+    /* ret1 */
+    ret = 1;
   }
 
-  if (SpinP_switch==0){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Density_Grid[1][MN] = Density_Grid[0][MN];
-    }
+  else{
+    if (myid==0) printf("Failed (3) in reading the restart files\n"); fflush(stdout);     
+    ret = 0;
   }
 
-  /* free */
-  free(tmp_array);
-
+  return ret;  
 }

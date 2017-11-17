@@ -966,19 +966,13 @@ void ERI_LL_Alpha_d(
             ia = ia_base+ir;
             ig = ig_base+ir;
             alp[ia] += fpgsh[0]*g[ig];
-            //alp[ia+1] += fpgsh[1]*g[ig];
             /* derivatives */
             gdsht[0] = g[ig]*fpgdsht[0];
-            //gdsht[1] = g[ig]*fpgdsht[1];
             gdshp[0] = g[ig]*fpgdshp[0];
-            //gdshp[1] = g[ig]*fpgdshp[1];
 
             dalp[0][ia] += x2*gdsht[0] + x3*gdshp[0];
-            //dalp[0][ia+1] += x2*gdsht[1] + x3*gdshp[1];
             dalp[1][ia] += y2*gdsht[0] + y3*gdshp[0];
-            //dalp[1][ia+1] += y2*gdsht[1] + y3*gdshp[1];
             dalp[2][ia] += z2*gdsht[0];
-            //dalp[2][ia+1] += z2*gdsht[1];
           } /* --- loop of ir --- */
         } 
 #if SUMSKIP
@@ -990,13 +984,9 @@ void ERI_LL_Alpha_d(
             ia = ia_base+ir;
             ig = ig_base+ir;
             dgsh[0] = dg[ig]*fpgsh[0];
-            //dgsh[1] = dg[ig]*fpgsh[1];
             dalp[0][ia] += x1*dgsh[0];
-            //dalp[0][ia+1] += x1*dgsh[1];
             dalp[1][ia] += y1*dgsh[0];
-            //dalp[1][ia+1] += y1*dgsh[1];
             dalp[2][ia] += z1*dgsh[0];
-            //dalp[2][ia+1] += z1*dgsh[1];
           } /* --- loop of ir --- */
         } 
       } /* --- loop of i ---*/
@@ -1152,7 +1142,6 @@ void ERI_LL_Overlap(
             ia2 = ia2_base+ir; 
             ip  = ip_base+ir;
             a1a2[0] = a1[ia1]*a2[ia2];
-            //a1a2[1] = a1[ia1+0]*a2[ia2+1] + a1[ia1+1]*a2[ia2+0];
             p[ip] += gnt*a1a2[0];
             /* imag part should be zero */
           } /*--- loop of ir ---*/
@@ -1391,7 +1380,6 @@ void ERI_LL_Overlap_d(
               ia2 = ia2_base+ir; 
               ip  = ip_base+ir;
               a1a2[0] = a1[ia1]*a2[ia2];
-              //a1a2[1] = a1[ia1+0]*a2[ia2+1] + a1[ia1+1]*a2[ia2+0];
               p[ip] += gnt*a1a2[0];
               /* imag part should be zero */
             } /* loop of ir */
@@ -1403,8 +1391,6 @@ void ERI_LL_Overlap_d(
                 ia2 = ia2_base+ir; 
                 ip  = ip_base+ir;
                 da1a2[ixyz][0] = da1[ixyz][ia1]*a2[ia2];
-                //da1a2[ixyz][1] = da1[ixyz][ia1+0]*a2[ia2+1] 
-                //                 +da1[ixyz][ia1+1]*a2[ia2+0];
                 dp[ixyz][ip] += gnt*(1.0-x)*da1a2[ixyz][0];
                 /* imag part should be zero */
               } /* loop of ir */
@@ -1418,8 +1404,6 @@ void ERI_LL_Overlap_d(
                 ia2 = ia2_base+ir; 
                 ip  = ip_base+ir;
                 a1da2[ixyz][0] = a1[ia1]*da2[ixyz][ia2];
-                //a1da2[ixyz][1] = a1[ia1+0]*da2[ixyz][ia2+1] 
-                //                 + a1[ia1+1]*da2[ixyz][ia2+0];
                 dp[ixyz][ip] += -gnt*x*a1da2[ixyz][0];
                 /* imag part should be zero */
               } /* loop of ir */
@@ -1432,23 +1416,16 @@ void ERI_LL_Overlap_d(
             ip  = ip_base+ir;
               
             a1a2[0] = a1[ia1]*a2[ia2];
-            //a1a2[1] = a1[ia1+0]*a2[ia2+1]+a1[ia1+1]*a2[ia2+0];
             p[ip] += gnt*a1a2[0];
             /* imag part should be zero */
               
             da1a2[0][0] = da1[0][ia1]*a2[ia2];
-            //da1a2[0][1] = da1[0][ia1+0]*a2[ia2+1]+da1[0][ia1+1]*a2[ia2+0];
             da1a2[1][0] = da1[1][ia1]*a2[ia2];
-            //da1a2[1][1] = da1[1][ia1+0]*a2[ia2+1]+da1[1][ia1+1]*a2[ia2+0];
             da1a2[2][0] = da1[2][ia1]*a2[ia2];
-            //da1a2[2][1] = da1[2][ia1+0]*a2[ia2+1]+da1[2][ia1+1]*a2[ia2+0];
               
             a1da2[0][0] = a1[ia1]*da2[0][ia2];
-            //a1da2[0][1] = a1[ia1+0]*da2[0][ia2+1]+a1[ia1+1]*da2[0][ia2+0];
             a1da2[1][0] = a1[ia1]*da2[1][ia2];
-            //a1da2[1][1] = a1[ia1+0]*da2[1][ia2+1]+a1[ia1+1]*da2[1][ia2+0];
             a1da2[2][0] = a1[ia1]*da2[2][ia2];
-            //a1da2[2][1] = a1[ia1+0]*da2[2][ia2+1]+a1[ia1+1]*da2[2][ia2+0];
  
             dp[0][ip] += gnt*((1.0-x)*da1a2[0][0] - x*a1da2[0][0]);
             /* imag part should be zero */
@@ -2324,8 +2301,6 @@ void ERI_Integral_GL_Post(
   double       *I4,    /* (OUT) [numR] */
   const double *F1,    /* (IN) Overlap matrix */
   const double *F2,    /* (IN) */
-  //const double *q1,
-  //const double *q2,
   int           numR,
   double       *prej,   /* [lmax*ngl*numR] */
   double       *preY,   /* [numR*jmax1] */
@@ -2371,7 +2346,6 @@ void ERI_Integral_GL_Post(
 #if SUMSKIP
         if (fmax1[j1]*fmax2[j2]<SUMSKIP_THRESHOLD) { continue; }
 #endif
-        //if (q1[j1]*q2[j2]<1e-8) { continue; }
 
 #if LOOP_UNROLLING
         for (imR=0; imR<num_minimalR; imR++) {
@@ -2424,8 +2398,6 @@ void ERI_Integral_GL_Post2(
   double       *I4,    /* (OUT) [numR] */
   const double *F1,    /* (IN) Overlap matrix */
   const double *F2,    /* (IN) */
-  //const double *q1,
-  //const double *q2,
   int           numR,
   double       *prej,   /* [lmax*ngl*numR] */
   double       *preY,   /* [numR*jmax1] */
@@ -2470,7 +2442,6 @@ void ERI_Integral_GL_Post2(
 #if SUMSKIP
         if (fmax1[j1]*fmax2[j2]<SUMSKIP_THRESHOLD) { continue; }
 #endif
-        //if (q1[j1]*q2[j2]<1e-8) { continue; }
 
         for (imR=0; imR<num_minimalR; imR++) {
           sum = 0.0;

@@ -28,6 +28,7 @@
 #define Msize1      100
 #define Msize2      200
 #define Msize3      300
+#define fp_bsize   1000000     /* buffer size for setvbuf */
 
 struct timeval2 {
   long tv_sec;    /* second */
@@ -47,6 +48,7 @@ int main(int argc, char *argv[])
   double stime,etime;
   FILE *fp;
   char fname[300];
+  char buf[fp_bsize];   
 
   /* allocate array */
 
@@ -68,11 +70,11 @@ int main(int argc, char *argv[])
     }
   }
 
-  /* write data */
+  /* write data: case 1 */
 
   dtime(&stime);
   
-  sprintf(fname,"IO_test.txt");
+  sprintf(fname,"IO_test.txt1");
   if ((fp = fopen(fname,"w")) != NULL){
     for (i=0; i<Msize1; i++){
       for (j=0; j<Msize2; j++){
@@ -93,7 +95,65 @@ int main(int argc, char *argv[])
   }
 
   dtime(&etime);
-  printf("  elapased time for I/O %10.5f (s)\n",etime-stime);
+  printf("1.  elapased time for I/O %10.5f (s)\n",etime-stime);
+
+
+  /* write data: case 2 */
+
+  dtime(&stime);
+  
+  sprintf(fname,"IO_test.txt2");
+  if ((fp = fopen(fname,"w")) != NULL){
+
+    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
+
+    for (i=0; i<Msize1; i++){
+      for (j=0; j<Msize2; j++){
+	for (k=0; k<Msize3; k++){
+	  fprintf(fp,"%13.3E",V[i][j][k]);
+	  if ((k+1)%6==0) fprintf(fp,"\n");
+	}
+
+	/* avoid double \n\n when Msize3%6 == 0  */
+	if (Msize3%6!=0) fprintf(fp,"\n");
+      }
+    }
+
+    fclose(fp);
+  }
+  else {
+    printf("could not open a file\n");
+  }
+
+  dtime(&etime);
+  printf("2.  elapased time for I/O %10.5f (s)\n",etime-stime);
+
+
+  /* write data in binary mode */
+
+  dtime(&stime);
+
+  sprintf(fname,"IO_test.txt3");
+  if ((fp = fopen(fname,"wb")) != NULL){
+
+    setvbuf(fp,buf,_IOFBF,fp_bsize);  /* setvbuf */
+
+    for (i=0; i<Msize1; i++){
+      for (j=0; j<Msize2; j++){
+        for (k=0; k<Msize3; k++){
+          fwrite(&V[i][j][k],sizeof(double),1,fp);
+        }
+      }
+    }
+
+    fclose(fp);
+  }
+  else {
+    printf("could not open a file\n");
+  }
+
+  dtime(&etime);
+  printf("3.  elapased time for I/O %10.5f (s)\n",etime-stime);
 
   /* free array */
 

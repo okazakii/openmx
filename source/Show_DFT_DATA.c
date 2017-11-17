@@ -24,13 +24,8 @@
 /*  end stat section */
 #include "openmx_common.h"
 #include "Inputtools.h"
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
+ 
 
 static void SpeciesString2int(int p);
 

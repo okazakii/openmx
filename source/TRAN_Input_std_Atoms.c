@@ -8,6 +8,7 @@
      24/July/2008  Released by H.Kino and T.Ozaki
 
 ***********************************************************************/
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,13 +17,7 @@
 
 #include "Inputtools.h"
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 
@@ -48,6 +43,9 @@ void TRAN_Input_std_Atoms(  MPI_Comm comm1, int Solver )
   double GO_XL,GO_YL,GO_ZL;
   char OrbPol[YOUSO10];
   char buf[MAXBUF];
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+  double mx,my,mz,tmp,S_coordinate[3];
+/*until here by Y. Xiao for Noncollinear NEGF calculations */
 
   if (Solver!=4) return; 
 
@@ -108,10 +106,78 @@ void TRAN_Input_std_Atoms(  MPI_Comm comm1, int Solver )
     for (i=1; i<=Latomnum; i++){
 
       fgets(buf,MAXBUF,fp);
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+
+        /* spin non-collinear */
+        if (SpinP_switch==3){
+
+          sscanf(buf,"%i %s %lf %lf %lf %lf %lf %lf %lf %lf %lf %d %s",
+                 &j, Species,
+                 &Gxyz[i][1],&Gxyz[i][2],&Gxyz[i][3],
+                 &InitN_USpin[i],&InitN_DSpin[i],
+                 &Angle0_Spin[i], &Angle1_Spin[i],
+                 &Angle0_Orbital[i], &Angle1_Orbital[i],
+                 &Constraint_SpinAngle[i],
+                 OrbPol );
+
+          if (fabs(Angle0_Spin[i])<1.0e-10){
+            Angle0_Spin[i] = Angle0_Spin[i] + rnd(1.0e-5);
+          }
+
+          Angle0_Spin[i] = PI*Angle0_Spin[i]/180.0;
+          Angle1_Spin[i] = PI*Angle1_Spin[i]/180.0;
+          InitAngle0_Spin[i] = Angle0_Spin[i];
+          InitAngle1_Spin[i] = Angle1_Spin[i];
+
+          if (fabs(Angle0_Orbital[i])<1.0e-10){
+            Angle0_Orbital[i] = Angle0_Orbital[i] + rnd(1.0e-5);
+          }
+
+          Angle0_Orbital[i] = PI*Angle0_Orbital[i]/180.0;
+          Angle1_Orbital[i] = PI*Angle1_Orbital[i]/180.0;
+          InitAngle0_Orbital[i] = Angle0_Orbital[i];
+          InitAngle1_Orbital[i] = Angle1_Orbital[i];
+
+      /*check whether the Euler angle measured from the direction (1,0) is used*/
+      if ( (InitN_USpin[i]-InitN_DSpin[i]) < 0.0){
+            
+            mx = -sin(InitAngle0_Spin[i])*cos(InitAngle1_Spin[i]);
+            my = -sin(InitAngle0_Spin[i])*sin(InitAngle1_Spin[i]);
+            mz = -cos(InitAngle0_Spin[i]);
+
+            xyz2spherical(mx,my,mz,0.0,0.0,0.0,S_coordinate);
+
+            Angle0_Spin[i] = S_coordinate[1];
+            Angle1_Spin[i] = S_coordinate[2];
+            InitAngle0_Spin[i] = Angle0_Spin[i];
+            InitAngle1_Spin[i] = Angle1_Spin[i];
+
+            tmp = InitN_USpin[i];
+            InitN_USpin[i] = InitN_DSpin[i];
+            InitN_DSpin[i] = tmp;
+
+            mx = -sin(InitAngle0_Orbital[i])*cos(InitAngle1_Orbital[i]);
+            my = -sin(InitAngle0_Orbital[i])*sin(InitAngle1_Orbital[i]);
+            mz = -cos(InitAngle0_Orbital[i]);
+
+            xyz2spherical(mx,my,mz,0.0,0.0,0.0,S_coordinate);
+
+            Angle0_Orbital[i] = S_coordinate[1];
+            Angle1_Orbital[i] = S_coordinate[2];
+            InitAngle0_Orbital[i] = Angle0_Orbital[i];
+            InitAngle1_Orbital[i] = Angle1_Orbital[i];
+
+      }  /* if ( (InitN_USpin[i]-InitN_DSpin[i]) < 0.0)  */  
+     } /* if (SpinP_switch == 3) */
+
+     /* spin collinear */
+     else {
 
       sscanf(buf,"%i %s %lf %lf %lf %lf %lf %s",&j,Species,
 	     &Gxyz[i][1],&Gxyz[i][2],&Gxyz[i][3],
 	     &InitN_USpin[i],&InitN_DSpin[i], OrbPol);
+
+     }
 
       WhatSpecies[i] = Species2int(Species);
       TRAN_region[i]=2;
@@ -161,6 +227,70 @@ void TRAN_Input_std_Atoms(  MPI_Comm comm1, int Solver )
     for (i=1; i<=Catomnum; i++){
 
       fgets(buf,MAXBUF,fp);
+        /* spin non-collinear */
+        if (SpinP_switch==3){
+
+          sscanf(buf,"%i %s %lf %lf %lf %lf %lf %lf %lf %lf %lf %d %s",
+                 &j, Species,
+                 &Gxyz[Latomnum+i][1],&Gxyz[Latomnum+i][2],&Gxyz[Latomnum+i][3],
+                 &InitN_USpin[Latomnum+i],&InitN_DSpin[Latomnum+i],
+                 &Angle0_Spin[Latomnum+i], &Angle1_Spin[Latomnum+i],
+                 &Angle0_Orbital[Latomnum+i], &Angle1_Orbital[Latomnum+i],
+                 &Constraint_SpinAngle[Latomnum+i],
+                 OrbPol );
+
+          if (fabs(Angle0_Spin[Latomnum+i])<1.0e-10){
+            Angle0_Spin[Latomnum+i] = Angle0_Spin[Latomnum+i] + rnd(1.0e-5);
+          }
+
+          Angle0_Spin[Latomnum+i] = PI*Angle0_Spin[Latomnum+i]/180.0;
+          Angle1_Spin[Latomnum+i] = PI*Angle1_Spin[Latomnum+i]/180.0;
+          InitAngle0_Spin[Latomnum+i] = Angle0_Spin[Latomnum+i];
+          InitAngle1_Spin[Latomnum+i] = Angle1_Spin[Latomnum+i];
+
+          if (fabs(Angle0_Orbital[Latomnum+i])<1.0e-10){
+            Angle0_Orbital[Latomnum+i] = Angle0_Orbital[Latomnum+i] + rnd(1.0e-5);
+          }
+
+          Angle0_Orbital[Latomnum+i] = PI*Angle0_Orbital[Latomnum+i]/180.0;
+          Angle1_Orbital[Latomnum+i] = PI*Angle1_Orbital[Latomnum+i]/180.0;
+          InitAngle0_Orbital[Latomnum+i] = Angle0_Orbital[Latomnum+i];
+          InitAngle1_Orbital[Latomnum+i] = Angle1_Orbital[Latomnum+i];
+
+      /*check whether the Euler angle measured from the direction (1,0) is used*/
+      if ( (InitN_USpin[Latomnum+i]-InitN_DSpin[Latomnum+i]) < 0.0){
+
+            mx = -sin(InitAngle0_Spin[Latomnum+i])*cos(InitAngle1_Spin[Latomnum+i]);
+            my = -sin(InitAngle0_Spin[Latomnum+i])*sin(InitAngle1_Spin[Latomnum+i]);
+            mz = -cos(InitAngle0_Spin[Latomnum+i]);
+
+            xyz2spherical(mx,my,mz,0.0,0.0,0.0,S_coordinate);
+
+            Angle0_Spin[Latomnum+i] = S_coordinate[1];
+            Angle1_Spin[Latomnum+i] = S_coordinate[2];
+            InitAngle0_Spin[Latomnum+i] = Angle0_Spin[Latomnum+i];
+            InitAngle1_Spin[Latomnum+i] = Angle1_Spin[Latomnum+i];
+
+            tmp = InitN_USpin[Latomnum+i];
+            InitN_USpin[Latomnum+i] = InitN_DSpin[Latomnum+i];
+            InitN_DSpin[Latomnum+i] = tmp;
+
+            mx = -sin(InitAngle0_Orbital[Latomnum+i])*cos(InitAngle1_Orbital[Latomnum+i]);
+            my = -sin(InitAngle0_Orbital[Latomnum+i])*sin(InitAngle1_Orbital[Latomnum+i]);
+            mz = -cos(InitAngle0_Orbital[Latomnum+i]);
+
+            xyz2spherical(mx,my,mz,0.0,0.0,0.0,S_coordinate);
+
+            Angle0_Orbital[Latomnum+i] = S_coordinate[1];
+            Angle1_Orbital[Latomnum+i] = S_coordinate[2];
+            InitAngle0_Orbital[Latomnum+i] = Angle0_Orbital[Latomnum+i];
+            InitAngle1_Orbital[Latomnum+i] = Angle1_Orbital[Latomnum+i];
+
+      }  /* if ( (InitN_USpin[i]-InitN_DSpin[i]) < 0.0)  */
+     } /* if (SpinP_switch == 3) */
+
+     /* spin collinear */
+     else {
 
       sscanf(buf,"%i %s %lf %lf %lf %lf %lf %s",
              &j,Species,
@@ -170,6 +300,8 @@ void TRAN_Input_std_Atoms(  MPI_Comm comm1, int Solver )
 	     &InitN_USpin[Latomnum+i],
              &InitN_DSpin[Latomnum+i], 
              OrbPol);
+
+     }
 
       WhatSpecies[Latomnum+i] = Species2int(Species);
       TRAN_region[Latomnum+i]= 1;
@@ -212,7 +344,70 @@ void TRAN_Input_std_Atoms(  MPI_Comm comm1, int Solver )
     for (i=1; i<=Ratomnum; i++){
 
       fgets(buf,MAXBUF,fp);
+        /* spin non-collinear */
+        if (SpinP_switch==3){
 
+          sscanf(buf,"%i %s %lf %lf %lf %lf %lf %lf %lf %lf %lf %d %s",
+                 &j, Species,
+                 &Gxyz[Catomnum+Latomnum+i][1],&Gxyz[Catomnum+Latomnum+i][2],&Gxyz[Catomnum+Latomnum+i][3],
+                 &InitN_USpin[Catomnum+Latomnum+i],&InitN_DSpin[Catomnum+Latomnum+i],
+                 &Angle0_Spin[Catomnum+Latomnum+i], &Angle1_Spin[Catomnum+Latomnum+i],
+                 &Angle0_Orbital[Catomnum+Latomnum+i], &Angle1_Orbital[Catomnum+Latomnum+i],
+                 &Constraint_SpinAngle[Catomnum+Latomnum+i],
+                 OrbPol );
+
+          if (fabs(Angle0_Spin[Catomnum+Latomnum+i])<1.0e-10){
+            Angle0_Spin[Catomnum+Latomnum+i] = Angle0_Spin[Catomnum+Latomnum+i] + rnd(1.0e-5);
+          }
+
+          Angle0_Spin[Catomnum+Latomnum+i] = PI*Angle0_Spin[Catomnum+Latomnum+i]/180.0;
+          Angle1_Spin[Catomnum+Latomnum+i] = PI*Angle1_Spin[Catomnum+Latomnum+i]/180.0;
+          InitAngle0_Spin[Catomnum+Latomnum+i] = Angle0_Spin[Catomnum+Latomnum+i];
+          InitAngle1_Spin[Catomnum+Latomnum+i] = Angle1_Spin[Catomnum+Latomnum+i];
+
+          if (fabs(Angle0_Orbital[Catomnum+Latomnum+i])<1.0e-10){
+            Angle0_Orbital[Catomnum+Latomnum+i] = Angle0_Orbital[Catomnum+Latomnum+i] + rnd(1.0e-5);
+          }
+
+          Angle0_Orbital[Catomnum+Latomnum+i] = PI*Angle0_Orbital[Catomnum+Latomnum+i]/180.0;
+          Angle1_Orbital[Catomnum+Latomnum+i] = PI*Angle1_Orbital[Catomnum+Latomnum+i]/180.0;
+          InitAngle0_Orbital[Catomnum+Latomnum+i] = Angle0_Orbital[Catomnum+Latomnum+i];
+          InitAngle1_Orbital[Catomnum+Latomnum+i] = Angle1_Orbital[Catomnum+Latomnum+i];
+
+      /*check whether the Euler angle measured from the direction (1,0) is used*/
+      if ( (InitN_USpin[Catomnum+Latomnum+i]-InitN_DSpin[Catomnum+Latomnum+i]) < 0.0){
+
+            mx = -sin(InitAngle0_Spin[Catomnum+Latomnum+i])*cos(InitAngle1_Spin[Catomnum+Latomnum+i]);
+            my = -sin(InitAngle0_Spin[Catomnum+Latomnum+i])*sin(InitAngle1_Spin[Catomnum+Latomnum+i]);
+            mz = -cos(InitAngle0_Spin[Catomnum+Latomnum+i]);
+
+            xyz2spherical(mx,my,mz,0.0,0.0,0.0,S_coordinate);
+
+            Angle0_Spin[Catomnum+Latomnum+i] = S_coordinate[1];
+            Angle1_Spin[Catomnum+Latomnum+i] = S_coordinate[2];
+            InitAngle0_Spin[Catomnum+Latomnum+i] = Angle0_Spin[Catomnum+Latomnum+i];
+            InitAngle1_Spin[Catomnum+Latomnum+i] = Angle1_Spin[Catomnum+Latomnum+i];
+
+            tmp = InitN_USpin[Catomnum+Latomnum+i];
+            InitN_USpin[Catomnum+Latomnum+i] = InitN_DSpin[Catomnum+Latomnum+i];
+            InitN_DSpin[Catomnum+Latomnum+i] = tmp;
+
+            mx = -sin(InitAngle0_Orbital[Catomnum+Latomnum+i])*cos(InitAngle1_Orbital[Catomnum+Latomnum+i]);
+            my = -sin(InitAngle0_Orbital[Catomnum+Latomnum+i])*sin(InitAngle1_Orbital[Catomnum+Latomnum+i]);
+            mz = -cos(InitAngle0_Orbital[Catomnum+Latomnum+i]);
+
+            xyz2spherical(mx,my,mz,0.0,0.0,0.0,S_coordinate);
+
+            Angle0_Orbital[Catomnum+Latomnum+i] = S_coordinate[1];
+            Angle1_Orbital[Catomnum+Latomnum+i] = S_coordinate[2];
+            InitAngle0_Orbital[Catomnum+Latomnum+i] = Angle0_Orbital[Catomnum+Latomnum+i];
+            InitAngle1_Orbital[Catomnum+Latomnum+i] = Angle1_Orbital[Catomnum+Latomnum+i];
+
+      }  /* if ( (InitN_USpin[i]-InitN_DSpin[i]) < 0.0)  */
+     } /* if (SpinP_switch == 3) */
+
+     /* spin collinear */
+     else {
       sscanf(buf,"%i %s %lf %lf %lf %lf %lf %s",
              &j,Species,
 	     &Gxyz[Catomnum+Latomnum+i][1],
@@ -220,6 +415,8 @@ void TRAN_Input_std_Atoms(  MPI_Comm comm1, int Solver )
 	     &Gxyz[Catomnum+Latomnum+i][3],
 	     &InitN_USpin[Catomnum+Latomnum+i],
 	     &InitN_DSpin[Catomnum+Latomnum+i], OrbPol);
+
+     }
 
       WhatSpecies[Catomnum+Latomnum+i] = Species2int(Species);
 

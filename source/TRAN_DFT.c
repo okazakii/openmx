@@ -18,19 +18,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
-
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 
@@ -241,7 +230,8 @@ double TRAN_DFT(
   }
 
   /*************************************************
-    if SCF_iter<=3, employ the band diagonalization
+    if SCF_iter<=TRAN_SCF_Iter_Band, 
+    employ the band diagonalization
   *************************************************/
 
   else {
@@ -299,7 +289,7 @@ double TRAN_DFT(
     Kspace_grid1 = 1;
     Kspace_grid2 = TRAN_Kspace_grid2;
     Kspace_grid3 = TRAN_Kspace_grid3;
-    
+
     n = 0;
     for (i=1; i<=atomnum; i++){
       wanA = WhatSpecies[i];
@@ -453,9 +443,11 @@ double TRAN_DFT(
     /***********************************************
                      call Band_DFT_Col
      ***********************************************/
-    
+
     time5 = Band_DFT_Col( 1,
-			  Kspace_grid1, Kspace_grid2, Kspace_grid3,
+			  Kspace_grid1, 
+                          Kspace_grid2, 
+                          Kspace_grid3,
 			  SpinP_switch,
 			  nh,
 			  ImNL,
@@ -479,8 +471,8 @@ double TRAN_DFT(
 			  MPI_CommWD1,
 			  myworld2,
 			  NPROCS_ID2,
-			  Comm_World2,
 			  NPROCS_WD2,
+			  Comm_World2,
 			  Comm_World_StartID2,
 			  MPI_CommWD2);
 
@@ -489,6 +481,12 @@ double TRAN_DFT(
  
     Eele1[0] = 0.0;
     Eele1[1] = 0.0;
+
+    /*
+    printf("ABC3 numprocs0=%2d myid0=%2d\n",numprocs0,myid0);   
+    MPI_Finalize();
+    exit(0);
+    */
 
     /***********************************************
        freeing of arrays
@@ -585,7 +583,8 @@ double TRAN_DFT(
     free(NPROCS_WD1);
     free(Comm_World1);
     free(NPROCS_ID1);
-  }
+
+  } /* else */
 
   /* for elapsed time */
   dtime(&TEtime);

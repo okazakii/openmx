@@ -14,12 +14,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Simple_Mixing_DM(int Change_switch,
                       double Mix_wgt,
@@ -270,7 +266,6 @@ void Simple_Mixing_DM(int Change_switch,
         exx_CDM[spin], exx_PDM[spin], exx_P2DM[spin]);
     }
     /*---------- until here */
-
   }
 
 }

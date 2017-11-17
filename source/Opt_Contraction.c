@@ -17,12 +17,8 @@
 #include <time.h>
 #include "openmx_common.h"
 #include "lapack_prototypes.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 static void D_RCntCoes(double ***CntCoes0, double ***D_CntCoes,
                        double *****H,      double *****OLP,

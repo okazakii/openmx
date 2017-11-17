@@ -651,8 +651,8 @@ void ERI_Integral_GL_Post(
   double       *I4,    /* (OUT) [numR] */
   const double *F1,    /* (IN) Overlap matrix */
   const double *F2,    /* (IN) */
-  //const double *Q1,    /* (IN) Overlap matrix */
-  //const double *Q2,    /* (IN) */
+  /*const double *Q1,*/    /* (IN) Overlap matrix */
+  /*const double *Q2,*/    /* (IN) */
   int           numR,
   double       *prej,   /* [lmax*ngl*numR] */
   double       *preY,    /* [numR*jmax1] */
@@ -668,8 +668,8 @@ void ERI_Integral_GL_Post2(
   double       *I4,    /* (OUT) [numR] */
   const double *F1,    /* (IN) Overlap matrix */
   const double *F2,    /* (IN) */
-  //const double *Q1,    /* (IN) Overlap matrix */
-  //const double *Q2,    /* (IN) */
+  /*const double *Q1,*/    /* (IN) Overlap matrix */
+  /*const double *Q2,*/    /* (IN) */
   int           numR,
   double       *prej,   /* [lmax*ngl*numR] */
   double       *preY,    /* [numR*jmax1] */

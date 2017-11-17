@@ -7,6 +7,7 @@
   Log of Poisson.c:
 
      22/Nov/2001  Released by T.Ozaki
+     06/Apr/2012  Rewritten by T.Ozaki
 
 ***********************************************************************/
 
@@ -17,39 +18,31 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef fftw2 
-#include <fftw.h>
-#else
 #include <fftw3.h> 
-#endif
 
+
+static void Inverse_FFT_Poisson(double *ReRhor, double *ImRhor, 
+                                double *ReRhok, double *ImRhok);
+
+static void FFT_Poisson(double *ReRhor, double *ImRhor, 
+                        double *ReRhok, double *ImRhok);  
 
 double Poisson(int fft_charge_flag,
-               double ***ReV1, double ***ImV1,
-               double ***ReV2, double ***ImV2)
+               double *ReRhok, double *ImRhok)
 { 
-  int k1,k2,k3,kk2;
+  int k1,k2,k3;
+  int N2D,GNs,GN,BN_CB;
+  int N3[4];
   double time0;
-  double tmp0,sk1,sk2,sk3,tot_den;
-  double x,y,z,Gx,Gy,Gz,Eden[2],DenA,G2;
-  double ReTmp,ImTmp,c_coe,p_coe;
-  double *tmp_array0;
-  double *tmp_array1;
-  double TStime,TEtime;
+  double tmp0,sk1,sk2,sk3;
+  double Gx,Gy,Gz,fac_invG2;
+  double TStime,TEtime,etime;
   int numprocs,myid,tag=999,ID,IDS,IDR;
-
   MPI_Status stat;
   MPI_Request request;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return 0.0;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -61,56 +54,56 @@ double Poisson(int fft_charge_flag,
   dtime(&TStime);
 
   /****************************************************
-                 FFT of charge density 
+            FFT of difference charge density 
   ****************************************************/
 
-  if (fft_charge_flag==1) FFT_Density(0,ReV1,ImV1,ReV2,ImV2);
+  if (fft_charge_flag==1) etime = FFT_Density(0,ReRhok,ImRhok);
 
   /****************************************************
                        4*PI/G2/N^3
   ****************************************************/
 
-  tmp0 = 4.0*PI/(double)Ngrid1/(double)Ngrid2/(double)Ngrid3;
+  tmp0 = 4.0*PI/(double)(Ngrid1*Ngrid2*Ngrid3);
 
-  for (k2=0; k2<My_NGrid2_Poisson; k2++){
+  N2D = Ngrid3*Ngrid2;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid1;
 
-    kk2 = k2 + Start_Grid2[myid];
+  for (BN_CB=0; BN_CB<My_NumGridB_CB; BN_CB++){
 
-    if (kk2<Ngrid2/2) sk2 = (double)kk2;
-    else              sk2 = (double)(kk2 - Ngrid2);
+    GN = BN_CB + GNs;     
+    k3 = GN/(Ngrid2*Ngrid1);    
+    k2 = (GN - k3*Ngrid2*Ngrid1)/Ngrid1;
+    k1 = GN - k3*Ngrid2*Ngrid1 - k2*Ngrid1; 
 
-    for (k1=0; k1<Ngrid1; k1++){
+    if (k1<Ngrid1/2) sk1 = (double)k1;
+    else             sk1 = (double)(k1 - Ngrid1);
 
-      if (k1<Ngrid1/2) sk1 = (double)k1;
-      else             sk1 = (double)(k1 - Ngrid1);
+    if (k2<Ngrid2/2) sk2 = (double)k2;
+    else             sk2 = (double)(k2 - Ngrid2);
 
-      for (k3=0; k3<Ngrid3; k3++){
+    if (k3<Ngrid3/2) sk3 = (double)k3;
+    else             sk3 = (double)(k3 - Ngrid3);
 
-        if (k3<Ngrid3/2) sk3 = (double)k3;
-        else             sk3 = (double)(k3 - Ngrid3);
+    Gx = sk1*rtv[1][1] + sk2*rtv[2][1] + sk3*rtv[3][1];
+    Gy = sk1*rtv[1][2] + sk2*rtv[2][2] + sk3*rtv[3][2]; 
+    Gz = sk1*rtv[1][3] + sk2*rtv[2][3] + sk3*rtv[3][3];
+    fac_invG2 = tmp0/(Gx*Gx + Gy*Gy + Gz*Gz);
 
-        Gx = sk1*rtv[1][1] + sk2*rtv[2][1] + sk3*rtv[3][1];
-        Gy = sk1*rtv[1][2] + sk2*rtv[2][2] + sk3*rtv[3][2]; 
-        Gz = sk1*rtv[1][3] + sk2*rtv[2][3] + sk3*rtv[3][3];
-        G2 = Gx*Gx + Gy*Gy + Gz*Gz;
-
-        if (k1==0 && kk2==0 && k3==0){
-          ReV2[k2][k1][k3] = 0.0;
-          ImV2[k2][k1][k3] = 0.0;
-        }
-        else{
-          ReV2[k2][k1][k3] = tmp0*ReV2[k2][k1][k3]/G2;
-          ImV2[k2][k1][k3] = tmp0*ImV2[k2][k1][k3]/G2; 
-        }
-      }
+    if (k1==0 && k2==0 && k3==0){
+      ReRhok[BN_CB] = 0.0;
+      ImRhok[BN_CB] = 0.0;
     }
-  }
+    else{
+      ReRhok[BN_CB] *= fac_invG2;
+      ImRhok[BN_CB] *= fac_invG2;
+    }
+  }  
 
   /****************************************************
         find the Hartree potential in real space
   ****************************************************/
   
-  Get_Value_inReal(0,ReV2,ImV2,ReV1,ImV1,dVHart_Grid,dVHart_Grid);
+  Get_Value_inReal(0,dVHart_Grid_B,dVHart_Grid_B,ReRhok,ImRhok);
 
   /* for time */
   MPI_Barrier(mpi_comm_level1);
@@ -122,23 +115,380 @@ double Poisson(int fft_charge_flag,
 
 
 
-void FFT_Poisson(int NG1, int NG2,
-                 int Ng1, int Ng2,  int Ng3,
-                 int My_Ng1, int My_Ng2,
-                 int sgn1, int sgn2, int sgn3,
-                 double ***ReF1, double ***ImF1,
-                 double ***ReF2, double ***ImF2)
+void FFT_Poisson(double *ReRhor, double *ImRhor, 
+                 double *ReRhok, double *ImRhok) 
 {
-  int k1,k2,k3;
-  int n1,n2,n3;
-  int nn1,nn2,MN,MN1,MN2,MN0;
-  int Num1,RNum2,Num2,NsizeS,NsizeR;
-  double *tmp_array0,*tmp_array1;
+  static int firsttime=1;
+  int i,BN_AB,BN_CB,BN_CA,gp,NN_S,NN_R;
+  double *array0,*array1;
   int numprocs,myid,tag=999,ID,IDS,IDR;
   double Stime_proc, Etime_proc;
-
   MPI_Status stat;
   MPI_Request request;
+  MPI_Status *stat_send;
+  MPI_Status *stat_recv;
+  MPI_Request *request_send;
+  MPI_Request *request_recv;
+
+  fftw_complex *in, *out;
+  fftw_plan p;
+  
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  /****************************************************
+    allocation of arrays:
+  ****************************************************/
+
+  in  = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
+  out = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
+
+  /*------------------ FFT along the C-axis in the AB partition ------------------*/
+
+  if (measure_time==1) dtime(&Stime_proc);
+
+  p = fftw_plan_dft_1d(Ngrid3,in,out,-1,FFTW_ESTIMATE);
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB+=Ngrid3){
+
+    for (i=0; i<Ngrid3; i++){
+      in[i][0] = ReRhor[BN_AB+i];
+      in[i][1] = ImRhor[BN_AB+i];
+    }
+    
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid3; i++){
+      ReRhor[BN_AB+i] = out[i][0];
+      ImRhor[BN_AB+i] = out[i][1];
+    }
+  }
+
+  fftw_destroy_plan(p);  
+
+  if (measure_time==1){
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time FFT-C  = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /*------------------ MPI: AB to CA partitions ------------------*/
+
+  if (measure_time==1){
+    MPI_Barrier(mpi_comm_level1);
+    dtime(&Stime_proc);
+  }
+
+  array0 = (double*)malloc(sizeof(double)*2*GP_B_AB2CA_S[NN_B_AB2CA_S]); 
+  array1 = (double*)malloc(sizeof(double)*2*GP_B_AB2CA_R[NN_B_AB2CA_R]); 
+
+  request_send = malloc(sizeof(MPI_Request)*NN_B_AB2CA_S);
+  request_recv = malloc(sizeof(MPI_Request)*NN_B_AB2CA_R);
+  stat_send = malloc(sizeof(MPI_Status)*NN_B_AB2CA_S);
+  stat_recv = malloc(sizeof(MPI_Status)*NN_B_AB2CA_R);
+
+  NN_S = 0;
+  NN_R = 0;
+
+  /* MPI_Irecv */
+
+  for (ID=0; ID<NN_B_AB2CA_R; ID++){
+
+    IDR = ID_NN_B_AB2CA_R[ID];
+    gp = GP_B_AB2CA_R[ID];
+
+    if (IDR!=myid){ 
+      MPI_Irecv( &array1[2*gp], Num_Rcv_Grid_B_AB2CA[IDR]*2, 
+                 MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request_recv[NN_R]);
+      NN_R++; 
+    }
+  }
+
+  /* MPI_Isend */
+
+  for (ID=0; ID<NN_B_AB2CA_S; ID++){
+
+    IDS = ID_NN_B_AB2CA_S[ID];
+    gp = GP_B_AB2CA_S[ID];
+
+    if (IDS!=myid){
+
+      for (i=0; i<Num_Snd_Grid_B_AB2CA[IDS]; i++){
+        BN_AB = Index_Snd_Grid_B_AB2CA[IDS][i];
+        array0[2*gp+2*i  ] = ReRhor[BN_AB];
+        array0[2*gp+2*i+1] = ImRhor[BN_AB];
+      }     
+
+      MPI_Isend( &array0[2*gp], Num_Snd_Grid_B_AB2CA[IDS]*2, 
+    	         MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request_send[NN_S]);
+      NN_S++;  
+    }
+  }
+  
+  /* MPI_Waitall */
+
+  if (NN_S!=0) MPI_Waitall(NN_S,request_send,stat_send);
+  if (NN_R!=0) MPI_Waitall(NN_R,request_recv,stat_recv);
+
+  /* copy them to ReRhok and ImRhok */
+
+  for (ID=0; ID<NN_B_AB2CA_R; ID++){
+
+    IDR = ID_NN_B_AB2CA_R[ID];
+    gp = GP_B_AB2CA_R[ID];
+
+    if (IDR!=myid){
+      for (i=0; i<Num_Rcv_Grid_B_AB2CA[IDR]; i++){
+	BN_CA = Index_Rcv_Grid_B_AB2CA[IDR][i];
+	ReRhok[BN_CA] = array1[2*gp+2*i  ];
+	ImRhok[BN_CA] = array1[2*gp+2*i+1];
+      }
+    }
+
+    else{
+      for (i=0; i<Num_Snd_Grid_B_AB2CA[IDR]; i++){
+	BN_AB = Index_Snd_Grid_B_AB2CA[IDR][i];
+	BN_CA = Index_Rcv_Grid_B_AB2CA[IDR][i];
+	ReRhok[BN_CA] = ReRhor[BN_AB];
+	ImRhok[BN_CA] = ImRhor[BN_AB];
+      }
+    }
+  }
+
+  free(array0);
+  free(array1);
+
+  free(request_send);
+  free(request_recv);
+  free(stat_send);
+  free(stat_recv);
+
+  if (measure_time==1){
+    MPI_Barrier(mpi_comm_level1);
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time MPI: AB to CB = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /*------------------ FFT along the B-axis in the CA partition ------------------*/
+
+  if (measure_time==1) dtime(&Stime_proc);
+
+  p = fftw_plan_dft_1d(Ngrid2,in,out,-1,FFTW_ESTIMATE);
+
+  for (BN_CA=0; BN_CA<My_NumGridB_CA; BN_CA+=Ngrid2){
+
+    for (i=0; i<Ngrid2; i++){
+      in[i][0] = ReRhok[BN_CA+i];
+      in[i][1] = ImRhok[BN_CA+i];
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid2; i++){
+      ReRhok[BN_CA+i] = out[i][0];
+      ImRhok[BN_CA+i] = out[i][1];
+    }
+  }
+
+  fftw_destroy_plan(p);  
+
+  if (measure_time==1){
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time FFT-B  = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /*------------------ MPI: CA to CB partitions ------------------*/
+
+  if (measure_time==1){
+    MPI_Barrier(mpi_comm_level1);
+    dtime(&Stime_proc);
+  }
+
+  array0 = (double*)malloc(sizeof(double)*2*GP_B_CA2CB_S[NN_B_CA2CB_S]); 
+  array1 = (double*)malloc(sizeof(double)*2*GP_B_CA2CB_R[NN_B_CA2CB_R]); 
+
+  request_send = malloc(sizeof(MPI_Request)*NN_B_CA2CB_S);
+  request_recv = malloc(sizeof(MPI_Request)*NN_B_CA2CB_R);
+  stat_send = malloc(sizeof(MPI_Status)*NN_B_CA2CB_S);
+  stat_recv = malloc(sizeof(MPI_Status)*NN_B_CA2CB_R);
+
+  NN_S = 0;
+  NN_R = 0;
+
+  /* MPI_Irecv */
+
+  for (ID=0; ID<NN_B_CA2CB_R; ID++){
+
+    IDR = ID_NN_B_CA2CB_R[ID];
+    gp = GP_B_CA2CB_R[ID];
+
+    if (IDR!=myid){ 
+      MPI_Irecv( &array1[2*gp], Num_Rcv_Grid_B_CA2CB[IDR]*2, 
+                 MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request_recv[NN_R]);
+      NN_R++; 
+    }
+  }
+
+  /* MPI_Isend */
+
+  for (ID=0; ID<NN_B_CA2CB_S; ID++){
+
+    IDS = ID_NN_B_CA2CB_S[ID];
+    gp = GP_B_CA2CB_S[ID];
+
+    if (IDS!=myid){
+
+      for (i=0; i<Num_Snd_Grid_B_CA2CB[IDS]; i++){
+        BN_CA = Index_Snd_Grid_B_CA2CB[IDS][i];
+        array0[2*gp+2*i  ] = ReRhok[BN_CA];
+        array0[2*gp+2*i+1] = ImRhok[BN_CA];
+      }     
+
+      MPI_Isend( &array0[2*gp], Num_Snd_Grid_B_CA2CB[IDS]*2, 
+  	         MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request_send[NN_S]);
+      NN_S++;  
+    }
+  }
+
+  /* MPI_Waitall */
+
+  if (NN_S!=0) MPI_Waitall(NN_S,request_send,stat_send);
+  if (NN_R!=0) MPI_Waitall(NN_R,request_recv,stat_recv);
+
+  /* copy them to ReRhor and ImRhor */
+
+  for (ID=0; ID<NN_B_CA2CB_R; ID++){
+
+    IDR = ID_NN_B_CA2CB_R[ID];
+    gp = GP_B_CA2CB_R[ID];
+
+    if (IDR!=myid){
+      for (i=0; i<Num_Rcv_Grid_B_CA2CB[IDR]; i++){
+        BN_CB = Index_Rcv_Grid_B_CA2CB[IDR][i];
+        ReRhor[BN_CB] = array1[2*gp+2*i  ];
+        ImRhor[BN_CB] = array1[2*gp+2*i+1];
+      }
+    }
+
+    else{
+      for (i=0; i<Num_Snd_Grid_B_CA2CB[IDR]; i++){
+	BN_CA = Index_Snd_Grid_B_CA2CB[IDR][i];
+	BN_CB = Index_Rcv_Grid_B_CA2CB[IDR][i];
+	ReRhor[BN_CB] = ReRhok[BN_CA];
+	ImRhor[BN_CB] = ImRhok[BN_CA];
+      }
+    }
+  }
+
+  free(array0);
+  free(array1);
+
+  free(request_send);
+  free(request_recv);
+  free(stat_send);
+  free(stat_recv);
+
+  if (measure_time==1){
+    MPI_Barrier(mpi_comm_level1);
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time MPI: CA to CB = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /*------------------ FFT along the A-axis in the CB partition ------------------*/
+
+  if (measure_time==1) dtime(&Stime_proc);
+
+  p = fftw_plan_dft_1d(Ngrid1,in,out,-1,FFTW_ESTIMATE);
+
+  for (BN_CB=0; BN_CB<My_NumGridB_CB; BN_CB+=Ngrid1){
+
+    for (i=0; i<Ngrid1; i++){
+      in[i][0] = ReRhor[BN_CB+i];
+      in[i][1] = ImRhor[BN_CB+i];
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid1; i++){
+      ReRhok[BN_CB+i] = out[i][0];
+      ImRhok[BN_CB+i] = out[i][1];
+    }
+  }
+
+  fftw_destroy_plan(p);  
+  fftw_cleanup();
+
+  if (measure_time==1){
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time FFT-A  = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /****************************************************
+    freeing of arrays:
+  ****************************************************/
+
+  fftw_free(in);
+  fftw_free(out);
+
+  /* PrintMemory */
+
+  if (firsttime) {
+
+    if (GP_B_CA2CB_S[NN_B_CA2CB_S]<GP_B_AB2CA_S[NN_B_AB2CA_S]){
+      PrintMemory("Poisson: array0",sizeof(double)*2*GP_B_AB2CA_S[NN_B_AB2CA_S],NULL);
+    } 
+    else{
+      PrintMemory("Poisson: array0",sizeof(double)*2*GP_B_CA2CB_S[NN_B_CA2CB_S],NULL);
+    }
+
+    if (GP_B_CA2CB_R[NN_B_CA2CB_R]<GP_B_AB2CA_R[NN_B_AB2CA_R]){
+      PrintMemory("Poisson: array1",sizeof(double)*2*GP_B_AB2CA_R[NN_B_AB2CA_R],NULL);
+    } 
+    else{
+      PrintMemory("Poisson: array1",sizeof(double)*2*GP_B_CA2CB_R[NN_B_CA2CB_R],NULL);
+    }
+ 
+    if (NN_B_CA2CB_S<NN_B_AB2CA_S){
+      PrintMemory("Poisson: request_send",sizeof(MPI_Request)*NN_B_AB2CA_S,NULL);
+      PrintMemory("Poisson: stat_send   ",sizeof(MPI_Status)*NN_B_AB2CA_S,NULL);
+    }
+    else{
+      PrintMemory("Poisson: request_send",sizeof(MPI_Request)*NN_B_CA2CB_S,NULL);
+      PrintMemory("Poisson: stat_send   ",sizeof(MPI_Status)*NN_B_CA2CB_S,NULL);
+    } 
+
+    if (NN_B_CA2CB_R<NN_B_AB2CA_R){
+      PrintMemory("Poisson: request_recv",sizeof(MPI_Request)*NN_B_AB2CA_R,NULL);
+      PrintMemory("Poisson: stat_recv   ",sizeof(MPI_Status)*NN_B_AB2CA_R,NULL);
+    }
+    else{
+      PrintMemory("Poisson: request_recv",sizeof(MPI_Request)*NN_B_CA2CB_R,NULL);
+      PrintMemory("Poisson: stat_recv   ",sizeof(MPI_Status)*NN_B_CA2CB_R,NULL);
+    } 
+
+    /* turn off firsttime flag */
+    firsttime=0;
+  }
+
+}
+
+
+
+
+void Inverse_FFT_Poisson(double *ReRhor, double *ImRhor, 
+                         double *ReRhok, double *ImRhok) 
+{
+  int i,BN_AB,BN_CB,BN_CA,gp,NN_S,NN_R;
+  double *array0,*array1;
+  int numprocs,myid,tag=999,ID,IDS,IDR;
+  double Stime_proc, Etime_proc;
+  MPI_Status stat;
+  MPI_Request request;
+  MPI_Status *stat_send;
+  MPI_Status *stat_recv;
+  MPI_Request *request_send;
+  MPI_Request *request_recv;
+
   fftw_complex *in, *out;
   fftw_plan p;
   
@@ -153,102 +503,27 @@ void FFT_Poisson(int NG1, int NG2,
     fftw_complex out[List_YOUSO[17]];
   ****************************************************/
 
-#ifdef fftw2
-  in  = (fftw_complex*)malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
-  out = (fftw_complex*)malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
-#else
   in  = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
   out = fftw_malloc(sizeof(fftw_complex)*List_YOUSO[17]); 
-#endif
 
-  /*------------------ S n1,n2,k3 ------------------*/
+  /*------------------ Inverse FFT along the A-axis in the CB partition ------------------*/
 
   if (measure_time==1) dtime(&Stime_proc);
 
-#ifdef fftw2
-  p = fftw_create_plan(Ng3, sgn3, FFTW_ESTIMATE);
-#else
-  p = fftw_plan_dft_1d(Ng3,in,out,sgn3,FFTW_ESTIMATE);
-#endif
+  p = fftw_plan_dft_1d(Ngrid1,in,out,1,FFTW_ESTIMATE);
 
-  for (n1=0; n1<My_Ng1; n1++){
-    for (n2=0; n2<Ng2; n2++){
-      
-      for (n3=0; n3<Ng3; n3++){
+  for (BN_CB=0; BN_CB<My_NumGridB_CB; BN_CB+=Ngrid1){
 
-#ifdef fftw2
-        c_re(in[n3]) = ReF1[n1][n2][n3];
-        c_im(in[n3]) = ImF1[n1][n2][n3];
-#else
-        in[n3][0] = ReF1[n1][n2][n3];
-        in[n3][1] = ImF1[n1][n2][n3];
-#endif
+    for (i=0; i<Ngrid1; i++){
+      in[i][0] = ReRhok[BN_CB+i];
+      in[i][1] = ImRhok[BN_CB+i];
+    }
 
-      }
+    fftw_execute(p);
 
-#ifdef fftw2
-      fftw_one(p, in, out);
-#else
-      fftw_execute(p);
-#endif
-      
-      for (k3=0; k3<Ng3; k3++){
-
-#ifdef fftw2
-        ReF1[n1][n2][k3] = c_re(out[k3]);
-        ImF1[n1][n2][k3] = c_im(out[k3]);
-#else
-        ReF1[n1][n2][k3] = out[k3][0];
-        ImF1[n1][n2][k3] = out[k3][1];
-#endif
-
-      }
-      
-    } 
-  }   
-  fftw_destroy_plan(p);  
-
-  /*------------------ T n1,k2,k3 ------------------*/
-
-#ifdef fftw2
-  p = fftw_create_plan(Ng2, sgn2, FFTW_ESTIMATE);
-#else
-  p = fftw_plan_dft_1d(Ng2,in,out,sgn2,FFTW_ESTIMATE);
-#endif
-
-  for (n1=0; n1<My_Ng1; n1++){
-    for (k3=0; k3<Ng3; k3++){
-
-      for (n2=0; n2<Ng2; n2++){
-
-#ifdef fftw2
-        c_re(in[n2]) = ReF1[n1][n2][k3];
-        c_im(in[n2]) = ImF1[n1][n2][k3];
-#else
-        in[n2][0] = ReF1[n1][n2][k3];
-        in[n2][1] = ImF1[n1][n2][k3];
-#endif
-
-      }
-
-#ifdef fftw2
-      fftw_one(p, in, out);
-#else
-      fftw_execute(p);
-#endif
-
-      for (k2=0; k2<Ng2; k2++){
-
-#ifdef fftw2
-        ReF1[n1][k2][k3] = c_re(out[k2]);
-        ImF1[n1][k2][k3] = c_im(out[k2]);
-#else
-        ReF1[n1][k2][k3] = out[k2][0];
-        ImF1[n1][k2][k3] = out[k2][1];
-#endif
-
-      }
-
+    for (i=0; i<Ngrid1; i++){
+      ReRhok[BN_CB+i] = out[i][0];
+      ImRhok[BN_CB+i] = out[i][1];
     }
   }
 
@@ -256,204 +531,258 @@ void FFT_Poisson(int NG1, int NG2,
 
   if (measure_time==1){
     dtime(&Etime_proc);
-    printf("myid=%2d  Time yz FFT    = %15.12f\n",myid,Etime_proc-Stime_proc);
+    printf("myid=%2d  Time Inverse FFT-A  = %15.12f\n",myid,Etime_proc-Stime_proc);
   }
 
-  /*********************************************
-    MPI    ReF1 and ImF1 -> ReF2 and ImF2
-  *********************************************/
+  /*------------------ MPI: CB to CA partitions ------------------*/
 
   if (measure_time==1){
     MPI_Barrier(mpi_comm_level1);
     dtime(&Stime_proc);
   }
 
-  for (ID=0; ID<numprocs; ID++){
+  array0 = (double*)malloc(sizeof(double)*2*GP_B_CA2CB_R[NN_B_CA2CB_R]); 
+  array1 = (double*)malloc(sizeof(double)*2*GP_B_CA2CB_S[NN_B_CA2CB_S]); 
 
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
+  request_send = malloc(sizeof(MPI_Request)*NN_B_CA2CB_R);
+  request_recv = malloc(sizeof(MPI_Request)*NN_B_CA2CB_S);
+  stat_send = malloc(sizeof(MPI_Status)*NN_B_CA2CB_R);
+  stat_recv = malloc(sizeof(MPI_Status)*NN_B_CA2CB_S);
 
-    if (ID!=0){
+  NN_S = 0;
+  NN_R = 0;
 
-      /* sending */ 
+  /* MPI_Irecv */
 
-      if (NG2==1)
-        Num2 = End_Grid1[IDS] - Start_Grid1[IDS] + 1;
-      else if (NG2==2)
-        Num2 = End_Grid2[IDS] - Start_Grid2[IDS] + 1;
+  for (ID=0; ID<NN_B_CA2CB_S; ID++){
 
-      NsizeS = My_Ng1*Num2*Ng3;
-      tmp_array0 = (double*)malloc(sizeof(double)*2*NsizeS); 
+    IDR = ID_NN_B_CA2CB_S[ID];
+    gp = GP_B_CA2CB_S[ID];
 
-      for (n1=0; n1<My_Ng1; n1++){
-        MN1 = n1*Num2*Ng3;
-        for (n2=0; n2<Num2; n2++){
-          MN2 = n2*Ng3;
+    if (IDR!=myid){
 
-          if (NG2==1)
-            nn2 = n2 + Start_Grid1[IDS];
-          else if (NG2==2)
-            nn2 = n2 + Start_Grid2[IDS];
-
-          MN0 = MN1 + MN2; 
-          for (n3=0; n3<Ng3; n3++){
-            MN = MN0 + n3;
-            tmp_array0[MN] = ReF1[n1][nn2][n3];            
- 	  }
-
-          MN0 = MN1 + MN2 + NsizeS;
-          for (n3=0; n3<Ng3; n3++){
-            MN = MN0 + n3;
-            tmp_array0[MN] = ImF1[n1][nn2][n3];
- 	  }
-
-	}
-      }
-
-      tag = 999;
-      MPI_Isend(&tmp_array0[0], 2*NsizeS,
-                MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-
-      /* receiving */ 
-
-      if (NG1==1)
-        Num1 = End_Grid1[IDR] - Start_Grid1[IDR] + 1;
-      else if (NG1==2)
-        Num1 = End_Grid2[IDR] - Start_Grid2[IDR] + 1;
-
-      if (NG2==1)
-        RNum2 = End_Grid1[myid] - Start_Grid1[myid] + 1;
-      else if (NG2==2)
-        RNum2 = End_Grid2[myid] - Start_Grid2[myid] + 1;
-
-      NsizeR = Num1*RNum2*Ng3; 
-      tmp_array1 = (double*)malloc(sizeof(double)*2*NsizeR);
-
-      tag = 999;
-      MPI_Recv(&tmp_array1[0], 2*NsizeR,
-                MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-      for (n1=0; n1<Num1; n1++){
-        MN1 = n1*RNum2*Ng3;
-
-        if (NG1==1)
-          nn1 = n1 + Start_Grid1[IDR];
-        else if (NG1==2)
-          nn1 = n1 + Start_Grid2[IDR];
-
-        for (n2=0; n2<RNum2; n2++){
-          MN2 = n2*Ng3;
-
-          MN0 = MN1 + MN2;
-          for (n3=0; n3<Ng3; n3++){
-            MN = MN0 + n3;
-            ReF2[n2][nn1][n3] = tmp_array1[MN];
- 	  }
-
-          MN0 = MN1 + MN2 + NsizeR;
-          for (n3=0; n3<Ng3; n3++){
-            MN = MN0 + n3;
-            ImF2[n2][nn1][n3] = tmp_array1[MN];
- 	  }
-
-	}
-      }      
-
-      MPI_Wait(&request,&stat);
-      free(tmp_array0);
-      free(tmp_array1);
-  
+      MPI_Irecv( &array1[2*gp], Num_Snd_Grid_B_CA2CB[IDR]*2, 
+                 MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request_recv[NN_R]);
+      NN_R++;
     }
+  }
 
+  /* MPI_Isend */
+
+  for (ID=0; ID<NN_B_CA2CB_R; ID++){
+
+    IDS = ID_NN_B_CA2CB_R[ID];
+    gp = GP_B_CA2CB_R[ID];
+
+    if (IDS!=myid){ 
+
+      for (i=0; i<Num_Rcv_Grid_B_CA2CB[IDS]; i++){
+        BN_CB = Index_Rcv_Grid_B_CA2CB[IDS][i];
+        array0[2*gp+2*i  ] = ReRhok[BN_CB];
+        array0[2*gp+2*i+1] = ImRhok[BN_CB];
+      }     
+
+      MPI_Isend( &array0[2*gp], Num_Rcv_Grid_B_CA2CB[IDS]*2, 
+  	         MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request_send[NN_S]);
+      NN_S++;
+    }
+  }
+
+  /* MPI_Waitall */
+
+  if (NN_S!=0) MPI_Waitall(NN_S,request_send,stat_send);
+  if (NN_R!=0) MPI_Waitall(NN_R,request_recv,stat_recv);
+
+  /* copy them to ReRhor and ImRhor */
+
+  for (ID=0; ID<NN_B_CA2CB_S; ID++){
+
+    IDR = ID_NN_B_CA2CB_S[ID];
+    gp = GP_B_CA2CB_S[ID];
+
+    if (IDR!=myid){
+      for (i=0; i<Num_Snd_Grid_B_CA2CB[IDR]; i++){
+        BN_CA = Index_Snd_Grid_B_CA2CB[IDR][i];
+        ReRhor[BN_CA] = array1[2*gp+2*i  ];
+        ImRhor[BN_CA] = array1[2*gp+2*i+1];
+      }
+    }
     else{
-
-      if (NG2==1)
-        Num2 = End_Grid1[myid] - Start_Grid1[myid] + 1;
-      else if (NG2==2)
-        Num2 = End_Grid2[myid] - Start_Grid2[myid] + 1;
-
-      for (n1=0; n1<My_Ng1; n1++){
-
-        if (NG1==1)
-          nn1 = n1 + Start_Grid1[myid];
-        else if (NG1==2)
-          nn1 = n1 + Start_Grid2[myid];
-
-        for (n2=0; n2<Num2; n2++){
-
-          if (NG2==1)
-            nn2 = n2 + Start_Grid1[myid];
-          else if (NG2==2)
-            nn2 = n2 + Start_Grid2[myid];
-
-          for (n3=0; n3<Ng3; n3++){
-            ReF2[n2][nn1][n3] = ReF1[n1][nn2][n3];            
-            ImF2[n2][nn1][n3] = ImF1[n1][nn2][n3];
- 	  }
-	}
+      for (i=0; i<Num_Rcv_Grid_B_CA2CB[IDR]; i++){
+	BN_CB = Index_Rcv_Grid_B_CA2CB[IDR][i];
+	BN_CA = Index_Snd_Grid_B_CA2CB[IDR][i];
+	ReRhor[BN_CA] = ReRhok[BN_CB];
+	ImRhor[BN_CA] = ImRhok[BN_CB];
       }
     }
-
   }
+
+  free(array0);
+  free(array1);
+
+  free(request_send);
+  free(request_recv);
+  free(stat_send);
+  free(stat_recv);
 
   if (measure_time==1){
     MPI_Barrier(mpi_comm_level1);
     dtime(&Etime_proc);
-    printf("myid=%2d  Time transpose = %15.12f\n",myid,Etime_proc-Stime_proc);
+    printf("myid=%2d  Time MPI: CB to CA = %15.12f\n",myid,Etime_proc-Stime_proc);
   }
 
-  /*------------------ U k1,k2,k3 ------------------*/
+  /*------------------ Inverse FFT along the B-axis in the CA partition ------------------*/
+
+  if (measure_time==1) dtime(&Stime_proc);
+
+  p = fftw_plan_dft_1d(Ngrid2,in,out,1,FFTW_ESTIMATE);
+
+  for (BN_CA=0; BN_CA<My_NumGridB_CA; BN_CA+=Ngrid2){
+
+    for (i=0; i<Ngrid2; i++){
+      in[i][0] = ReRhor[BN_CA+i];
+      in[i][1] = ImRhor[BN_CA+i];
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid2; i++){
+      ReRhor[BN_CA+i] = out[i][0];
+      ImRhor[BN_CA+i] = out[i][1];
+    }
+  }
+
+  fftw_destroy_plan(p);  
 
   if (measure_time==1){
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time Inverse FFT-B  = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /*------------------ MPI: CA to AB partitions ------------------*/
+
+  if (measure_time==1){
+    MPI_Barrier(mpi_comm_level1);
     dtime(&Stime_proc);
   }
 
-#ifdef fftw2
-  p = fftw_create_plan(Ng1, sgn1, FFTW_ESTIMATE);
-#else
-  p = fftw_plan_dft_1d(Ng1,in,out,sgn1,FFTW_ESTIMATE);
-#endif
+  array0 = (double*)malloc(sizeof(double)*2*GP_B_AB2CA_R[NN_B_AB2CA_R]); 
+  array1 = (double*)malloc(sizeof(double)*2*GP_B_AB2CA_S[NN_B_AB2CA_S]); 
 
-  for (k2=0; k2<My_Ng2; k2++){
-    for (k3=0; k3<Ng3; k3++){
+  request_send = malloc(sizeof(MPI_Request)*NN_B_AB2CA_R);
+  request_recv = malloc(sizeof(MPI_Request)*NN_B_AB2CA_S);
+  stat_send = malloc(sizeof(MPI_Status)*NN_B_AB2CA_R);
+  stat_recv = malloc(sizeof(MPI_Status)*NN_B_AB2CA_S);
 
-      for (n1=0; n1<Ng1; n1++){
+  NN_S = 0;
+  NN_R = 0;
 
-#ifdef fftw2
-        c_re(in[n1]) = ReF2[k2][n1][k3];
-        c_im(in[n1]) = ImF2[k2][n1][k3];
-#else
-	in[n1][0] = ReF2[k2][n1][k3];
-        in[n1][1] = ImF2[k2][n1][k3];
-#endif
+  /* MPI_Irecv */
 
+  for (ID=0; ID<NN_B_AB2CA_S; ID++){
+
+    IDR = ID_NN_B_AB2CA_S[ID];
+    gp = GP_B_AB2CA_S[ID];
+
+    if (IDR!=myid){
+
+      MPI_Irecv( &array1[2*gp], Num_Snd_Grid_B_AB2CA[IDR]*2, 
+                 MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request_recv[NN_R]);
+      NN_R++;
+    }
+  }
+
+  /* MPI_Isend */
+
+  for (ID=0; ID<NN_B_AB2CA_R; ID++){
+
+    IDS = ID_NN_B_AB2CA_R[ID];
+    gp = GP_B_AB2CA_R[ID];
+
+    if (IDS!=myid){ 
+
+      for (i=0; i<Num_Rcv_Grid_B_AB2CA[IDS]; i++){
+        BN_CB = Index_Rcv_Grid_B_AB2CA[IDS][i];
+        array0[2*gp+2*i  ] = ReRhor[BN_CB];
+        array0[2*gp+2*i+1] = ImRhor[BN_CB];
+      }     
+
+      MPI_Isend( &array0[2*gp], Num_Rcv_Grid_B_AB2CA[IDS]*2, 
+  	         MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request_send[NN_S]);
+      NN_S++;
+    }
+  }
+
+  /* MPI_Waitall */
+
+  if (NN_S!=0) MPI_Waitall(NN_S,request_send,stat_send);
+  if (NN_R!=0) MPI_Waitall(NN_R,request_recv,stat_recv);
+
+  /* copy them to ReRhok and ImRhok */
+
+  for (ID=0; ID<NN_B_AB2CA_S; ID++){
+
+    IDR = ID_NN_B_AB2CA_S[ID];
+    gp = GP_B_AB2CA_S[ID];
+
+    if (IDR!=myid){
+      for (i=0; i<Num_Snd_Grid_B_AB2CA[IDR]; i++){
+	BN_AB = Index_Snd_Grid_B_AB2CA[IDR][i];
+	ReRhok[BN_AB] = array1[2*gp+2*i  ];
+	ImRhok[BN_AB] = array1[2*gp+2*i+1];
       }
-
-#ifdef fftw2
-      fftw_one(p, in, out);
-#else
-      fftw_execute(p);
-#endif
-      
-      for (k1=0; k1<Ng1; k1++){
-
-#ifdef fftw2
-        ReF2[k2][k1][k3] = c_re(out[k1]);
-        ImF2[k2][k1][k3] = c_im(out[k1]);
-#else
-        ReF2[k2][k1][k3] = out[k1][0];
-        ImF2[k2][k1][k3] = out[k1][1];
-#endif
-
+    }
+    else {
+      for (i=0; i<Num_Rcv_Grid_B_AB2CA[IDR]; i++){
+	BN_CA = Index_Rcv_Grid_B_AB2CA[IDR][i];
+	BN_AB = Index_Snd_Grid_B_AB2CA[IDR][i];
+	ReRhok[BN_AB] = ReRhor[BN_CA];
+	ImRhok[BN_AB] = ImRhor[BN_CA];
       }
     }
   }
+
+  free(array0);
+  free(array1);
+
+  free(request_send);
+  free(request_recv);
+  free(stat_send);
+  free(stat_recv);
+
+  if (measure_time==1){
+    MPI_Barrier(mpi_comm_level1);
+    dtime(&Etime_proc);
+    printf("myid=%2d  Time MPI: CA to AB = %15.12f\n",myid,Etime_proc-Stime_proc);
+  }
+
+  /*------------------ Inverse FFT along the C-axis in the AB partition ------------------*/
+
+  if (measure_time==1) dtime(&Stime_proc);
+
+  p = fftw_plan_dft_1d(Ngrid3,in,out,1,FFTW_ESTIMATE);
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB+=Ngrid3){
+
+    for (i=0; i<Ngrid3; i++){
+      in[i][0] = ReRhok[BN_AB+i];
+      in[i][1] = ImRhok[BN_AB+i];
+    }
+
+    fftw_execute(p);
+
+    for (i=0; i<Ngrid3; i++){
+      ReRhor[BN_AB+i] = out[i][0];
+      ImRhor[BN_AB+i] = out[i][1];
+    }
+  }
+
   fftw_destroy_plan(p);  
   fftw_cleanup();
 
   if (measure_time==1){
     dtime(&Etime_proc);
-    printf("myid=%2d  Time x FFT     = %15.12f\n",myid,Etime_proc-Stime_proc);
+    printf("myid=%2d  Time Inverse FFT-C  = %15.12f\n",myid,Etime_proc-Stime_proc);
   }
 
   /****************************************************
@@ -463,277 +792,104 @@ void FFT_Poisson(int NG1, int NG2,
     fftw_complex out[List_YOUSO[17]];
   ****************************************************/
 
-#ifdef fftw2
-  free(in);
-  free(out);
-#else
   fftw_free(in);
   fftw_free(out);
-#endif
-
 }
 
 
-void FFT_Density(int den_flag,
-                 double ***ReV1, double ***ImV1,
-                 double ***ReV2, double ***ImV2)
+
+
+double FFT_Density(int den_flag,
+                   double *ReRhok, double *ImRhok)
 {
-  int ct_AN,n1,n2,n3,k1,k2,k3,kk2,N3[4];
-  int N,i,j;
-  int nn0,nn1,nnn1,MN,MN0,MN1,MN2;
-  double time0;
-  int h_AN,Gh_AN,spin,Nc,GNc,GN,Nh,Nog,factor;
-  double tmp0,tmp1,sk1,sk2,sk3,tot_den;
-  double x,y,z,Gx,Gy,Gz,Eden[2],DenA,G2;
-  double ReTmp,ImTmp,c_coe,p_coe;
-  double *tmp_array0;
-  double *tmp_array1;
-  double TStime,TEtime;
-  int numprocs,myid,tag=999,ID,IDS,IDR;
+  int BN_AB;
+  int numprocs,myid;
+  double *ReRhor,*ImRhor;
+  double TStime,TEtime,time0;
 
-  MPI_Status stat;
-  MPI_Request request;
-
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
-  if (den_flag!=4)      factor = 1;
-  else if (den_flag==4) factor = 2;
-  else {
-    printf("invalid den_flag\n");
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TStime);
+
+  if (4<den_flag){
+    printf("invalid den_flag for FFT2D_Density\n");
     MPI_Finalize();
     exit(0);
   }
 
-  /* initialize */
-  for (n1=0; n1<My_NGrid1_Poisson; n1++){
-    for (n2=0; n2<Ngrid2; n2++){
-      for (n3=0; n3<Ngrid3; n3++){
-        ReV1[n1][n2][n3] = 0.0;
-        ImV1[n1][n2][n3] = 0.0;
-      }
-    }
-  }
+  /* allocation of arrays */
 
-  /* use their densities using MPI  */
-  for (ID=0; ID<numprocs; ID++){
+  ReRhor = (double*)malloc(sizeof(double)*My_Max_NumGridB); 
+  ImRhor = (double*)malloc(sizeof(double)*My_Max_NumGridB); 
 
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
+  /* set ReRhor and ImRhor */
 
-    /* Isend */
-    if (Num_Snd_Grid1[IDS]!=0){
+  switch(den_flag) {
 
-      tmp_array0 = (double*)malloc(sizeof(double)*Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3*factor); 
+    case 0:
 
-      for (i=0; i<Num_Snd_Grid1[IDS]; i++){ 
-	n1 = Snd_Grid1[IDS][i];
-        nn1 = My_Cell0[n1];
-        MN1 = nn1*Ngrid2*Ngrid3;
-        MN0 = i*Ngrid2*Ngrid3;
-
-        for (n2=0; n2<Ngrid2; n2++){
-          MN2 = n2*Ngrid3;
-
-          switch(den_flag) {
-
-          case 0:
-
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              DenA = 2.0*ADensity_Grid[MN];
-              tmp_array0[MN0+MN2+n3] = Density_Grid[0][MN] + Density_Grid[1][MN] - DenA;
-	    }
-
-          break;
-
-          case 1:
-
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              tmp_array0[MN0+MN2+n3] = Density_Grid[0][MN];
-	    }
-
-          break;
-
-          case 2:
-
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              tmp_array0[MN0+MN2+n3] = Density_Grid[1][MN];
-	    }
-
-          break;
-
-          case 3:
-
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              tmp_array0[MN0+MN2+n3] = 2.0*ADensity_Grid[MN];
-	    }
-
-          break;
-
-          case 4:
-
-            for (n3=0; n3<Ngrid3; n3++){
-              MN = MN1 + MN2 + n3;
-              tmp_array0[2*MN0+2*MN2+2*n3  ] = Density_Grid[2][MN];
-              tmp_array0[2*MN0+2*MN2+2*n3+1] = Density_Grid[3][MN];
-	    }
-
-          break;
-
-	  } /* switch(den_flag) */
-
-	}
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhor[BN_AB] = Density_Grid_B[0][BN_AB] + Density_Grid_B[1][BN_AB]
+                       -2.0*ADensity_Grid_B[BN_AB]; 
+        ImRhor[BN_AB] = 0.0;
       }
 
-      tag = 999;
-      MPI_Isend(&tmp_array0[0], Num_Snd_Grid1[IDS]*Ngrid2*Ngrid3*factor,
-                MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-    }
+    break;
 
-    /* Recv */
+    case 1:
 
-    if (Num_Rcv_Grid1[IDR]!=0){
-
-      tmp_array1 = (double*)malloc(sizeof(double)*Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3*factor); 
-
-      tag = 999;
-      MPI_Recv(&tmp_array1[0], Num_Rcv_Grid1[IDR]*Ngrid2*Ngrid3*factor,
-                MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-      if (den_flag!=4){
-
-	for (i=0; i<Num_Rcv_Grid1[IDR]; i++){ 
-	  n1 = Rcv_Grid1[IDR][i];
-	  nn1 = My_Cell0[n1];
-	  nn0 = n1 - Start_Grid1[myid];
-	  MN0 = i*Ngrid2*Ngrid3;
-	  for (n2=0; n2<Ngrid2; n2++){
-	    MN2 = n2*Ngrid3;
-	    for (n3=0; n3<Ngrid3; n3++){
-	      MN = MN0 + MN2 + n3;
-	      ReV1[nn0][n2][n3] = tmp_array1[MN];
-	      ImV1[nn0][n2][n3] = 0.0;
-	    }
-	  }
-	}
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhor[BN_AB] = Density_Grid_B[0][BN_AB];
+        ImRhor[BN_AB] = 0.0;
       }
 
-      else if (den_flag==4){
+    break;
 
-	for (i=0; i<Num_Rcv_Grid1[IDR]; i++){ 
-	  n1 = Rcv_Grid1[IDR][i];
-	  nn1 = My_Cell0[n1];
-	  nn0 = n1 - Start_Grid1[myid];
-	  MN0 = i*Ngrid2*Ngrid3;
-	  for (n2=0; n2<Ngrid2; n2++){
-	    MN2 = n2*Ngrid3;
-	    for (n3=0; n3<Ngrid3; n3++){
-	      MN = MN0 + MN2 + n3;
-	      ReV1[nn0][n2][n3] = tmp_array1[2*MN0 + 2*MN2 + 2*n3  ];
-	      ImV1[nn0][n2][n3] = tmp_array1[2*MN0 + 2*MN2 + 2*n3+1];
-	    }
-	  }
-	}
+    case 2:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhor[BN_AB] = Density_Grid_B[1][BN_AB];
+        ImRhor[BN_AB] = 0.0;
       }
 
-      free(tmp_array1);
-    }
+    break;
 
-    if (Num_Snd_Grid1[IDS]!=0){
-      MPI_Wait(&request,&stat);
-      free(tmp_array0);
-    }
+    case 3:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhor[BN_AB] = 2.0*ADensity_Grid_B[BN_AB];
+        ImRhor[BN_AB] = 0.0;
+      }
+
+    break;
+
+    case 4:
+
+      for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+        ReRhor[BN_AB] = Density_Grid_B[2][BN_AB];
+        ImRhor[BN_AB] = Density_Grid_B[3][BN_AB];
+      }
+
+    break;
 
   }
 
-  /* use own densities */
-  for (n1=Start_Grid1[myid]; n1<=End_Grid1[myid]; n1++){
-    nn1 = My_Cell0[n1];
-    nn0 = n1 - Start_Grid1[myid]; 
-    if (nn1!=-1){
-      MN1 = nn1*Ngrid2*Ngrid3;
-      for (n2=0; n2<Ngrid2; n2++){
-        MN2 = n2*Ngrid3;
+  /* FFT of Density */
 
-        switch(den_flag) {
+  FFT_Poisson(ReRhor, ImRhor, ReRhok, ImRhok);
 
-        case 0:
+  /* freeing of arrays */
 
-          for (n3=0; n3<Ngrid3; n3++){
-            MN = MN1 + MN2 + n3;
-            DenA = 2.0*ADensity_Grid[MN];
-            ReV1[nn0][n2][n3] = Density_Grid[0][MN] + Density_Grid[1][MN] - DenA;
-            ImV1[nn0][n2][n3] = 0.0;
-          }
+  free(ReRhor);
+  free(ImRhor);
 
-        break;
-
-        case 1:
- 
-          for (n3=0; n3<Ngrid3; n3++){
-            MN = MN1 + MN2 + n3;
-            ReV1[nn0][n2][n3] = Density_Grid[0][MN];
-            ImV1[nn0][n2][n3] = 0.0;
-          }     
-
-        break;
-
-        case 2:
-
-          for (n3=0; n3<Ngrid3; n3++){
-            MN = MN1 + MN2 + n3;
-            ReV1[nn0][n2][n3] = Density_Grid[1][MN];
-            ImV1[nn0][n2][n3] = 0.0;
-          }     
-
-        break;
-
-        case 3:
-
-          for (n3=0; n3<Ngrid3; n3++){
-            MN = MN1 + MN2 + n3;
-            ReV1[nn0][n2][n3] = 2.0*ADensity_Grid[MN];
-            ImV1[nn0][n2][n3] = 0.0;
-          }     
-
-        break;
-
-        case 4:
-
-          for (n3=0; n3<Ngrid3; n3++){
-            MN = MN1 + MN2 + n3;
-            ReV1[nn0][n2][n3] = Density_Grid[2][MN];
-            ImV1[nn0][n2][n3] = Density_Grid[3][MN];
-          }     
-
-        break;
-
-        } /* switch(den_flag) */
-      }    
-    }
-  }
-
-  /****************************************************
-                       FFT of Dens
-  ****************************************************/
-
-  /*
-  n2 = Ngrid2/2;
-  n3 = Ngrid3/2;
-
-  for (n1=0; n1<Ngrid1; n1++){
-    printf("%2d %15.12f %15.12f\n",n1,ReV1[n1][n2][n3],ImV2[n1][n2][n3]);
-  }
-  */
-
-  FFT_Poisson(1, 2, Ngrid1, Ngrid2, Ngrid3,
-              My_NGrid1_Poisson, My_NGrid2_Poisson,
-              -1, -1, -1, ReV1, ImV1, ReV2, ImV2);
+  /* for time */
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TEtime);
+  time0 = TEtime - TStime;
+  return time0;
 }
 
 
@@ -742,165 +898,39 @@ void FFT_Density(int den_flag,
 
 
 void Get_Value_inReal(int complex_flag,
-                      double ***ReV2, double ***ImV2,
-                      double ***ReV1, double ***ImV1,
-                      double *Value_Grid, double *iValue_Grid)
+                      double *ReVr, double *ImVr, 
+                      double *ReVk, double *ImVk)
 {
-  int ct_AN,n1,n2,n3,k1,k2,k3,kk2,N3[4];
-  int N,i,j;
-  int nn0,nn1,nnn1,MN,MN0,MN1,MN2;
-  double time0;
-  int h_AN,Gh_AN,spin,spinmax;
-  int Nc,GNc,GN,Nh,Nog,factor;
-  double tmp0,tmp1,sk1,sk2,sk3,tot_den;
-  double x,y,z,Gx,Gy,Gz,Eden[2],DenA,G2;
-  double ReTmp,ImTmp,c_coe,p_coe;
-  double *tmp_array0;
-  double *tmp_array1;
-  double TStime,TEtime;
-  int numprocs,myid,tag=999,ID,IDS,IDR;
+  int BN_AB;
+  double *ReTmpr,*ImTmpr;
 
-  MPI_Status stat;
-  MPI_Request request;
+  /* allocation of arrays */
 
-  MPI_Comm_size(mpi_comm_level1,&numprocs);
-  MPI_Comm_rank(mpi_comm_level1,&myid);
+  ReTmpr = (double*)malloc(sizeof(double)*My_Max_NumGridB); 
+  ImTmpr = (double*)malloc(sizeof(double)*My_Max_NumGridB); 
 
-  if      (complex_flag==0) factor = 1;
-  else if (complex_flag==1) factor = 2; 
+  /* call Inverse_FFT_Poisson */
+ 
+  Inverse_FFT_Poisson(ReTmpr, ImTmpr, ReVk, ImVk);
 
-  /****************************************************
-                  Inverse FFT of Rhok
-  ****************************************************/
+  /* copy ReTmpr and ImTmpr into ReVr and ImVr */
 
-  FFT_Poisson(2, 1, Ngrid2, Ngrid1, Ngrid3,
-              My_NGrid2_Poisson, My_NGrid1_Poisson,
-              1, 1, 1, ReV2, ImV2, ReV1, ImV1);
+  if (complex_flag==0){
 
-  /****************************************************
-                   ReV1 -> Density_Grid
-  ****************************************************/
-
-  /* initialize */
-  if   (complex_flag==0){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Value_Grid[MN] = 0.0;
-    }
+    for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+      ReVr[BN_AB] = ReTmpr[BN_AB];
+    }  
   }
-  else{
-    for (MN=0; MN<My_NumGrid1; MN++){
-      Value_Grid[MN] = 0.0;
-     iValue_Grid[MN] = 0.0;
-    }
-  } 
+  else if (complex_flag==1){
 
-  /* use their potential using MPI */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    /* Isend */
-    if (Num_ISnd_Grid1[IDS]!=0){
-      tmp_array0 = (double*)malloc(sizeof(double)*Num_ISnd_Grid1[IDS]*Ngrid2*Ngrid3*factor);
-
-      for (i=0; i<Num_ISnd_Grid1[IDS]; i++){ 
-	n1 = ISnd_Grid1[IDS][i];
-	nn1 = n1 - Start_Grid1[myid];
-	MN1 = i*Ngrid2*Ngrid3;
-	for (n2=0; n2<Ngrid2; n2++){
-	  MN2 = n2*Ngrid3;
-
-	  if   (complex_flag==0){
-	    for (n3=0; n3<Ngrid3; n3++){
-	      MN = MN1 + MN2 + n3;
-	      tmp_array0[MN] = ReV1[nn1][n2][n3];
-	    }
-	  }
-	  else{
-	    for (n3=0; n3<Ngrid3; n3++){
-	      tmp_array0[2*MN1 + 2*MN2 + 2*n3  ] = ReV1[nn1][n2][n3];
-	      tmp_array0[2*MN1 + 2*MN2 + 2*n3+1] = ImV1[nn1][n2][n3];
-	    }
-	  }
-	}
-      } 
-
-      tag = 999;
-      MPI_Isend(&tmp_array0[0], Num_ISnd_Grid1[IDS]*Ngrid2*Ngrid3*factor,
-		MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-    }
-
-    /* Recv */
-    if (Num_IRcv_Grid1[IDR]!=0){
-
-      tmp_array1 = (double*)malloc(sizeof(double)*Num_IRcv_Grid1[IDR]*Ngrid2*Ngrid3*factor); 
-
-      tag = 999;
-      MPI_Recv(&tmp_array1[0], Num_IRcv_Grid1[IDR]*Ngrid2*Ngrid3*factor,
-	       MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-      for (i=0; i<Num_IRcv_Grid1[IDR]; i++){ 
-	n1 = IRcv_Grid1[IDR][i];
-	nn1 = My_Cell0[n1];
-	MN1 = nn1*Ngrid2*Ngrid3;
-	MN0 = i*Ngrid2*Ngrid3;
-
-	for (n2=0; n2<Ngrid2; n2++){
-	  MN2 = n2*Ngrid3;
-
-	  if   (complex_flag==0){
-	    for (n3=0; n3<Ngrid3; n3++){
-	      Value_Grid[MN1 + MN2 + n3] = tmp_array1[MN0 + MN2 + n3];
-	    }
-	  }
-	  else{
-	    for (n3=0; n3<Ngrid3; n3++){
-	      Value_Grid[MN1 + MN2 + n3] = tmp_array1[2*MN0 + 2*MN2 + 2*n3  ];
-	     iValue_Grid[MN1 + MN2 + n3] = tmp_array1[2*MN0 + 2*MN2 + 2*n3+1];
-	    }
-	  }
-	}
-      }
-      free(tmp_array1);
-    }
-
-    if (Num_ISnd_Grid1[IDS]!=0){
-      MPI_Wait(&request,&stat);
-      free(tmp_array0);
-    }
+    for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+      ReVr[BN_AB] = ReTmpr[BN_AB];
+      ImVr[BN_AB] = ImTmpr[BN_AB];
+    }  
   }
 
-  /* use own potential */
-  for (n1=0; n1<My_NGrid1_Poisson; n1++){
-    nn1 = Start_Grid1[myid] + n1;
-    nnn1 = My_Cell0[nn1];
-    if (My_Cell0[nn1]!=-1){
-      MN1 = nnn1*Ngrid2*Ngrid3; 
-      for (n2=0; n2<Ngrid2; n2++){
-	MN2 = n2*Ngrid3;
+  /* freeing of arrays */
 
-        if   (complex_flag==0){
-  	  for (n3=0; n3<Ngrid3; n3++){
-	    MN = MN1 + MN2 + n3;
-	    Value_Grid[MN] = ReV1[n1][n2][n3];
-	  }
-	}
-        else{
-  	  for (n3=0; n3<Ngrid3; n3++){
-	    MN = MN1 + MN2 + n3;
-	    Value_Grid[MN] = ReV1[n1][n2][n3];
-	   iValue_Grid[MN] = ImV1[n1][n2][n3];
-	  }
-        }
-      }
-    }
-  }
-
-  /*
-  for (n1=0; n1<Ngrid1; n1++){
-    printf("%2d %18.15f %18.15f\n",n1,ReV1[n1][Ngrid2/2][Ngrid3/2],ImV1[n1][Ngrid2/2][Ngrid3/2]);
-  }
-  */
-
+  free(ReTmpr);
+  free(ImTmpr);
 }

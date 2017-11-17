@@ -14,7 +14,7 @@
 #include <math.h>
 #include "openmx_common.h"
 
-#define EPS 1.0e-14
+#define EPS 1.0e-13
 
 static void Gauss_Legendre1(int n, double x[], double w[],
                             int *ncof, int *flag);

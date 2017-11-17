@@ -15,20 +15,8 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
-
-
 
 
 double Set_OLP_Kin(double *****OLP, double *****H0)
@@ -47,7 +35,6 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
   int *OneD2Mc_AN,*OneD2h_AN;
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return 0.0;
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
@@ -926,7 +913,7 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
                   
                   /* add a small value for stabilization of eigenvalue routine */
 
-                  OLP[0][Mc_AN][h_AN][num0+L0+M0][num1+L1+M1] = 8.0*CsumS0.r + 0.0*rnd(1.0e-17);
+                  OLP[0][Mc_AN][h_AN][num0+L0+M0][num1+L1+M1] = 8.0*CsumS0.r + 1.0*rnd(1.0e-13);
 		  H0[0][Mc_AN][h_AN][num0+L0+M0][num1+L1+M1] = 4.0*CsumK0.r;
 
                   if (h_AN!=0){
@@ -1225,6 +1212,7 @@ double Set_OLP_Kin(double *****OLP, double *****H0)
     free(CmatKp);
 
   } /* #pragma omp parallel */
+
 
   /*
   printf("OLP_Lx\n");

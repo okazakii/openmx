@@ -17,22 +17,10 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
+#include "mpi.h"
+#include <omp.h>
 
 #define  measure_time   0
-
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
 
 
 
@@ -519,7 +507,7 @@ static double Band_DFT_DosoutGauss_Col(
 
       if (measure_time==1) dtime(&Stime1);
 
-      EigenBand_lapack(S,ko[0],n, 1);
+      EigenBand_lapack(S,ko[0],n,n,1);
 
       if (measure_time==1){
         dtime(&Etime1);
@@ -698,7 +686,7 @@ static double Band_DFT_DosoutGauss_Col(
         if (measure_time==1) dtime(&Stime1);
 
 	n1 = n;
-        EigenBand_lapack(C,ko[spin],n1,1);
+        EigenBand_lapack(C,ko[spin],n1,n1,1);
 
 	for (i1=1; i1<=n; i1++) EIGEN[spin][kloop][i1] = ko[spin][i1];
 
@@ -965,6 +953,21 @@ static double Band_DFT_DosoutGauss_Col(
 	      }
 	    }
 	  }
+	}
+      }
+    }
+
+    /****************************************************
+       MPI: EIGEN
+    ****************************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      kloop = arpo[ID];
+
+      if (0<=kloop){
+        for (spin=0; spin<=SpinP_switch; spin++){
+          MPI_Bcast(&EIGEN[spin][kloop][0], n+1, MPI_DOUBLE, ID, mpi_comm_level1);
 	}
       }
     }
@@ -1829,7 +1832,7 @@ static double Band_DFT_DosoutGauss_NonCol(
 
     if (0<=kloop){
 
-      EigenBand_lapack(S,ko,n,1);
+      EigenBand_lapack(S,ko,n,n,1);
 
       if (2<=level_stdout && 0<=kloop){
 	printf("  kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
@@ -2039,7 +2042,7 @@ static double Band_DFT_DosoutGauss_NonCol(
       /* solve eigenvalue problem */
 
       n1 = 2*n;
-      EigenBand_lapack(C, ko, n1, 1);
+      EigenBand_lapack(C,ko,n1,n1,1);
 
       for (i1=1; i1<=2*n; i1++) EIGEN[kloop][i1] = ko[i1];
 
@@ -2332,7 +2335,24 @@ static double Band_DFT_DosoutGauss_NonCol(
       }
     }
 
+    /****************************************************
+       MPI: EIGEN
+    ****************************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      kloop = arpo[ID];
+
+      if (0<=kloop){
+        MPI_Bcast(&EIGEN[kloop][0], 2*n+1, MPI_DOUBLE, ID, mpi_comm_level1);
+      }
+    }
+
   } /* kloop0 */
+
+  /****************************************************
+     MPI: PDM
+  ****************************************************/
 
   if (cal_partial_charge) {
 
@@ -2392,6 +2412,11 @@ static double Band_DFT_DosoutGauss_NonCol(
       }
     }
   }
+
+
+
+
+
 
   /****************************************************************
                     write eigenvalues and eigenvectors
@@ -3093,7 +3118,7 @@ static double Band_DFT_Dosout_Col(
   if (myid==Host_ID){
 
     n = S[0][0].r;
-    EigenBand_lapack(S, ko[0], n, 1);
+    EigenBand_lapack(S,ko[0],n,n,1);
 
     if (3<=level_stdout){
       printf("  k1 k2 k3 %10.6f %10.6f %10.6f\n",k1,k2,k3);
@@ -3213,7 +3238,7 @@ static double Band_DFT_Dosout_Col(
     /* solve eigenvalue problem */
 
     n1 = n;
-    EigenBand_lapack(C,ko[spin],n1, 1);
+    EigenBand_lapack(C,ko[spin],n1,n1,1);
 
     if (n1min<n1) n1min=n1;
 
@@ -3386,7 +3411,7 @@ static double Band_DFT_Dosout_Col(
 
     if (0<=kloop){
 
-      EigenBand_lapack(S,ko[0],n, 1);
+      EigenBand_lapack(S,ko[0],n,n,1);
 
       if (3<=level_stdout && 0<=kloop){
 	printf("  kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
@@ -3551,7 +3576,7 @@ static double Band_DFT_Dosout_Col(
         /* solve eigenvalue problem */
 
 	n1 = n;
-        EigenBand_lapack(C,ko[spin],n1, 1);
+        EigenBand_lapack(C,ko[spin],n1,n1,1);
 
 	for (i1=1; i1<=n; i1++) EIGEN[spin][kloop][i1] = ko[spin][i1];
 
@@ -3771,6 +3796,21 @@ static double Band_DFT_Dosout_Col(
       }
     }
 
+    /****************************************************
+       MPI: EIGEN
+    ****************************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      kloop = arpo[ID];
+
+      if (0<=kloop){
+        for (spin=0; spin<=SpinP_switch; spin++){
+          MPI_Bcast(&EIGEN[spin][kloop][0], n+1, MPI_DOUBLE, ID, mpi_comm_level1);
+	}
+      }
+    }
+
   } /* kloop0        */
 
   /****************************************************
@@ -3837,39 +3877,8 @@ static double Band_DFT_Dosout_Col(
   }
 
   /****************************************************
-     MPI:
-
-     EIGEN
+     write: EIGEN
   ****************************************************/
-
-  tmp = (double)T_knum/(double)numprocs; 
-
-  for (spin=0; spin<=SpinP_switch; spin++){
-    for (kloop=0; kloop<T_knum; kloop++){
-
-      for (ID=0; ID<numprocs; ID++){
-
-	if (T_knum<=ID){
-	  s1 = -10;
-	  e1 = -100;
-	}
-	else if (T_knum<numprocs) {
-	  s1 = ID;
-	  e1 = ID;
-	}
-	else {
-	  s1 = (int)((double)ID*(tmp+0.0001)); 
-          e1 = (int)((double)(ID+1)*(tmp+0.0001)) - 1;
-          if (ID==(numprocs-1)) e1 = T_knum - 1;
-          if (e1<0)             e1 = 0;
-	}
-
-        if (s1<=kloop && kloop<=e1)  ID1 = ID;                    
-      }
-
-      MPI_Bcast(&EIGEN[spin][kloop][0], n+1, MPI_DOUBLE, ID1, mpi_comm_level1);
-    }
-  }
 
   if (myid==Host_ID){
     if (fp_eig) {
@@ -4573,7 +4582,7 @@ static double Band_DFT_Dosout_NonCol(
   if (myid==Host_ID){
 
     n = S[0][0].r;
-    EigenBand_lapack(S, ko, n, 1);
+    EigenBand_lapack(S,ko,n,n,1);
 
     if (2<=level_stdout){
       printf("  k1 k2 k3 %10.6f %10.6f %10.6f\n",k1,k2,k3);
@@ -4740,7 +4749,7 @@ static double Band_DFT_Dosout_NonCol(
     /* solve eigenvalue problem */
 
     n1 = 2*n;
-    EigenBand_lapack(C, ko, n1, 1);
+    EigenBand_lapack(C,ko,n1,n1,1);
 
     if (n1min<n1) n1min=n1;
 
@@ -4912,7 +4921,7 @@ static double Band_DFT_Dosout_NonCol(
 
     if (0<=kloop){
 
-      EigenBand_lapack(S,ko,n,1);
+      EigenBand_lapack(S,ko,n,n,1);
 
       if (2<=level_stdout && 0<=kloop){
 	printf("  kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
@@ -5122,7 +5131,7 @@ static double Band_DFT_Dosout_NonCol(
       /* solve eigenvalue problem */
 
       n1 = 2*n;
-      EigenBand_lapack(C, ko, n1, 1);
+      EigenBand_lapack(C,ko,n1,n1,1);
 
       for (i1=1; i1<=2*n; i1++) EIGEN[kloop][i1] = ko[i1];
 
@@ -5387,6 +5396,19 @@ static double Band_DFT_Dosout_NonCol(
       }
     }
 
+    /****************************************************
+       MPI: EIGEN
+    ****************************************************/
+
+    for (ID=0; ID<numprocs; ID++){
+
+      kloop = arpo[ID];
+
+      if (0<=kloop){
+        MPI_Bcast(&EIGEN[kloop][0], 2*n+1, MPI_DOUBLE, ID, mpi_comm_level1);
+      }
+    }
+
   } /* kloop0 */
 
   /****************************************************
@@ -5455,37 +5477,8 @@ static double Band_DFT_Dosout_NonCol(
   }
 
   /****************************************************
-     MPI:
-
-     EIGEN
+     write: EIGEN
   ****************************************************/
-
-  tmp = (double)T_knum/(double)numprocs; 
-
-  for (kloop=0; kloop<T_knum; kloop++){
-
-    for (ID=0; ID<numprocs; ID++){
-
-      if (T_knum<=ID){
-	s1 = -10;
-	e1 = -100;
-      }
-      else if (T_knum<numprocs) {
-	s1 = ID;
-	e1 = ID;
-      }
-      else {
-	s1 = (int)((double)ID*(tmp+0.0001)); 
-	e1 = (int)((double)(ID+1)*(tmp+0.0001)) - 1;
-	if (ID==(numprocs-1)) e1 = T_knum - 1;
-	if (e1<0)             e1 = 0;
-      }
-
-      if (s1<=kloop && kloop<=e1)  ID1 = ID;                    
-    }
-
-    MPI_Bcast(&EIGEN[kloop][0], 2*n+1, MPI_DOUBLE, ID1, mpi_comm_level1);
-  }
 
   if (myid==Host_ID){
     if (fp_eig) {

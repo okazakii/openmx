@@ -10,18 +10,14 @@
   Log of TRAN_Add_ADensity_Lead.c:
 
      24/July/2008  Released by T.Ozaki
+     24/Apr/2012   Modified by T.Ozaki
 
 ***********************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_variables.h"
 #include "tran_prototypes.h"
 
@@ -32,64 +28,57 @@ void TRAN_Add_ADensity_Lead(
             int Ngrid1,
             int Ngrid2,
             int Ngrid3,
-            int Num_Cells0, 
-            int *My_Cell0, 
-            int *My_Cell1,
-            double *ADensity_Grid)
+            int My_NumGridB_AB,
+            double *ADensity_Grid_B)
 
-#define grid_ref(i,j,k)    ( (i)*Ngrid2*Ngrid3+(j)*Ngrid3+(k) )
 #define grid_e_ref(i,j,k)  ( ((i)-l1[0]) *Ngrid2*Ngrid3+(j)*Ngrid3+(k) )
 
 {
-  int side,l1[2];
-  int i,j,k;
-  int spin;
-  int ie;
-  int myid;
+  int side,l1[2],N2D,GNs;
+  int i,j,k,spin,GN,BN_AB;
+  int myid,numprocs;
 
+  MPI_Comm_size(comm1,&numprocs);
   MPI_Comm_rank(comm1,&myid);
 
   if (myid==Host_ID){
     printf("<TRAN_Add_ADensity_Lead>\n");
   }
 
-  /* left lead */
+  /* set N2D and GNs */
 
-  side = 0;
-  l1[0] = 0;
-  l1[1] = TRAN_grid_bound[0]; 
+  N2D = Ngrid1*Ngrid2;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid3;
 
-  for (i=0; i<Num_Cells0; i++) {
+  /***********************************************************
+    add contribution to atomic charge density from electrodes
 
-    ie = My_Cell1[i]; 
+    side=0 -> left lead
+    side=1 -> right lead
+  ***********************************************************/
 
-    if ( l1[0]<=ie && ie<=l1[1] ) {
+  for (side=0; side<=1; side++){
 
-      for (j=0; j<Ngrid2; j++) {
-	for (k=0; k<Ngrid3; k++) {
-	  ADensity_Grid[ grid_ref(i,j,k) ] += ElectrodeADensity_Grid[side][ grid_e_ref(ie,j,k) ];
-	}
+    if (side==0){
+      l1[0] = 0;
+      l1[1] = TRAN_grid_bound[0]; 
+    }
+    else{
+      l1[0] = TRAN_grid_bound[1];
+      l1[1] = Ngrid1-1;
+    }
+
+    for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+
+      GN = BN_AB + GNs;     
+      i = GN/(Ngrid2*Ngrid3);    
+      j = (GN - i*Ngrid2*Ngrid3)/Ngrid3;
+      k = GN - i*Ngrid2*Ngrid3 - j*Ngrid3; 
+
+      if ( l1[0]<=i && i<=l1[1] ) {
+
+	ADensity_Grid_B[BN_AB] += ElectrodeADensity_Grid[side][ grid_e_ref(i,j,k) ];
       }
     }
   }
-
-  /* right lead */
-
-  side = 1;
-  l1[0] = TRAN_grid_bound[1];
-  l1[1] = Ngrid1-1;
-  
-  for (i=0; i<Num_Cells0; i++) {
-
-    ie = My_Cell1[i];
-
-    if ( l1[0]<=ie && ie<=l1[1] ) {
-      for (j=0; j<Ngrid2; j++) {
-	for (k=0; k<Ngrid3; k++) {
-	  ADensity_Grid[ grid_ref(i,j,k) ] += ElectrodeADensity_Grid[side][ grid_e_ref(ie,j,k) ];
-	}
-      }
-    }
-  }
-    
 }

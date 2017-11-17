@@ -5,22 +5,16 @@
 
   Log of TRAN_Output_HKS.c:
 
-     11/Dec/2005   Released by H.Kino
+     11/Dec/2005   Released by H. Kino
 
 ***********************************************************************/
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_variables.h"
 #include "tran_prototypes.h" 
 
@@ -152,9 +146,7 @@ int TRAN_Output_HKS(char *fileHKS)
     i_vec[i++]= Ngrid3;
     i_vec[i++]= Num_Cells0; 
 
-
     fwrite(i_vec,sizeof(int),i,fp);
-
 
     id=0;
     d_vec[id++]= ScaleSize;
@@ -215,7 +207,6 @@ int TRAN_Output_HKS(char *fileHKS)
     free(d_vec);
 
   }  /* if (myid==Host_ID) */
-
 
   /* allocate v */
 
@@ -288,7 +279,6 @@ int TRAN_Output_HKS(char *fileHKS)
   } /* k */
 
 
-
   /* H */
   for (k=0; k<=SpinP_switch; k++){
 
@@ -353,6 +343,76 @@ int TRAN_Output_HKS(char *fileHKS)
 
     }
   } /* k */
+
+/* revised by Y. Xiao for Noncollinear NEGF calculations */
+  /* iHNL */
+if(SpinP_switch==3) {
+
+  for (k=0; k<=2; k++){
+
+    int ID;
+
+    /*global  Gc_AN  1:atomnum */
+    /*variable ID = G2ID[Gc_AN] */
+    /*variable Mc_AN = G2M[Gc_AN] */
+
+    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+      ID    = G2ID[Gc_AN];
+      Mc_AN = F_G2M[Gc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      tno0 = Spe_Total_NO[Cwan];
+
+      /* H into v */
+
+      if (myid==ID) {
+
+        vsize = 0;
+
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+          if (Mc_AN==0){
+            tno1 = 1;
+          }
+          else{
+            Gh_AN = natn[Gc_AN][h_AN];
+            Hwan = WhatSpecies[Gh_AN];
+            tno1 = Spe_Total_NO[Hwan];
+          }
+
+          for (i=0; i<tno0; i++){
+            for (j=0;j<tno1; j++) {
+              v[vsize] = iHNL[k][Mc_AN][h_AN][i][j];
+              vsize++;
+            }
+          }
+        }
+
+        /* Isend */
+
+        if (myid!=Host_ID){
+          MPI_Isend(&vsize, 1, MPI_INT, Host_ID, tag, mpi_comm_level1, &request);
+          MPI_Wait(&request,&status);
+          MPI_Isend(&v[0], vsize, MPI_DOUBLE, Host_ID, tag, mpi_comm_level1, &request);
+          MPI_Wait(&request,&status);
+        }
+        else{
+          fwrite(v, sizeof(double), vsize, fp);
+        }
+      }
+
+      /* Recv */
+
+      else if (ID!=myid && myid==Host_ID){
+        MPI_Recv(&vsize, 1, MPI_INT, ID, tag, mpi_comm_level1, &status);
+        MPI_Recv(&v[0], vsize, MPI_DOUBLE, ID, tag, mpi_comm_level1, &status);
+        fwrite(v, sizeof(double), vsize, fp);
+      }
+
+    }
+  } /* k */
+ } /* if (SpinP_switch==3)  */
+/* until here by Y. Xiao for Noncollinear NEGF calculations */
 
   /* DM */
 
@@ -423,28 +483,23 @@ int TRAN_Output_HKS(char *fileHKS)
     } /* k */
   } /* m */
 
+
   /* free v */
 
   free(v);
 
-  N=Ngrid1*Ngrid2*Ngrid3;
-
-  /* Density_Grid[0] + Density_Grid[0] - 2.0*ADensity_Grid */
+  /* Density_Grid[0] + Density_Grid[1] - 2.0*ADensity_Grid */
 
   TRAN_Output_HKS_Write_Grid(mpi_comm_level1, 
                              1,
- 	                     My_NGrid1_Poisson,Ngrid2,Ngrid3,
-			     Num_Snd_Grid1,Snd_Grid1,Num_Rcv_Grid1,Rcv_Grid1,My_Cell0,Start_Grid1,End_Grid1,
-			     Density_Grid[0],Density_Grid[1],ADensity_Grid,fp);
-
+ 	                     Ngrid1,Ngrid2,Ngrid3,
+			     Density_Grid_B[0],Density_Grid_B[1],ADensity_Grid_B,fp);
   /* Vpot_Grid */
-  /* fwrite(dVHart_Grid,sizeof(double), N,fp); */
 
   TRAN_Output_HKS_Write_Grid(mpi_comm_level1, 
                              0, 
-			     My_NGrid1_Poisson,Ngrid2,Ngrid3,
-			     Num_Snd_Grid1,Snd_Grid1,Num_Rcv_Grid1,Rcv_Grid1,My_Cell0,Start_Grid1,End_Grid1,
-			     dVHart_Grid,NULL,NULL,fp);
+			     Ngrid1,Ngrid2,Ngrid3,
+			     dVHart_Grid_B,NULL,NULL,fp);
 
   if (myid==Host_ID) fclose(fp);
 

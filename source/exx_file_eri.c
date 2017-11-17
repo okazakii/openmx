@@ -10,12 +10,7 @@
 #include "exx.h"
 #include "exx_log.h"
 #include "exx_file_eri.h"
-
-#ifdef EXX_USE_MPI
 #include <mpi.h>
-#else 
-#include "mimic_mpi.h"
-#endif /* EXX_USE_MPI */
 
 static void cachefile_path(char *path, size_t len, const char *cachedir)
 {

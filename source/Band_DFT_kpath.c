@@ -21,12 +21,9 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+#include <omp.h>
+
 
 static void Band_DFT_kpath_Col(
                       int nkpath, int *n_perk,
@@ -70,7 +67,7 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
                          double ****CntOLP)
 {
   static int firsttime=1;
-  int i,j,k,l,n,wan,SOMO,HOMO,ITZ;
+  int i,j,k,l,n,wan;
   int *MP,*arpo,num_kloop0,T_knum;
   int i1,j1,po,spin,spinsize,n1;
   int num2,RnB,l1,l2,l3,S_knum,E_knum;
@@ -88,14 +85,10 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
   float ****EigenVal;
   int ii,ij,ik;
   double u2,v2,uv,vu,tmp;
-  double TZ,Eele_Zero,dum,sumE,kRn,si,co;
+  double dum,sumE,kRn,si,co;
   double Resum,ResumE,Redum,Redum2,Imdum;
   double TStime,TEtime, SiloopTime,EiloopTime;
-  char file_EV[YOUSO10];
-  FILE *fp_EV;
 
-  double FermiEps = 1.0e-14;
-  double x_cut = 30.0;
   int numprocs,myid;
   int *ik_list,*i_perk_list;
   int i_perk,id;
@@ -200,17 +193,7 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
   /* for PrintMemory */
   firsttime=0;
 
-  TZ = 0.0;
-  for (i=1; i<=atomnum; i++){
-    wan = WhatSpecies[i];
-    TZ = TZ + Spe_Core_Charge[wan];
-  }
-  ITZ = TZ;
-  SOMO = ITZ % 2;
-  HOMO = (TZ-SOMO)/2;
-
   dtime(&SiloopTime);
-  Eele_Zero = 0.0;
 
   if (myid==Host_ID && 0<level_stdout){
     printf("kpath\n");
@@ -324,7 +307,7 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
 
     if (0<=kloop) {
 
-      EigenBand_lapack(S,ko[0],n,1);
+      EigenBand_lapack(S,ko[0],n,n,1);
 
       if (3<=level_stdout){
 	printf(" myid=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
@@ -346,6 +329,8 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
       for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(ko[0][l]);
 
       /* S * M1 */
+
+#pragma omp parallel for shared(n,S,M1)  
 
       for (i1=1; i1<=n; i1++){
 	for (j1=1; j1<=n; j1++){
@@ -406,6 +391,9 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
         /* transpose S */
 
         if (spin==0){
+
+#pragma omp parallel for shared(n,S)  
+
 	  for (i1=1; i1<=n; i1++){
 	    for (j1=i1+1; j1<=n; j1++){
 	      Ctmp1 = S[i1][j1];
@@ -418,38 +406,103 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
 
         /* H * U * M1 */
 
-        for (j1=1; j1<=n; j1++){
- 	  for (i1=1; i1<=n; i1++){
+#pragma omp parallel for shared(n,H,S,C)  
 
-	    sum  = 0.0;
-	    sumi = 0.0;
+        for (i1=1; i1<=n; i1++){
+
+          for (j1=1; j1<=(n-3); j1+=4){
+
+	    double sum0  = 0.0; double sum1  = 0.0; double sum2  = 0.0; double sum3  = 0.0;
+	    double sumi0 = 0.0; double sumi1 = 0.0; double sumi2 = 0.0; double sumi3 = 0.0;
 
 	    for (l=1; l<=n; l++){
-	      sum  += H[i1][l].r*S[j1][l].r - H[i1][l].i*S[j1][l].i;
-	      sumi += H[i1][l].r*S[j1][l].i + H[i1][l].i*S[j1][l].r;
+	      sum0  += H[i1][l].r*S[j1+0][l].r - H[i1][l].i*S[j1+0][l].i;
+	      sum1  += H[i1][l].r*S[j1+1][l].r - H[i1][l].i*S[j1+1][l].i;
+	      sum2  += H[i1][l].r*S[j1+2][l].r - H[i1][l].i*S[j1+2][l].i;
+	      sum3  += H[i1][l].r*S[j1+3][l].r - H[i1][l].i*S[j1+3][l].i;
+
+	      sumi0 += H[i1][l].r*S[j1+0][l].i + H[i1][l].i*S[j1+0][l].r;
+	      sumi1 += H[i1][l].r*S[j1+1][l].i + H[i1][l].i*S[j1+1][l].r;
+	      sumi2 += H[i1][l].r*S[j1+2][l].i + H[i1][l].i*S[j1+2][l].r;
+	      sumi3 += H[i1][l].r*S[j1+3][l].i + H[i1][l].i*S[j1+3][l].r;
 	    }
 
-	    C[j1][i1].r = sum;
-	    C[j1][i1].i = sumi;
+	    C[j1+0][i1].r = sum0;
+	    C[j1+1][i1].r = sum1;
+	    C[j1+2][i1].r = sum2;
+	    C[j1+3][i1].r = sum3;
+
+	    C[j1+0][i1].i = sumi0;
+            C[j1+1][i1].i = sumi1;
+            C[j1+2][i1].i = sumi2;
+            C[j1+3][i1].i = sumi3;
+	  }
+
+          for (; j1<=n; j1++){
+
+	    double sum0  = 0.0; 
+	    double sumi0 = 0.0; 
+
+	    for (l=1; l<=n; l++){
+	      sum0  += H[i1][l].r*S[j1][l].r - H[i1][l].i*S[j1][l].i;
+	      sumi0 += H[i1][l].r*S[j1][l].i + H[i1][l].i*S[j1][l].r;
+	    }
+
+	    C[j1][i1].r = sum0;
+	    C[j1][i1].i = sumi0;
 	  }
 	}     
 
         /* M1 * U^+ H * U * M1 */
 
+#pragma omp parallel for shared(n,H,S,C)  
+
         for (i1=1; i1<=n; i1++){
-          for (j1=1; j1<=n; j1++){
-	    sum  = 0.0;
-            sumi = 0.0;
+
+          for (j1=1; j1<=(n-3); j1+=4){
+
+	    double sum0  = 0.0; double sum1  = 0.0; double sum2  = 0.0; double sum3  = 0.0;
+	    double sumi0 = 0.0; double sumi1 = 0.0; double sumi2 = 0.0; double sumi3 = 0.0;
+
 	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*C[j1][l].r + S[i1][l].i*C[j1][l].i;
-	      sumi +=  S[i1][l].r*C[j1][l].i - S[i1][l].i*C[j1][l].r;
+	      sum0  +=  S[i1][l].r*C[j1+0][l].r + S[i1][l].i*C[j1+0][l].i;
+	      sum1  +=  S[i1][l].r*C[j1+1][l].r + S[i1][l].i*C[j1+1][l].i;
+	      sum2  +=  S[i1][l].r*C[j1+2][l].r + S[i1][l].i*C[j1+2][l].i;
+	      sum3  +=  S[i1][l].r*C[j1+3][l].r + S[i1][l].i*C[j1+3][l].i;
+
+	      sumi0 +=  S[i1][l].r*C[j1+0][l].i - S[i1][l].i*C[j1+0][l].r;
+	      sumi1 +=  S[i1][l].r*C[j1+1][l].i - S[i1][l].i*C[j1+1][l].r;
+	      sumi2 +=  S[i1][l].r*C[j1+2][l].i - S[i1][l].i*C[j1+2][l].r;
+	      sumi3 +=  S[i1][l].r*C[j1+3][l].i - S[i1][l].i*C[j1+3][l].r;
 	    }
-	    H[i1][j1].r = sum;
-	    H[i1][j1].i = sumi;
+	    H[i1][j1+0].r = sum0;
+	    H[i1][j1+1].r = sum1;
+	    H[i1][j1+2].r = sum2;
+	    H[i1][j1+3].r = sum3;
+
+	    H[i1][j1+0].i = sumi0;
+	    H[i1][j1+1].i = sumi1;
+	    H[i1][j1+2].i = sumi2;
+	    H[i1][j1+3].i = sumi3;
+	  }
+
+          for (; j1<=n; j1++){
+
+	    double sum0  = 0.0;
+	    double sumi0 = 0.0;
+
+	    for (l=1; l<=n; l++){
+	      sum0  +=  S[i1][l].r*C[j1][l].r + S[i1][l].i*C[j1][l].i;
+	      sumi0 +=  S[i1][l].r*C[j1][l].i - S[i1][l].i*C[j1][l].r;
+	    }
+	    H[i1][j1].r = sum0;
+	    H[i1][j1].i = sumi0;
 	  }
 	} 
 
         /* H to C */
+
+#pragma omp parallel for shared(n,C,H)  
 
 	for (i1=1; i1<=n; i1++){
 	  for (j1=1; j1<=n; j1++){
@@ -479,11 +532,9 @@ void Band_DFT_kpath_Col( int nkpath, int *n_perk,
 	}
 
         /* solve eigenvalue problem */
+        EigenBand_lapack(C,ko[spin],n,n,0);
 
-	n1 = n;
-        EigenBand_lapack(C,ko[spin],n1,0);
-
-	for (l=1; l<=n1; l++){
+	for (l=1; l<=n; l++){
 	  EigenVal[ik][i_perk][spin][l-1] = (float)ko[spin][l];
 	}
 
@@ -667,7 +718,7 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
                             double *****ImNL,
                             double ****CntOLP)
 {
-  int i,j,k,l,n,wan,SOMO,HOMO,ITZ;
+  int i,j,k,l,n,wan;
   int *MP;
   int i1,j1,po,spin,n1;
   int num2,RnB,l1,l2,l3,ii1,jj1,m,n2;
@@ -687,14 +738,10 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
   int ii,ij,ik;
   int *ik_list,*i_perk_list,*arpo;
   double u2,v2,uv,vu,tmp;
-  double TZ,Eele_Zero,dum,sumE,kRn,si,co;
+  double dum,sumE,kRn,si,co;
   double Resum,ResumE,Redum,Redum2,Imdum;
   double TStime,TEtime, SiloopTime,EiloopTime;
-  char file_EV[YOUSO10];
-  FILE *fp_EV;
 
-  double FermiEps = 1.0e-14;
-  double x_cut = 30.0;
   int numprocs,myid,ID,ID1;
   int e1,s1,kloop,T_knum,mn,S_knum,E_knum;
   int num_kloop0,kloop0,spinsize; 
@@ -798,19 +845,10 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
   }
 
   /*****************************************************
-    TZ, ITZ, and HOMO 
+    print kpath
   *****************************************************/
 
-  TZ = 0.0;
-  for (i=1; i<=atomnum; i++){
-    wan = WhatSpecies[i];
-    TZ = TZ + Spe_Core_Charge[wan];
-  }
-  ITZ = TZ;
-  HOMO = TZ;
-
   dtime(&SiloopTime);
-  Eele_Zero = 0.0;
 
   if (myid==Host_ID && 0<level_stdout){
     printf("kpath\n");
@@ -916,7 +954,7 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
 
     if (0<=kloop){
 
-      EigenBand_lapack(S,ko,n,1);
+      EigenBand_lapack(S,ko,n,n,1);
 
       /* minus eigenvalues to 1.0e-14 */
       for (l=1; l<=n; l++){
@@ -937,6 +975,8 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
       for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(ko[l]);
 
       /* S * M1  */
+
+#pragma omp parallel for shared(n,S,M1)  
 
       for (i1=1; i1<=n; i1++){
 	for (j1=1; j1<=n; j1++){
@@ -1007,6 +1047,8 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
 
       /* transpose S */
 
+#pragma omp parallel for shared(n,S)  
+
       for (i1=1; i1<=n; i1++){
 	for (j1=i1+1; j1<=n; j1++){
 	  Ctmp1 = S[i1][j1];
@@ -1018,49 +1060,64 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
 
       /* H * U * M1 */
 
-      for (j1=1; j1<=n; j1++){
-        for (i1=1; i1<=2*n; i1++){
-	  for (m=0; m<=1; m++){
+#pragma omp parallel for shared(n,H,S,C)  
 
-	    sum  = 0.0;
-	    sumi = 0.0;
-            mn = m*n;
-	    for (l=1; l<=n; l++){
-	      sum  += H[i1][l+mn].r*S[j1][l].r - H[i1][l+mn].i*S[j1][l].i;
-	      sumi += H[i1][l+mn].r*S[j1][l].i + H[i1][l+mn].i*S[j1][l].r;
-	    }
+      for (i1=1; i1<=2*n; i1++){
+        for (j1=1; j1<=n; j1++){
 
-	    jj1 = 2*j1 - 1 + m;
+	  double sum0  = 0.0;
+	  double sum1  = 0.0;
+	  double sumi0 = 0.0;
+	  double sumi1 = 0.0;
 
-	    C[jj1][i1].r = sum;
-	    C[jj1][i1].i = sumi;
+	  for (l=1; l<=n; l++){
+
+	    sum0  += H[i1][l  ].r*S[j1][l].r - H[i1][l  ].i*S[j1][l].i;
+	    sum1  += H[i1][l+n].r*S[j1][l].r - H[i1][l+n].i*S[j1][l].i;
+
+	    sumi0 += H[i1][l  ].r*S[j1][l].i + H[i1][l  ].i*S[j1][l].r;
+	    sumi1 += H[i1][l+n].r*S[j1][l].i + H[i1][l+n].i*S[j1][l].r;
 	  }
+
+	  C[2*j1-1][i1].r = sum0;
+	  C[2*j1  ][i1].r = sum1;
+
+	  C[2*j1-1][i1].i = sumi0;
+	  C[2*j1  ][i1].i = sumi1;
 	}
-      }     
+      }
 
       /* M1 * U^+ H * U * M1 */
 
+#pragma omp parallel for shared(n,H,S,C)  
+
       for (i1=1; i1<=n; i1++){
+	for (j1=1; j1<=2*n; j1++){
 
-	for (m=0; m<=1; m++){
+	  double sum0  = 0.0;
+	  double sum1  = 0.0;
+	  double sumi0 = 0.0;
+	  double sumi1 = 0.0;
 
-	  ii1 = 2*i1 - 1 + m;
+	  for (l=1; l<=n; l++){
+	    sum0  +=  S[i1][l].r*C[j1][l  ].r + S[i1][l].i*C[j1][l  ].i;
+	    sum1  +=  S[i1][l].r*C[j1][l+n].r + S[i1][l].i*C[j1][l+n].i;
 
-	  for (j1=1; j1<=2*n; j1++){
-	    sum  = 0.0;
-	    sumi = 0.0;
-            mn = m*n;
-	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*C[j1][l+mn].r + S[i1][l].i*C[j1][l+mn].i;
-	      sumi +=  S[i1][l].r*C[j1][l+mn].i - S[i1][l].i*C[j1][l+mn].r;
-	    }
-	    H[ii1][j1].r = sum;
-	    H[ii1][j1].i = sumi;
+	    sumi0 +=  S[i1][l].r*C[j1][l  ].i - S[i1][l].i*C[j1][l  ].r;
+	    sumi1 +=  S[i1][l].r*C[j1][l+n].i - S[i1][l].i*C[j1][l+n].r;
 	  }
+
+	  H[2*i1-1][j1].r = sum0;
+	  H[2*i1  ][j1].r = sum1;
+
+	  H[2*i1-1][j1].i = sumi0;
+	  H[2*i1  ][j1].i = sumi1;
 	}
       }     
 
       /* H to C */
+
+#pragma omp parallel for shared(n,H,C)  
 
       for (i1=1; i1<=2*n; i1++){
 	for (j1=1; j1<=2*n; j1++){
@@ -1097,7 +1154,7 @@ void Band_DFT_kpath_NonCol( int nkpath, int *n_perk,
       /* solve eigenvalue problem */
 
       n1 = 2*n;
-      EigenBand_lapack(C, ko, n1,0);
+      EigenBand_lapack(C,ko,n1,n1,0);
 
       for (l=1; l<=n1; l++){
         EigenVal[ik][i_perk][l-1] = (float)ko[l];

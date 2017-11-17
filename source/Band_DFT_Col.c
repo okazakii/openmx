@@ -17,77 +17,16 @@
 #include <time.h>
 #include "openmx_common.h"
 #include "lapack_prototypes.h"
+#include "mpi.h"
+#include <omp.h>
 
 #define  measure_time  0
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
 
 /*---------- added by TOYODA 17/FEB/2010 */
 #include "exx_debug.h"
 /*---------- until here */
 
-static double Band_collinear(
-             int knum_i, int knum_j, int knum_k,
-             int SpinP_switch,
-             double *****nh,
-             double *****ImNL,
-             double ****CntOLP,
-             double *****CDM,
-             double *****EDM,
-             double Eele0[2], double Eele1[2]);
-
-static double Band_collinear2(int SCF_iter,
-			      int knum_i, int knum_j, int knum_k,
-			      int SpinP_switch,
-			      double *****nh,
-			      double ****CntOLP,
-			      double *****CDM,
-			      double *****EDM,
-			      double Eele0[2], double Eele1[2],
-			      int *MP,
-			      int *order_GA,
-			      double *ko,
-			      double *koS,
-			      double ***EIGEN,
-			      double *H1,
-			      double *S1,
-			      double *CDM1,
-			      double *EDM1,
-			      dcomplex **H,
-			      dcomplex **S,
-			      dcomplex **C,
-                              dcomplex *BLAS_S,
-			      int ***k_op,
-			      int *T_k_op,
-			      int **T_k_ID,
-			      double *T_KGrids1,
-			      double *T_KGrids2,
-			      double *T_KGrids3,
-			      int myworld1,
-			      int *NPROCS_ID1,
-			      int *Comm_World1,
-			      int *NPROCS_WD1,
-			      int *Comm_World_StartID1,
-			      MPI_Comm *MPI_CommWD1,
-			      int myworld2,
-			      int *NPROCS_ID2,
-			      int *NPROCS_WD2,
-			      int *Comm_World2,
-			      int *Comm_World_StartID2,
-			      MPI_Comm *MPI_CommWD2, 
-                              EXX_t *exx,
-                              dcomplex ****exx_CDM,
-                              double *Uexx);
 
 
 double Band_DFT_Col(int SCF_iter,
@@ -134,88 +73,6 @@ double Band_DFT_Col(int SCF_iter,
 		    dcomplex ****exx_CDM,
 		    double *Uexx)
 {
-
-
-  return Band_collinear2( SCF_iter,
-                          knum_i, knum_j, knum_k, SpinP_switch,
-			  nh, CntOLP, CDM, EDM, Eele0, Eele1,
-			  MP,order_GA,ko,koS,EIGEN,
-			  H1,S1,
-			  CDM1,EDM1,
-			  H,S,C,
-                          BLAS_S,
-			  k_op,T_k_op,T_k_ID,
-			  T_KGrids1,T_KGrids2,T_KGrids3,
-			  myworld1,
-			  NPROCS_ID1,
-			  Comm_World1,
-			  NPROCS_WD1,
-			  Comm_World_StartID1,
-			  MPI_CommWD1,
-			  myworld2,
-			  NPROCS_ID2,
-			  Comm_World2,
-			  NPROCS_WD2,
-			  Comm_World_StartID2,
-			  MPI_CommWD2,
-                          exx ,exx_CDM , Uexx);
-
-
-
-  /*
-  return Band_collinear( knum_i, knum_j, knum_k, SpinP_switch,
-                         nh, ImNL, CntOLP, CDM, EDM, Eele0, Eele1 );
-  */
-
-}
-
-
-
-
-
-static double Band_collinear2(int SCF_iter,
-			      int knum_i, int knum_j, int knum_k,
-			      int SpinP_switch,
-			      double *****nh,
-			      double ****CntOLP,
-			      double *****CDM,
-			      double *****EDM,
-			      double Eele0[2], double Eele1[2],
-			      int *MP,
-			      int *order_GA,
-			      double *ko,
-			      double *koS,
-			      double ***EIGEN,
-			      double *H1,
-			      double *S1,
-			      double *CDM1,
-			      double *EDM1,
-			      dcomplex **H,
-			      dcomplex **S,
-			      dcomplex **C,
-                              dcomplex *BLAS_S,
-			      int ***k_op,
-			      int *T_k_op,
-			      int **T_k_ID,
-			      double *T_KGrids1,
-			      double *T_KGrids2,
-			      double *T_KGrids3,
-			      int myworld1,
-			      int *NPROCS_ID1,
-			      int *Comm_World1,
-			      int *NPROCS_WD1,
-			      int *Comm_World_StartID1,
-			      MPI_Comm *MPI_CommWD1,
-			      int myworld2,
-			      int *NPROCS_ID2,
-			      int *NPROCS_WD2,
-			      int *Comm_World2,
-			      int *Comm_World_StartID2,
-			      MPI_Comm *MPI_CommWD2,
-                              EXX_t *exx,
-                              dcomplex ****exx_CDM,
-                              double *Uexx)
-{
   static int firsttime=1;
   int i,j,k,l,m,n,wan,MaxN,i0,ks;
   int i1,i1s,j1,ia,jb,lmax,po,po1,spin,s1,e1;
@@ -235,7 +92,6 @@ static double Band_collinear2(int SCF_iter,
   double x,Dnum,Dnum2,AcP,ChemP_MAX,ChemP_MIN;
   double *VecFkw;
   double *VecFkwE;
-
   int *is1,*ie1;
   int *is2,*ie2;
   MPI_Status *stat_send;
@@ -907,7 +763,7 @@ diagonalize1:
     dtime(&Stime);
 
     if (parallel_mode==0){
-      EigenBand_lapack(S,ko,n,1);
+      EigenBand_lapack(S,ko,n,n,1);
     }
     else if (SCF_iter==1 || all_knum!=1){
       Eigen_PHH(MPI_CommWD2[myworld2],S,ko,n,n,1);
@@ -1009,6 +865,13 @@ diagonalize1:
 
       /* note for BLAS, A[M*K] * B[K*N] = C[M*N] */
 
+
+    /*
+    printf("ABC3 myid0=%2d myid1=%2d myid2=%2d numprocs2=%2d\n",myid0,myid1,myid2,numprocs2);
+    MPI_Finalize();
+    exit(0);
+    */
+
 #pragma omp parallel shared(myid2,ie1,is1,BLAS_S,BLAS_H,BLAS_C,n) private(OMPID,Nthrds,Nprocs,Ctmp1,Ctmp2,BM,BN,BK,ns,ne)
       { 
 
@@ -1030,15 +893,17 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
-			      &Ctmp1, 
-			      BLAS_H, &BM,
-			      &BLAS_S[(ns-1)*n], &BK,
-			      &Ctmp2, 
-			      &BLAS_C[(ns-1)*n], &BM);
+        if (0<BN){
+
+	  F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
+		  	        &Ctmp1, 
+			        BLAS_H, &BM,
+			        &BLAS_S[(ns-1)*n], &BK,
+			        &Ctmp2, 
+			        &BLAS_C[(ns-1)*n], &BM);
+	}
 
       } /* #pragma omp parallel */
-
 
       /*
       BM = n;
@@ -1104,12 +969,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("C","N", &BM,&BN,&BK, 
-			      &Ctmp1,
-			      BLAS_S, &BM,
-			      &BLAS_C[(ns-1)*n], &BK, 
-			      &Ctmp2, 
-			      &BLAS_H[(ns-1)*n], &BM);
+        if (0<BN){
+ 	  F77_NAME(zgemm,ZGEMM)("C","N", &BM,&BN,&BK, 
+		  	        &Ctmp1,
+			        BLAS_S, &BM,
+			        &BLAS_C[(ns-1)*n], &BK, 
+			        &Ctmp2, 
+			        &BLAS_H[(ns-1)*n], &BM);
+	}
 
 	for (j1=ns; j1<=ne; j1++){
 	  for (i1=1; i1<=n; i1++){
@@ -1168,12 +1035,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
-			      &Ctmp1, 
-			      BLAS_H, &BM,
-			      &BLAS_S[(OMPID*n/Nthrds)*n], &BK,
-			      &Ctmp2, 
-			      &BLAS_C[(OMPID*n/Nthrds)*n], &BM);
+        if (0<BN){
+	  F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
+		 	        &Ctmp1, 
+			        BLAS_H, &BM,
+			        &BLAS_S[(OMPID*n/Nthrds)*n], &BK,
+			        &Ctmp2, 
+			        &BLAS_C[(OMPID*n/Nthrds)*n], &BM);
+	}
 
       } /* #pragma omp parallel */
 
@@ -1217,12 +1086,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("C","N", &BM,&BN,&BK,
-			      &Ctmp1, 
-			      BLAS_S, &BM,
-			      &BLAS_C[(OMPID*n/Nthrds)*n], &BK, 
-			      &Ctmp2, 
-			      &BLAS_H[(OMPID*n/Nthrds)*n], &BM);
+        if (0<BN){
+	  F77_NAME(zgemm,ZGEMM)("C","N", &BM,&BN,&BK,
+			        &Ctmp1, 
+			        BLAS_S, &BM,
+			        &BLAS_C[(OMPID*n/Nthrds)*n], &BK, 
+			        &Ctmp2, 
+			        &BLAS_H[(OMPID*n/Nthrds)*n], &BM);
+	}
 
 	for (j1=(OMPID*n/Nthrds+1); j1<=(OMPID+1)*n/Nthrds; j1++){
 	  for (i1=1; i1<=n; i1++){
@@ -1271,7 +1142,7 @@ diagonalize1:
     dtime(&Stime);
 
     if (parallel_mode==0){
-      EigenBand_lapack(C,ko,n,all_knum);
+      EigenBand_lapack(C,ko,n,MaxN,all_knum);
     }
     else{
       /*  The output C matrix is distributed by column. */
@@ -1375,12 +1246,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
-			      &Ctmp1, 
-			      BLAS_S, &BM,
-			      &BLAS_H[(ns-1)*n], &BK,
-			      &Ctmp2, 
-			      &BLAS_C[(ns-1)*n], &BM);
+        if (0<BN){
+	  F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
+			        &Ctmp1, 
+			        BLAS_S, &BM,
+			        &BLAS_H[(ns-1)*n], &BK,
+			        &Ctmp2, 
+			        &BLAS_C[(ns-1)*n], &BM);
+	}
 
 	for (j1=ns; j1<=ne; j1++){
 	  for (i1=1; i1<=n; i1++){
@@ -1425,12 +1298,6 @@ diagonalize1:
     spin++;  
     goto diagonalize1; 
   }
-
-  if (myid0==Host_ID && 0<level_stdout){
-    printf("<Band_DFT>  Eigen, time=%lf\n", EiloopTime-SiloopTime);fflush(stdout);
-  }
-
-  dtime(&SiloopTime);
 
   /****************************************************
      MPI:
@@ -1491,7 +1358,7 @@ diagonalize1:
       Num_State = 2.0*Num_State/sum_weights;
     else 
       Num_State = Num_State/sum_weights;
-
+ 
     Dnum = TZ - Num_State - system_charge;
 
     if (0.0<=Dnum) ChemP_MIN = ChemP;
@@ -1681,15 +1548,15 @@ diagonalize1:
 	      jb = Bnum + j;
 
 	      /***************************************************************
-             Note that the imagiary part is zero, 
-             since
+               Note that the imagiary part is zero, 
+               since
 
-             at k 
-             A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re) 
-             at -k
-             B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re) 
-             Thus, Re(A+B) = 2*(co*Re - si*Im)
-                   Im(A+B) = 0
+               at k 
+               A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re) 
+               at -k
+               B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re) 
+               Thus, Re(A+B) = 2*(co*Re - si*Im)
+                     Im(A+B) = 0
 	      ***************************************************************/
 
 	      po = 0;
@@ -1955,6 +1822,12 @@ diagonalize1:
   dtime(&Etime);
   time8 += Etime - Stime;
 
+  if (myid0==Host_ID && 0<level_stdout){
+    printf("<Band_DFT>  Eigen, time=%lf\n", EiloopTime-SiloopTime);fflush(stdout);
+  }
+
+  dtime(&SiloopTime);
+
   /****************************************************
    ****************************************************
      diagonalization for calculating density matrix
@@ -2114,7 +1987,7 @@ diagonalize1:
       dtime(&Stime);
 
       if (parallel_mode==0){
-	EigenBand_lapack(S,ko,n,1);
+	EigenBand_lapack(S,ko,n,n,1);
       }
       else{
 	Eigen_PHH(MPI_CommWD2[myworld2],S,ko,n,n,1);
@@ -2221,12 +2094,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
-			      &Ctmp1, 
-			      BLAS_H, &BM,
-			      &BLAS_S[(OMPID*n/Nthrds)*n], &BK,
-			      &Ctmp2, 
-			      &BLAS_C[(OMPID*n/Nthrds)*n], &BM);
+        if (0<BN){
+	  F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
+		  	        &Ctmp1, 
+			        BLAS_H, &BM,
+			        &BLAS_S[(OMPID*n/Nthrds)*n], &BK,
+			        &Ctmp2, 
+			        &BLAS_C[(OMPID*n/Nthrds)*n], &BM);
+	}
 
       } /* #pragma omp parallel */
 
@@ -2267,12 +2142,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("C","N", &BM,&BN,&BK, 
-			      &Ctmp1,
-			      BLAS_S, &BM,
-			      &BLAS_C[(OMPID*n/Nthrds)*n], &BK, 
-			      &Ctmp2, 
-			      &BLAS_H[(OMPID*n/Nthrds)*n], &BM);
+        if (0<BN){
+	  F77_NAME(zgemm,ZGEMM)("C","N", &BM,&BN,&BK, 
+			        &Ctmp1,
+			        BLAS_S, &BM,
+			        &BLAS_C[(OMPID*n/Nthrds)*n], &BK, 
+			        &Ctmp2, 
+			        &BLAS_H[(OMPID*n/Nthrds)*n], &BM);
+	}
 
 	for (j1=(OMPID*n/Nthrds+1); j1<=(OMPID+1)*n/Nthrds; j1++){
 	  for (i1=1; i1<=n; i1++){
@@ -2318,7 +2195,7 @@ diagonalize1:
       dtime(&Stime);
 
       if (parallel_mode==0){
-	EigenBand_lapack(C,ko,n,1);
+	EigenBand_lapack(C,ko,n,MaxN,1);
       }
       else{
 	/*  The C matrix is distributed by row */
@@ -2410,12 +2287,14 @@ diagonalize1:
 	Ctmp2.r = 0.0;
 	Ctmp2.i = 0.0;
 
-	F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
-			      &Ctmp1, 
-			      BLAS_S, &BM,
-			      &BLAS_H[(OMPID*MaxN/Nthrds)*n], &BK,
-			      &Ctmp2, 
-			      &BLAS_C[(OMPID*MaxN/Nthrds)*n], &BM);
+        if (0<BN){
+	  F77_NAME(zgemm,ZGEMM)("N","N", &BM,&BN,&BK, 
+			        &Ctmp1, 
+			        BLAS_S, &BM,
+			        &BLAS_H[(OMPID*MaxN/Nthrds)*n], &BK,
+			        &Ctmp2, 
+			        &BLAS_C[(OMPID*MaxN/Nthrds)*n], &BM);
+	}
 
 	for (j1=(OMPID*MaxN/Nthrds+1); j1<=(OMPID+1)*MaxN/Nthrds; j1++){
 	  for (i1=1; i1<=n; i1++){
@@ -2999,1454 +2878,3 @@ diagonalize1:
   time0 = TEtime - TStime;
   return time0;
 }
-
-
-
-
-
-
-
-static double Band_collinear(
-             int knum_i, int knum_j, int knum_k,
-             int SpinP_switch,
-             double *****nh,
-             double *****ImNL,
-             double ****CntOLP,
-             double *****CDM,
-             double *****EDM,
-             double Eele0[2], double Eele1[2])
-{
-  static int firsttime=1;
-  int i,j,k,l,m,n,wan;
-  int *MP,*arpo;
-  int i1,j1,po,spin,n1,s1,e1;
-  int num2,RnB,l1,l2,l3,loop_num;
-  int ct_AN,h_AN,wanA,tnoA,wanB,tnoB;
-  int MA_AN,GA_AN,Anum,num_kloop0;
-  int T_knum,S_knum,E_knum,kloop,kloop0;
-  double time0;
-  int LB_AN,GB_AN,Bnum;
-  double snum_i,snum_j,snum_k,k1,k2,k3;
-  double sum,sumi,Num_State,FermiF;
-  double tmp,eig,kw,EV_cut0;
-  double x,Dnum,Dnum2,AcP,ChemP_MAX,ChemP_MIN;
-  double **ko,*M1,***EIGEN,*tmp_array0;
-  double *koS;
-  double ****Dummy_ImNL;
-  dcomplex **H,**S,**C;
-  dcomplex ***H2,**TmpM;
-  dcomplex Ctmp1,Ctmp2;
-  double **Sr,**Cr;
-  int ***k_op,*T_k_op;
-  int ii,ij,ik;
-  double *KGrids1,*KGrids2,*KGrids3;
-  double *T_KGrids1,*T_KGrids2,*T_KGrids3;
-
-  double u2,v2,uv,vu;
-  double My_Eele1[2]; 
-  double TZ,dum,sumE,kRn,si,co;
-  double Resum,ResumE,Redum,Redum2;
-  double Imsum,ImsumE,Imdum,Imdum2;
-  double TStime,TEtime, SiloopTime,EiloopTime;
-  double FermiEps=1.0e-14;
-  double x_cut=30.0;
-
-  char file_EV[YOUSO10];
-  FILE *fp_EV;
-  char buf[fp_bsize];          /* setvbuf */
-  int numprocs,myid,ID,ID1;
-
-  /* MPI */
-  MPI_Comm_size(mpi_comm_level1,&numprocs);
-  MPI_Comm_rank(mpi_comm_level1,&myid);
-  MPI_Barrier(mpi_comm_level1);
-
-  dtime(&TStime);
-
-  /****************************************************
-   Allocation
-
-   int       MP[List_YOUSO[1]]
-   double    ko[List_YOUSO[23]][n+1]
-   double    koS[n+1];
-   dcomplex  H[n+1][n+1]
-   dcomplex  H2[List_YOUSO[23]][n+1][n+1]
-   dcomplex  S[n+1][n+1]
-   double    M1[n+1]
-   dcomplex  C[n+1][n+1]
-   double    EIGEN[List_YOUSO[23]]
-                  [T_knum]
-                  [n+1] 
-   double    KGrids1[List_YOUSO[27]]
-   double    KGrids2[List_YOUSO[28]]
-   double    KGrids3[List_YOUSO[29]]
-   int       k_op[knum_i][knum_j][knum_k]
-  ****************************************************/
-
-  MP = (int*)malloc(sizeof(int)*List_YOUSO[1]);
-  arpo = (int*)malloc(sizeof(int)*numprocs);
-  
-  n = 0;
-  for (i=1; i<=atomnum; i++){
-    wanA  = WhatSpecies[i];
-    n  = n + Spe_Total_CNO[wanA];
-  }
-
-  ko = (double**)malloc(sizeof(double*)*List_YOUSO[23]);
-  for (i=0; i<List_YOUSO[23]; i++){
-    ko[i] = (double*)malloc(sizeof(double)*(n+1));
-  }
-
-  koS = (double*)malloc(sizeof(double)*(n+1));
-
-  if (firsttime) {
-  PrintMemory("Band_DFT: ko",sizeof(double)*List_YOUSO[23]*(n+1),NULL);
-  PrintMemory("Band_DFT: koS",sizeof(double)*(n+1),NULL);
-  }
-
-  tmp_array0 = (double*)malloc(sizeof(double)*(n+1)*(n+1)*2);
-
-  H = (dcomplex**)malloc(sizeof(dcomplex*)*(n+1));
-  for (j=0; j<n+1; j++){
-    H[j] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
-  }
-
-  TmpM = (dcomplex**)malloc(sizeof(dcomplex*)*(n+1));
-  for (j=0; j<n+1; j++){
-    TmpM[j] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
-  }
-
-  H2 = (dcomplex***)malloc(sizeof(dcomplex**)*List_YOUSO[23]);
-  for (i=0; i<List_YOUSO[23]; i++){
-    H2[i] = (dcomplex**)malloc(sizeof(dcomplex*)*(n+1));
-    for (j=0; j<n+1; j++){
-      H2[i][j] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
-    }
-  }
-
-  S = (dcomplex**)malloc(sizeof(dcomplex*)*(n+1));
-  for (i=0; i<n+1; i++){
-    S[i] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
-  }
-
-  Sr = (double**)malloc(sizeof(double*)*(n+1));
-  for (i=0; i<n+1; i++){
-    Sr[i] = (double*)malloc(sizeof(double)*(n+1));
-  }
-
-  M1 = (double*)malloc(sizeof(double)*(n+1));
-
-  C = (dcomplex**)malloc(sizeof(dcomplex*)*(n+1));
-  for (j=0; j<n+1; j++){
-    C[j] = (dcomplex*)malloc(sizeof(dcomplex)*(n+1));
-  }
-
-  Cr = (double**)malloc(sizeof(double*)*(n+1));
-  for (j=0; j<n+1; j++){
-    Cr[j] = (double*)malloc(sizeof(double)*(n+1));
-  }
-
-  if (firsttime)
-  PrintMemory("Band_DFT: D",
-        sizeof(double)*List_YOUSO[23]*
-                       List_YOUSO[27]*
-                       List_YOUSO[28]*
-                       List_YOUSO[29]*(n+1),NULL);
-
-  KGrids1 = (double*)malloc(sizeof(double)*List_YOUSO[27]);
-  KGrids2 = (double*)malloc(sizeof(double)*List_YOUSO[28]);
-  KGrids3 = (double*)malloc(sizeof(double)*List_YOUSO[29]);
-
-  k_op=(int***)malloc(sizeof(int**)*(knum_i));
-  for (i=0;i<knum_i; i++) {
-    k_op[i]=(int**)malloc(sizeof(int*)*(knum_j));
-    for (j=0;j<knum_j; j++) {
-      k_op[i][j]=(int*)malloc(sizeof(int)*(knum_k));
-    }
-  }
-  /*  k_op[0:knum_i-1][0:knum_j-1][0:knum_k-1] */
-
-  /* no spin-orbit coupling */
-  if (SO_switch==0){
-    Dummy_ImNL = (double****)malloc(sizeof(double***)*1);
-    Dummy_ImNL[0] = (double***)malloc(sizeof(double**)*1);
-    Dummy_ImNL[0][0] = (double**)malloc(sizeof(double*)*1);
-    Dummy_ImNL[0][0][0] = (double*)malloc(sizeof(double)*1);
-  }
-
-  /* for PrintMemory */
-  firsttime=0;
-
-  snum_i = (double)knum_i;
-  snum_j = (double)knum_j;
-  snum_k = (double)knum_k;
-
-  for (i=0; i<=(knum_i-1); i++){
-    if (knum_i==1){
-      k1 = 0.0;
-    }
-    else {
-      k1 = -0.5 + (2.0*(double)i+1.0)/(2.0*snum_i) + Shift_K_Point;
-    }
-
-    KGrids1[i]=k1;
-  }
-  for (i=0; i<=(knum_j-1); i++){
-    if (knum_j==1){
-      k1 = 0.0;
-    }
-    else {
-      k1 = -0.5 + (2.0*(double)i+1.0)/(2.0*snum_j) - Shift_K_Point;
-    }
-
-    KGrids2[i]=k1;
-  }
-  for (i=0; i<=(knum_k-1); i++){
-    if (knum_k==1){
-      k1 = 0.0;
-    }
-    else {
-      k1 = -0.5 + (2.0*(double)i+1.0)/(2.0*snum_k) + 2.0*Shift_K_Point;
-    }
-
-    KGrids3[i]=k1;
-  }
-
-  if (myid==Host_ID && 0<level_stdout){
-    printf(" KGrids1: ");
-    for (i=0;i<=knum_i-1;i++) printf("%9.5f ",KGrids1[i]);
-    printf("\n");
-    printf(" KGrids2: ");
-    for (i=0;i<=knum_j-1;i++) printf("%9.5f ",KGrids2[i]);
-    printf("\n");
-    printf(" KGrids3: ");
-    for (i=0;i<=knum_k-1;i++) printf("%9.5f ",KGrids3[i]);
-    printf("\n");
-  }
-
-  /**************************************************************
-   k_op[i][j][k]: weight of DOS 
-                 =0   no calc.
-                 =1   G-point
-                 =2   which has k<->-k point
-        Now , only the relation, E(k)=E(-k), is used. 
-
-    Future release: k_op will be used for symmetry operation 
-  *************************************************************/
-
-  for (i=0;i<=knum_i-1;i++) {
-    for (j=0;j<=knum_j-1;j++) {
-      for (k=0;k<=knum_k-1;k++) {
-	k_op[i][j][k]=-999;
-      }
-    }
-  }
-
-  for (i=0;i<=knum_i-1;i++) {
-    for (j=0;j<=knum_j-1;j++) {
-      for (k=0;k<=knum_k-1;k++) {
-	if ( k_op[i][j][k]==-999 ) {
-	  k_inversion(i,j,k,knum_i,knum_j,knum_k,&ii,&ij,&ik);
-	  if ( i==ii && j==ij && k==ik ) {
-	    /*
-	    printf("* : %d %d %d (%f %f %f)\n",i,j,k,
-		   KGrids1[i], KGrids2[j], KGrids3[k]);
-	    */
-	    k_op[i][j][k]    = 1;
-	  }
-
-          else {
-	    k_op[i][j][k]    = 2;
-	    k_op[ii][ij][ik] = 0;
-	  }
-	}
-      } /* k */
-    } /* j */
-  } /* i */
-
-  /***********************************
-       one-dimentionalize for MPI
-  ************************************/
-
-  T_knum = 0;
-  for (i=0; i<=(knum_i-1); i++){
-    for (j=0; j<=(knum_j-1); j++){
-      for (k=0; k<=(knum_k-1); k++){
-        if (0<k_op[i][j][k]){
-          T_knum++;
-        }
-      }
-    }
-  }
-
-  /* allocation of arrays */
-
-  T_KGrids1 = (double*)malloc(sizeof(double)*T_knum);
-  T_KGrids2 = (double*)malloc(sizeof(double)*T_knum);
-  T_KGrids3 = (double*)malloc(sizeof(double)*T_knum);
-  T_k_op    = (int*)malloc(sizeof(int)*T_knum);
-
-  EIGEN  = (double***)malloc(sizeof(double**)*List_YOUSO[23]);
-  for (i=0; i<List_YOUSO[23]; i++){
-    EIGEN[i] = (double**)malloc(sizeof(double*)*T_knum);
-    for (j=0; j<T_knum; j++){
-      EIGEN[i][j] = (double*)malloc(sizeof(double)*(n+1));
-      for (k=0; k<(n+1); k++) EIGEN[i][j][k] = 1.0e+5;
-    }
-  }
-
-  /* set T_KGrids1,2,3 and T_k_op */
-
-  T_knum = 0;
-  for (i=0; i<=(knum_i-1); i++){
-    for (j=0; j<=(knum_j-1); j++){
-      for (k=0; k<=(knum_k-1); k++){
-        if (0<k_op[i][j][k]){
-
-	  T_KGrids1[T_knum] = KGrids1[i];
-	  T_KGrids2[T_knum] = KGrids2[j];
-	  T_KGrids3[T_knum] = KGrids3[k];
-	  T_k_op[T_knum]    = k_op[i][j][k];
-
-          T_knum++;
-        }
-      }
-    }
-  }
-
-  /* allocate k-points into proccessors */
-
-  if (T_knum<=myid){
-    S_knum = -10;
-    E_knum = -100;
-    num_kloop0 = 1;
-  }
-  else if (T_knum<numprocs) {
-    S_knum = myid;
-    E_knum = myid;
-    num_kloop0 = 1;
-  }
-  else {
-    tmp = (double)T_knum/(double)numprocs; 
-    num_kloop0 = (int)tmp + 1;
-    S_knum = (int)((double)myid*(tmp+0.0001)); 
-    E_knum = (int)((double)(myid+1)*(tmp+0.0001)) - 1;
-    if (myid==(numprocs-1)) E_knum = T_knum - 1;
-    if (E_knum<0)           E_knum = 0;
-  }
-
-  /* find TZ */
-
-  TZ = 0.0;
-  for (i=1; i<=atomnum; i++){
-    wan = WhatSpecies[i];
-    TZ = TZ + Spe_Core_Charge[wan];
-  }
-
-  /****************************************************
-                      start kloop
-  ****************************************************/
-
-  dtime(&SiloopTime);
-
-  for (kloop0=0; kloop0<num_kloop0; kloop0++){
-
-    kloop = kloop0 + S_knum;
-    arpo[myid] = -1;
-    if (S_knum<=kloop && kloop<=E_knum) arpo[myid] = kloop;
-    for (ID=0; ID<numprocs; ID++){
-      MPI_Bcast(&arpo[ID], 1, MPI_INT, ID, mpi_comm_level1);
-    }
-
-    /* set S and diagonalize it */
-
-    for (ID=0; ID<numprocs; ID++){
-    
-      kloop = arpo[ID];
-
-      if (0<=kloop){
-
-        k1 = T_KGrids1[kloop];
-        k2 = T_KGrids2[kloop];
-        k3 = T_KGrids3[kloop];
-
-        Overlap_Band(ID,CntOLP,TmpM,MP,k1,k2,k3);
-        n = TmpM[0][0].r;
-
-        if (myid==ID){
-	  for (i1=1; i1<=n; i1++){
-	    for (j1=1; j1<=n; j1++){
-	      S[i1][j1].r = TmpM[i1][j1].r;
-	      S[i1][j1].i = TmpM[i1][j1].i;
-	    } 
-	  } 
-        } 
-      }
-    }
-
-    kloop = arpo[myid];
-
-    if (0<=kloop){
-
-      if (knum_i==1 && knum_j==1 && knum_k==1){
-
-        for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    Sr[i1][j1] = S[i1][j1].r;
-	  } 
-	} 
-
-	Eigen_lapack(Sr,ko[0],n,n);
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    S[i1][j1].r = Sr[i1][j1];
-	    S[i1][j1].i = 0.0;
-	  } 
-	} 
-      }
-
-      else{
-        EigenBand_lapack(S,ko[0],n,1);
-      }
-
-      if (3<=level_stdout){
-	printf(" myid=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
-	       myid,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
-	for (i1=1; i1<=n; i1++){
-	  printf("  Eigenvalues of OLP  %2d  %15.12f\n",i1,ko[0][i1]);
-	}
-      }
-
-      /* minus eigenvalues to 1.0e-14 */
-
-      for (l=1; l<=n; l++){
-        if (ko[0][l]<0.0) ko[0][l] = 1.0e-14;
-        koS[l] = ko[0][l];
-      }
-
-      /* calculate S*1/sqrt(ko) */
-
-      for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(ko[0][l]);
-
-      /* S * M1  */
-
-      for (i1=1; i1<=n; i1++){
-	for (j1=1; j1<=n; j1++){
-	  S[i1][j1].r = S[i1][j1].r*M1[j1];
-	  S[i1][j1].i = S[i1][j1].i*M1[j1];
-	} 
-      } 
-
-    } /* if (0<=kloop) */
-
-    /* construct H' and diagonalize it */
-
-    for (spin=0; spin<=SpinP_switch; spin++){
-
-      for (ID=0; ID<numprocs; ID++){
-
-        kloop = arpo[ID];
-
-        if (0<=kloop){
-          k1 = T_KGrids1[kloop];
-          k2 = T_KGrids2[kloop];
-          k3 = T_KGrids3[kloop];
-
-          Hamiltonian_Band(ID, nh[spin], TmpM, MP, k1, k2, k3);
-
-          if (myid==ID){
-	    for (i1=1; i1<=n; i1++){
-	      for (j1=1; j1<=n; j1++){
-	        H[i1][j1].r = TmpM[i1][j1].r;
-	        H[i1][j1].i = TmpM[i1][j1].i;
-	      } 
-	    } 
-          } 
-        } /* if (0<=kloop) */
-      } /* ID */
-
-      kloop = arpo[myid];
-
-      if (0<=kloop){
-
-        /****************************************************
- 	                 M1 * U^t * H * U * M1
-        ****************************************************/
-
-        /* transpose S */
-
-        if (spin==0){
-	  for (i1=1; i1<=n; i1++){
-	    for (j1=i1+1; j1<=n; j1++){
-	      Ctmp1 = S[i1][j1];
-	      Ctmp2 = S[j1][i1];
-	      S[i1][j1] = Ctmp2;
-	      S[j1][i1] = Ctmp1;
-	    }
-	  }
-	}
-
-        /* H * U * M1 */
-
-        for (j1=1; j1<=n; j1++){
- 	  for (i1=1; i1<=n; i1++){
-
-	    sum  = 0.0;
-	    sumi = 0.0;
-
-	    for (l=1; l<=n; l++){
-	      sum  += H[i1][l].r*S[j1][l].r - H[i1][l].i*S[j1][l].i;
-	      sumi += H[i1][l].r*S[j1][l].i + H[i1][l].i*S[j1][l].r;
-	    }
-
-	    C[j1][i1].r = sum;
-	    C[j1][i1].i = sumi;
-	  }
-	}     
-
-        /* M1 * U^+ H * U * M1 */
-
-        for (i1=1; i1<=n; i1++){
-          for (j1=1; j1<=n; j1++){
-	    sum  = 0.0;
-            sumi = 0.0;
-	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*C[j1][l].r + S[i1][l].i*C[j1][l].i;
-	      sumi +=  S[i1][l].r*C[j1][l].i - S[i1][l].i*C[j1][l].r;
-	    }
-	    H[i1][j1].r = sum;
-	    H[i1][j1].i = sumi;
-	  }
-	} 
-
-        /* H to C */
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    C[i1][j1] = H[i1][j1];
-	  }
-	}
-
-        /* penalty for ill-conditioning states */
-
-	EV_cut0 = Threshold_OLP_Eigen;
-
-	for (i1=1; i1<=n; i1++){
-
-	  if (koS[i1]<EV_cut0){
-	    C[i1][i1].r += pow((koS[i1]/EV_cut0),-2.0) - 1.0;
-	  }
- 
-	  /* cutoff the interaction between the ill-conditioned state */
- 
-	  if (1.0e+3<C[i1][i1].r){
-	    for (j1=1; j1<=n; j1++){
-	      C[i1][j1] = Complex(0.0,0.0);
-	      C[j1][i1] = Complex(0.0,0.0);
-	    }
-	    C[i1][i1].r = 1.0e+4;
-	  }
-	}
-
-        /* solve eigenvalue problem */
-
-	n1 = n;
-
-	if (knum_i==1 && knum_j==1 && knum_k==1){
-
-	  for (i1=1; i1<=n1; i1++){
-	    for (j1=1; j1<=n1; j1++){
-	      Cr[i1][j1] = C[i1][j1].r;
-	    } 
-	  } 
-
-	  Eigen_lapack(Cr,ko[spin],n1,n1);
-
-	  for (i1=1; i1<=n1; i1++){
-	    for (j1=1; j1<=n1; j1++){
-	      C[i1][j1].r = Cr[i1][j1];
-	      C[i1][j1].i = 0.0;
-	    } 
-	  } 
-	}
-
-	else{
-	  EigenBand_lapack(C,ko[spin],n1,1);
-	}
-
-	for (l=1; l<=n1; l++){
-	  EIGEN[spin][kloop][l] = ko[spin][l];
-	}
-
-      } /* if (0<=kloop) */ 
-    } /* spin */
-
-    if (3<=level_stdout && 0<=kloop){
-      printf(" myid=%2d  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",
-              myid,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
-      for (i1=1; i1<=n; i1++){
-	if (SpinP_switch==0)
-	  printf("  Eigenvalues of Kohn-Sham %2d %15.12f %15.12f\n",
-		 i1,ko[0][i1],ko[0][i1]);
-	else 
-	  printf("  Eigenvalues of Kohn-Sham %2d %15.12f %15.12f\n",
-		 i1,ko[0][i1],ko[1][i1]);
-      }
-    }
-  
-  } /* kloop0 */
-
-  dtime(&EiloopTime);
-
-  if (myid==Host_ID && 0<level_stdout){
-    printf("<Band_DFT>  Eigen, time=%lf\n", EiloopTime-SiloopTime);
-  }
-
-  SiloopTime=EiloopTime;
-  fflush(stdout);
-
-  /****************************************************
-     MPI:
-
-     EIGEN
-  ****************************************************/
-
-  tmp = (double)T_knum/(double)numprocs; 
-
-  for (spin=0; spin<=SpinP_switch; spin++){
-    for (kloop=0; kloop<T_knum; kloop++){
-
-      for (ID=0; ID<numprocs; ID++){
-
-	if (T_knum<=ID){
-	  s1 = -10;
-	  e1 = -100;
-	}
-	else if (T_knum<numprocs) {
-	  s1 = ID;
-	  e1 = ID;
-	}
-	else {
-	  s1 = (int)((double)ID*(tmp+0.0001));
-          e1 = (int)((double)(ID+1)*(tmp+0.0001)) - 1;
-          if (ID==(numprocs-1)) e1 = T_knum - 1;
-          if (e1<0)             e1 = 0;
-	}
-        if (s1<=kloop && kloop<=e1)  ID1 = ID;
-      }
-
-      MPI_Bcast(&EIGEN[spin][kloop][0], n+1, MPI_DOUBLE, ID1, mpi_comm_level1);
-
-    } /* kloop */
-  } /* spin */
-
-  /****************************************************
-           band energy in a finite temperature
-  ****************************************************/
-  
-  po = 0;
-  loop_num = 0;
-  ChemP_MAX = 10.0;  
-  ChemP_MIN =-10.0;
-
-  do {
-    loop_num++;
-
-    ChemP = 0.50*(ChemP_MAX + ChemP_MIN);
-    Num_State = 0.0;
-
-    for (kloop=0; kloop<T_knum; kloop++){
-      for (spin=0; spin<=SpinP_switch; spin++){
-	for (l=1; l<=n; l++){
-
-	    x = (EIGEN[spin][kloop][l] - ChemP)*Beta;
-
-	    if (x<=-x_cut)      FermiF = 1.0;
-            else if (x>=x_cut)  FermiF = 0.0;
-            else                FermiF = 1.0/(1.0 + exp(x));
-
-	    Num_State += FermiF*(double)T_k_op[kloop];
-
-	} /* l */
-      }  /* spin */
-    } /* kloop */
-
-    if (SpinP_switch==0) 
-      Num_State = 2.0*Num_State/snum_i/snum_j/snum_k;
-    else 
-      Num_State = Num_State/snum_i/snum_j/snum_k;
-
-    Dnum = TZ - Num_State - system_charge;
-
-    /*
-    printf("loop_num=%2d ChemP=%15.12f Num_State=%18.15f  Dnum=%18.15f\n",
-            loop_num,ChemP,Num_State,Dnum);
-    */
-
-    if (0.0<=Dnum) ChemP_MIN = ChemP;
-    else           ChemP_MAX = ChemP;
-    if (fabs(Dnum)<10e-14) po = 1;
-  }
-  while (po==0 && loop_num<2000);
-
-  Eele0[0] = 0.0;
-  Eele0[1] = 0.0;
-
-  for (kloop=0; kloop<T_knum; kloop++){
-    for (spin=0; spin<=SpinP_switch; spin++){
-      for (l=1; l<=n; l++){
-
-	x = (EIGEN[spin][kloop][l] - ChemP)*Beta;
-
-	if (x<=-x_cut)      FermiF = 1.0;
-	else if (x_cut<=x)  FermiF = 0.0;
-	else                FermiF = 1.0/(1.0 + exp(x));
-
-	Eele0[spin] += FermiF*EIGEN[spin][kloop][l]*(double)T_k_op[kloop];
-
-      } /* l */
-    } /* spin */
-  } /* kloop */
-
-  if (SpinP_switch==0){
-    Eele0[0] = Eele0[0]/snum_i/snum_j/snum_k;
-    Eele0[1] = Eele0[0];
-  }
-  else {
-    Eele0[0] = Eele0[0]/snum_i/snum_j/snum_k;
-    Eele0[1] = Eele0[1]/snum_i/snum_j/snum_k;
-  }
-
-  Uele = Eele0[0] + Eele0[1];
-
-  if (2<=level_stdout){
-    printf("ChemP=%lf, Eele0[0]=%lf,  Eele0[1]=%lf\n",ChemP,Eele0[0],Eele0[1]);
-  }
-
-  /****************************************************
-    diagonalization for calculating density matrix
-  ****************************************************/
-
-  for (spin=0; spin<=SpinP_switch; spin++){
-    for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
-      GA_AN = M2G[MA_AN];    
-      wanA = WhatSpecies[GA_AN];
-      tnoA = Spe_Total_CNO[wanA];
-      Anum = MP[GA_AN];
-      for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
-        GB_AN = natn[GA_AN][LB_AN];
-        wanB = WhatSpecies[GB_AN];
-        tnoB = Spe_Total_CNO[wanB];
-        Bnum = MP[GB_AN];
-
-        for (i=0; i<tnoA; i++){
-          for (j=0; j<tnoB; j++){
-            CDM[spin][MA_AN][LB_AN][i][j] = 0.0;
-            EDM[spin][MA_AN][LB_AN][i][j] = 0.0;
-            iDM[0][0][MA_AN][LB_AN][i][j] = 0.0;
-            iDM[0][1][MA_AN][LB_AN][i][j] = 0.0;
-          }
-        }
-      }
-    }
-  }
-
-  /* for kloop */
-
-  dtime(&SiloopTime);
-
-  for (kloop0=0; kloop0<num_kloop0; kloop0++){
-
-    kloop = kloop0 + S_knum;
-    arpo[myid] = -1;
-    if (S_knum<=kloop && kloop<=E_knum) arpo[myid] = kloop;
-    for (ID=0; ID<numprocs; ID++){
-      MPI_Bcast(&arpo[ID], 1, MPI_INT, ID, mpi_comm_level1);
-    }
-
-    /* set S */
-
-    for (ID=0; ID<numprocs; ID++){
-
-      kloop = arpo[ID];
-
-      if (0<=kloop){
-
-        k1 = T_KGrids1[kloop];
-        k2 = T_KGrids2[kloop];
-        k3 = T_KGrids3[kloop];
-
-        Overlap_Band(ID,CntOLP,TmpM,MP,k1,k2,k3);
-        n = TmpM[0][0].r;
-
-        if (myid==ID){
-	  for (i1=1; i1<=n; i1++){
-	    for (j1=1; j1<=n; j1++){
-	      S[i1][j1].r = TmpM[i1][j1].r;
-	      S[i1][j1].i = TmpM[i1][j1].i;
-	    } 
-	  } 
-        } 
-
-      }
-    }
-
-    kloop = arpo[myid];
-
-    if (0<=kloop){
-
-      if (knum_i==1 && knum_j==1 && knum_k==1){
-
-        for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    Sr[i1][j1] = S[i1][j1].r;
-	  } 
-	} 
-
-	Eigen_lapack(Sr,ko[0],n,n);
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    S[i1][j1].r = Sr[i1][j1];
-	    S[i1][j1].i = 0.0;
-	  } 
-	} 
-      }
-
-      else{
-        EigenBand_lapack(S,ko[0],n,1);
-      }
-
-      if (3<=level_stdout && 0<=kloop){
-	printf("  kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
-	       kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
-	for (i1=1; i1<=n; i1++){
-	  printf("  Eigenvalues of OLP (DM)  %2d  %15.12f\n",i1,ko[0][i1]);
-	}
-      }
-
-      /* minus eigenvalues to 1.0e-14 */
-
-      for (l=1; l<=n; l++){
-        if (ko[0][l]<0.0) ko[0][l] = 1.0e-14;
-        koS[l] = ko[0][l];
-      }
-
-      /* calculate S*1/sqrt(ko) */
-
-      for (l=1; l<=n; l++) M1[l] = 1.0/sqrt(ko[0][l]);
-
-      /* S * M1  */
-
-      for (i1=1; i1<=n; i1++){
-	for (j1=1; j1<=n; j1++){
-	  S[i1][j1].r = S[i1][j1].r*M1[j1];
-	  S[i1][j1].i = S[i1][j1].i*M1[j1];
-	} 
-      } 
-
-    } /* if (0<=kloop) */
-
-    /* set H */
-
-    for (spin=0; spin<=SpinP_switch; spin++){
-
-      for (ID=0; ID<numprocs; ID++){
-
-        kloop = arpo[ID];
-
-        if (0<=kloop){
-          k1 = T_KGrids1[kloop];
-          k2 = T_KGrids2[kloop];
-          k3 = T_KGrids3[kloop];
-
-          if (SO_switch==0)
-            Hamiltonian_Band(ID, nh[spin], TmpM, MP, k1, k2, k3);
-          else if (SO_switch==1)
-            Hamiltonian_Band(ID, nh[spin], TmpM, MP, k1, k2, k3);
-
-          if (myid==ID){
-	    for (i1=1; i1<=n; i1++){
-	      for (j1=1; j1<=n; j1++){
-	        H[i1][j1].r = TmpM[i1][j1].r;
-	        H[i1][j1].i = TmpM[i1][j1].i;
-	      } 
-	    } 
-          } 
-
-	} /* if (0<=kloop) */
-      } /* ID */
-
-      kloop = arpo[myid];
-
-      if (0<=kloop){
-
-        /****************************************************
- 	                 M1 * U^t * H * U * M1
-        ****************************************************/
-
-        /* transpose S */
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=i1+1; j1<=n; j1++){
-	    Ctmp1 = S[i1][j1];
-	    Ctmp2 = S[j1][i1];
-	    S[i1][j1] = Ctmp2;
-	    S[j1][i1] = Ctmp1;
-	  }
-	}
-        
-        /* H * U * M1 */
- 
-        for (j1=1; j1<=n; j1++){
- 	  for (i1=1; i1<=n; i1++){
-
-	    sum  = 0.0;
-	    sumi = 0.0;
-
-	    for (l=1; l<=n; l++){
-	      sum  += H[i1][l].r*S[j1][l].r - H[i1][l].i*S[j1][l].i;
-	      sumi += H[i1][l].r*S[j1][l].i + H[i1][l].i*S[j1][l].r;
-	    }
-
-	    C[j1][i1].r = sum;
-	    C[j1][i1].i = sumi;
-	  }
-	}     
-
-        /* M1 * U^+ H * U * M1 */
-
-        for (i1=1; i1<=n; i1++){
-          for (j1=1; j1<=n; j1++){
-	    sum  = 0.0;
-            sumi = 0.0;
-	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*C[j1][l].r + S[i1][l].i*C[j1][l].i;
-	      sumi +=  S[i1][l].r*C[j1][l].i - S[i1][l].i*C[j1][l].r;
-	    }
-	    H[i1][j1].r = sum;
-	    H[i1][j1].i = sumi;
-	  }
-	} 
-
-        /* H to C */
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    C[i1][j1] = H[i1][j1];
-	  }
-	}
-
-       /* penalty for ill-conditioning states */
-
-	EV_cut0 = Threshold_OLP_Eigen;
-
-	for (i1=1; i1<=n; i1++){
-
-	  if (koS[i1]<EV_cut0){
-	    C[i1][i1].r += pow((koS[i1]/EV_cut0),-2.0) - 1.0;
-	  }
- 
-	  /* cutoff the interaction between the ill-conditioned state */
- 
-	  if (1.0e+3<C[i1][i1].r){
-	    for (j1=1; j1<=n; j1++){
-	      C[i1][j1] = Complex(0.0,0.0);
-	      C[j1][i1] = Complex(0.0,0.0);
-	    }
-	    C[i1][i1].r = 1.0e+4;
-	  }
-	}
-
-        /* solve the eigenvalue problem */
-
-	n1 = n;
-
-	if (knum_i==1 && knum_j==1 && knum_k==1){
-
-	  for (i1=1; i1<=n1; i1++){
-	    for (j1=1; j1<=n1; j1++){
-	      Cr[i1][j1] = C[i1][j1].r;
-	    } 
-	  } 
-
-	  Eigen_lapack(Cr,ko[spin],n1,n1);
-
-	  for (i1=1; i1<=n1; i1++){
-	    for (j1=1; j1<=n1; j1++){
-	      C[i1][j1].r = Cr[i1][j1];
-	      C[i1][j1].i = 0.0;
-	    } 
-	  } 
-	}
-
-	else{
-	  EigenBand_lapack(C,ko[spin],n1,1);
-	}
-
-	if (3<=level_stdout && 0<=kloop){
-	  printf("  kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n",
-                kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
-	  for (i1=1; i1<=n; i1++){
-	    if (SpinP_switch==0)
-	      printf("  Eigenvalues of Kohn-Sham(DM) %2d %15.12f %15.12f\n",
-		     i1,ko[0][i1],ko[0][i1]);
-	    else
-	      printf("  Eigenvalues of Kohn-Sham(DM) %2d %15.12f %15.12f\n",
-		     i1,ko[0][i1],ko[1][i1]);
-	  }
-	}
-
-	/****************************************************
-	     transformation to the original eigenvectors.
-	     NOTE JRCAT-244p and JAIST-2122p 
-	****************************************************/
-
-	/* transpose */
-	for (i1=1; i1<=n; i1++){
-	  for (j1=i1+1; j1<=n; j1++){
-	    Ctmp1 = S[i1][j1];
-	    Ctmp2 = S[j1][i1];
-	    S[i1][j1] = Ctmp2;
-	    S[j1][i1] = Ctmp1;
-	  }
-	}
-
-	/* transpose */
-	for (i1=1; i1<=n; i1++){
-	  for (j1=i1+1; j1<=n; j1++){
-	    Ctmp1 = C[i1][j1];
-	    Ctmp2 = C[j1][i1];
-	    C[i1][j1] = Ctmp2;
-	    C[j1][i1] = Ctmp1;
-	  }
-	}
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n; j1++){
-	    H2[spin][i1][j1].r = 0.0;
-	    H2[spin][i1][j1].i = 0.0;
-	  }
-	}
-
-	for (i1=1; i1<=n; i1++){
-	  for (j1=1; j1<=n1; j1++){
-	    sum  = 0.0;
-	    sumi = 0.0;
-	    for (l=1; l<=n; l++){
-	      sum  +=  S[i1][l].r*C[j1][l].r - S[i1][l].i*C[j1][l].i;
-	      sumi +=  S[i1][l].r*C[j1][l].i + S[i1][l].i*C[j1][l].r;
-	    }
-	    H2[spin][i1][j1].r = sum;
-	    H2[spin][i1][j1].i = sumi;
-	  }
-	}
-
-      } /* if (0<=kloop )*/
-    } /* spin */
-
-    /****************************************************
-                  calculate DM and EDM
-    ****************************************************/
-
-    for (ID=0; ID<numprocs; ID++){
-
-      kloop = arpo[ID];
-
-      if (0<=kloop){
-
-	for (spin=0; spin<=SpinP_switch; spin++){
-
-          /* MPI: H2 */
-
-	  k = 0;
-
-	  for (i1=0; i1<=n; i1++){
-	    for (j1=0; j1<=n; j1++){
-	      tmp_array0[k] = H2[spin][i1][j1].r;
-	      k++;
-	    }
-	  }
-
-	  for (i1=0; i1<=n; i1++){
-	    for (j1=0; j1<=n; j1++){
-	      tmp_array0[k] = H2[spin][i1][j1].i;
-	      k++;
-	    }
-	  }
-
-          MPI_Barrier(mpi_comm_level1);
-          MPI_Bcast(&tmp_array0[0], 2*(n+1)*(n+1), MPI_DOUBLE, ID, mpi_comm_level1);
-
-	  k = 0;
-
-	  for (i1=0; i1<=n; i1++){
-	    for (j1=0; j1<=n; j1++){
-	      H[i1][j1].r = tmp_array0[k];
-	      k++;
-	    }
-	  }
-         
-	  for (i1=0; i1<=n; i1++){
-	    for (j1=0; j1<=n; j1++){
-	      H[i1][j1].i = tmp_array0[k];
-	      k++;
-	    }
-	  }
-
-  	  /* transpose */
-
-	  for (i1=1; i1<=n; i1++){
-	    for (j1=i1+1; j1<=n; j1++){
-	      Ctmp1 = H[i1][j1];
-	      Ctmp2 = H[j1][i1];
-	      H[i1][j1] = Ctmp2;
-	      H[j1][i1] = Ctmp1;
-	    }
-	  }
-
-          /****************************************************
-           calc of DM and EDM
-          ****************************************************/
-
-          k1 = T_KGrids1[kloop];
-          k2 = T_KGrids2[kloop];
-          k3 = T_KGrids3[kloop];
-
-	  for (l=1; l<=n; l++){
-
-            kw = (double)T_k_op[kloop];
-            eig = EIGEN[spin][kloop][l];
-	    x = (eig - ChemP)*Beta;
-           
-	    if (x<-x_cut)      FermiF = 1.0;
-	    else if (x>x_cut)  FermiF = 0.0;
-	    else               FermiF = 1.0/(1.0 + exp(x));
-
-	    if (FermiF>FermiEps) {
-
-	      for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
-		GA_AN = M2G[MA_AN];
-		wanA = WhatSpecies[GA_AN];
-		tnoA = Spe_Total_CNO[wanA];
-		Anum = MP[GA_AN];
-		for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
-		  GB_AN = natn[GA_AN][LB_AN];
-		  RnB = ncn[GA_AN][LB_AN];
-		  wanB = WhatSpecies[GB_AN];
-		  tnoB = Spe_Total_CNO[wanB];
-		  Bnum = MP[GB_AN];
-		  l1 = atv_ijk[RnB][1];
-		  l2 = atv_ijk[RnB][2];
-		  l3 = atv_ijk[RnB][3];
-
-		  kRn = k1*(double)l1 + k2*(double)l2 + k3*(double)l3;
-		  si = sin(2.0*PI*kRn);  /* Imaginary part */
-		  co = cos(2.0*PI*kRn);  /* Real part      */
-              
-		  for (i1=0; i1<tnoA; i1++){
-		    for (j1=0; j1<tnoB; j1++){
-
-		      u2 = H[l][Anum+i1].r*H[l][Bnum+j1].r;
-		      v2 = H[l][Anum+i1].i*H[l][Bnum+j1].i;
-		      uv = H[l][Anum+i1].r*H[l][Bnum+j1].i;
-		      vu = H[l][Anum+i1].i*H[l][Bnum+j1].r;
-
-		      Redum = FermiF*(u2 + v2);
-		      Imdum = FermiF*(uv - vu);
-
-		      Redum2 = (co*Redum - si*Imdum)*kw;
-
-		      /*
-                      Imdum2 = co*Imdum + si*Redum;
-		      */
-
-		      Resum  = Redum2;
-		      ResumE = eig*Redum2;
-
-		      CDM[spin][MA_AN][LB_AN][i1][j1] += Resum;
-                      EDM[spin][MA_AN][LB_AN][i1][j1] += ResumE;
-
-                      /***************************************************************
-                       at k 
-                       A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re) 
-                       at -k
-                       B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re) 
-                       Thus, Re(A+B) = 2*(co*Re - si*Im)
-                             Im(A+B) = 0
-                      ***************************************************************/
-
-		      /*
-		      iDM[0][spin][MA_AN][LB_AN][i1][j1] = 0.0;
-		      */
-
-		    } /* j1     */
-		  }   /* i1     */
-		}     /* LB_AN  */
-	      }       /* GA_AN  */
-	    }         /* if     */
-	  }           /* l      */
-
-	} /* spin */
-      } /* if (0<=kloop) */
-    } /* ID */
-
-  } /* kloop0 */
-
-  dtime(&EiloopTime);
-
-  if (myid==Host_ID && 0<level_stdout){
-    printf("<Band_DFT>  DM, time=%lf\n", EiloopTime-SiloopTime);
-  }
-
-  SiloopTime=EiloopTime;
-  fflush(stdout);
-
-  dum = 1.0/(snum_i*snum_j*snum_k);
-  for (spin=0; spin<=SpinP_switch; spin++){
-    for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
-      GA_AN = M2G[MA_AN];    
-      wanA = WhatSpecies[GA_AN];
-      tnoA = Spe_Total_CNO[wanA];
-      Anum = MP[GA_AN];
-      for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
-        GB_AN = natn[GA_AN][LB_AN];
-        wanB = WhatSpecies[GB_AN];
-        tnoB = Spe_Total_CNO[wanB];
-        Bnum = MP[GB_AN];
-
-	for (i=0; i<tnoA; i++){
-	  for (j=0; j<tnoB; j++){
-	    CDM[spin][MA_AN][LB_AN][i][j]    = CDM[spin][MA_AN][LB_AN][i][j]*dum;
-	    EDM[spin][MA_AN][LB_AN][i][j]    = EDM[spin][MA_AN][LB_AN][i][j]*dum;
-	  }
-	}
-      }
-    }
-  }
-
-  /****************************************************
-                     Bond Energies
-  ****************************************************/
-
-  My_Eele1[0] = 0.0;
-  My_Eele1[1] = 0.0;
-  for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
-    GA_AN = M2G[MA_AN];    
-    wanA = WhatSpecies[GA_AN];
-    tnoA = Spe_Total_CNO[wanA];
-
-    for (j=0; j<=FNAN[GA_AN]; j++){
-      GB_AN = natn[GA_AN][j];  
-      wanB = WhatSpecies[GB_AN];
-      tnoB = Spe_Total_CNO[wanB];
-
-      for (k=0; k<tnoA; k++){
-	for (l=0; l<tnoB; l++){
-	  for (spin=0; spin<=SpinP_switch; spin++){
-	    My_Eele1[spin] += CDM[spin][MA_AN][j][k][l]*nh[spin][MA_AN][j][k][l];
-	  }
-	}
-      }
-  
-    }
-  }
-
-  /* MPI, My_Eele1 */
-  MPI_Barrier(mpi_comm_level1);
-  for (spin=0; spin<=SpinP_switch; spin++){
-    MPI_Allreduce(&My_Eele1[spin], &Eele1[spin], 1, MPI_DOUBLE,
-                   MPI_SUM, mpi_comm_level1);
-  }
-
-  if (SpinP_switch==0){
-    Eele1[1] = Eele1[0];
-  }
-
-  if (3<=level_stdout && myid==Host_ID){
-    printf("Eele00=%15.12f Eele01=%15.12f\n",Eele0[0],Eele0[1]);
-    printf("Eele10=%15.12f Eele11=%15.12f\n",Eele1[0],Eele1[1]);
-  }
-
-  /*
-  printf("Eele00=%15.12f Eele01=%15.12f\n",Eele0[0],Eele0[1]);
-  printf("Eele10=%15.12f Eele11=%15.12f\n",Eele1[0],Eele1[1]);
-
-  sum = 0.0;
-  for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
-    GA_AN = M2G[MA_AN];    
-    wanA = WhatSpecies[GA_AN];
-    tnoA = Spe_Total_CNO[wanA];
-
-    for (j=0; j<=FNAN[GA_AN]; j++){
-      GB_AN = natn[GA_AN][j];  
-      wanB = WhatSpecies[GB_AN];
-      tnoB = Spe_Total_CNO[wanB];
-
-      for (k=0; k<tnoA; k++){
-	for (l=0; l<tnoB; l++){
-	  for (spin=0; spin<=SpinP_switch; spin++){
-	    sum += fabs(CDM[spin][MA_AN][j][k][l]);
-	  }
-	}
-      }
-    }
-  }
-
-  printf("sum of CDM=%15.12f\n",sum);
-  */
-
-  /****************************************************
-                        Output
-  ****************************************************/
-
-  if (myid==Host_ID){
-  
-    strcpy(file_EV,".EV");
-    fnjoint(filepath,filename,file_EV);
-
-    if ((fp_EV = fopen(file_EV,"w")) != NULL){
-
-#ifdef xt3
-      setvbuf(fp_EV,buf,_IOFBF,fp_bsize);  /* setvbuf */
-#endif
-
-      fprintf(fp_EV,"\n");
-      fprintf(fp_EV,"***********************************************************\n");
-      fprintf(fp_EV,"***********************************************************\n");
-      fprintf(fp_EV,"           Eigenvalues (Hartree) of SCF KS-eq.           \n");
-      fprintf(fp_EV,"***********************************************************\n");
-      fprintf(fp_EV,"***********************************************************\n\n");
-      fprintf(fp_EV,"   Chemical Potential (Hatree) = %18.14f\n",ChemP);
-      fprintf(fp_EV,"   Number of States            = %18.14f\n",Num_State);
-      fprintf(fp_EV,"   Eigenvalues\n");
-      fprintf(fp_EV,"              Up-spin           Down-spin\n");
-
-      m = 0;
-      for (i=0; i<=(knum_i-1); i++){
-        for (j=0; j<=(knum_j-1); j++){
-	  for (k=0; k<=(knum_k-1); k++){
-
-            if (k_op[i][j][k]>0){
-
-  	      fprintf(fp_EV,"\n");
-	      fprintf(fp_EV,"   i=%i j=%i k=%i\n",i,j,k);
-	      fprintf(fp_EV,"   k1=%10.5f k2=%10.5f k3=%10.5f\n\n",
-                      KGrids1[i],KGrids2[j],KGrids3[k]);
-              for (l=1; l<=n; l++){
-	        if (SpinP_switch==0){
-	          fprintf(fp_EV,"%5d  %18.14f %18.14f\n",
-		          l,EIGEN[0][m][l],EIGEN[0][m][l]);
-	        }
-	        else if (SpinP_switch==1){
-	          fprintf(fp_EV,"%5d  %18.14f %18.14f\n",
-		          l,EIGEN[0][m][l],EIGEN[1][m][l]);
-	        }
-	      }
-
-              m++;
-	    }
-	  }
-        }
-      }
-      fclose(fp_EV);
-    }
-    else{
-      printf("Failure of saving the EV file.\n");
-      fclose(fp_EV);
-    }  
-  }
-
-  /****************************************************
-                       free arrays
-  ****************************************************/
-
-  free(MP);
-  free(arpo);
-
-  for (i=0; i<List_YOUSO[23]; i++){
-    free(ko[i]);
-  }
-  free(ko);
-
-  free(koS);
-
-  free(tmp_array0);
-
-  for (j=0; j<n+1; j++){
-    free(H[j]);
-  }
-  free(H);
-
-  for (j=0; j<n+1; j++){
-    free(TmpM[j]);
-  }
-  free(TmpM);
-
-  for (i=0; i<List_YOUSO[23]; i++){
-    for (j=0; j<n+1; j++){
-      free(H2[i][j]);
-    }
-    free(H2[i]);
-  }
-  free(H2);
-
-  for (i=0; i<n+1; i++){
-    free(S[i]);
-  }
-  free(S);
-
-  for (i=0; i<n+1; i++){
-    free(Sr[i]);
-  }
-  free(Sr);
-
-  free(M1);
-
-  for (j=0; j<n+1; j++){
-     free(C[j]);
-  }
-  free(C);
-
-  for (j=0; j<n+1; j++){
-    free(Cr[j]);
-  }
-  free(Cr);
-
-  for (i=0; i<List_YOUSO[23]; i++){
-    for (j=0; j<T_knum; j++){
-      free(EIGEN[i][j]);
-    }
-    free(EIGEN[i]);
-  }
-  free(EIGEN);
-
-  free(KGrids1); free(KGrids2); free(KGrids3);
-
-  for (i=0;i<knum_i; i++) {
-    for (j=0;j<knum_j; j++) {
-      free(k_op[i][j]);
-    }
-    free(k_op[i]);
-  }
-  free(k_op);
-
-  free(T_KGrids1);
-  free(T_KGrids2);
-  free(T_KGrids3);
-  free(T_k_op);
-
-  /* no spin-orbit coupling */
-  if (SO_switch==0){
-    free(Dummy_ImNL[0][0][0]);
-    free(Dummy_ImNL[0][0]);
-    free(Dummy_ImNL[0]);
-    free(Dummy_ImNL);
-  }
-
-  dtime(&TEtime);
-  time0 = TEtime - TStime;
-  return time0;
-}
-

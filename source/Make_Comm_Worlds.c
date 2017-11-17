@@ -12,12 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 
 void Make_Comm_Worlds(

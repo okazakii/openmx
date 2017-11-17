@@ -2,12 +2,10 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
+
+static int factorize(int num0, int N, int *fund, int *pow, int must );
 
 void Determine_Cell_from_ECutoff(double tv[4][4], double ECut)
 {
@@ -89,6 +87,65 @@ void Determine_Cell_from_ECutoff(double tv[4][4], double ECut)
   }
 
 }
+
+
+int factorize(int num0, int N, int *fund, int *pow, int must )
+{
+  int i;
+  int a,b;
+  int num;
+  int ret;
+
+  /* must exclude  division 0 */
+  if (must==0)  return 0;
+
+  if (must==1) {
+
+    for (i=0;i<N;i++) {
+      pow[i] = 0;
+    }
+
+  }
+  else {
+    num=num0%must;
+    if ( num==0 ) {
+      ret=factorize(  must, N, fund, pow, 1);
+      if (ret==0) {
+	return ret;
+      }
+    }
+    else {
+      return 0;
+    }
+  }
+
+  num=num0/must ;
+  for (i=0; i<N; i++) {
+    while (1) {
+      b = num%fund[i];
+
+      if (b==0) {
+	num /= fund[i];
+	pow[i]++;
+      }
+      else {
+	break;
+      }
+    }
+
+  }
+
+  if (num==1) {
+    return num0;
+  }
+  else {
+    return 0;
+  }
+
+}
+ 
+
+
 
 #if 0
 main()

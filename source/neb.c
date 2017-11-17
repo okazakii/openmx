@@ -7,7 +7,8 @@
 
   Log of neb.c:
 
-     6/April/2011,  Released by T.Ozaki
+     Apr./6/2011,  Released by T. Ozaki
+     Feb./1/2013   Modified by Y. Kubota (supervised by Prof. F. Ishii)
 
 ***********************************************************************/
 
@@ -77,16 +78,21 @@ int *WhatSpecies_NEB;
 int *Spe_WhatAtom_NEB;
 char **SpeName_NEB;
 
+int PN;
+
+
+
 
 
 void neb(int argc, char *argv[])
 { 
-  int po,i,j,k,p;
+  int iter,index_images;
+  int po,i,j,k,p,h;
   int myid,numprocs;
   int myid1,numprocs1;  
-  int myid2,numprocs2;  
-  int iter,index_images;
-  int parallel1_flag; 
+  int myid2,numprocs2;
+  int myid3,numprocs3;
+  int parallel1_flag;  
   int myworld1,ID0,ID1;
   int Num_Comm_World1;
   int *NPROCS_ID1;
@@ -94,20 +100,31 @@ void neb(int argc, char *argv[])
   int *NPROCS_WD1;
   int *Comm_World_StartID1;
   int parallel2_flag; 
-  int myworld2;
-  int Num_Comm_World2;
+  int myworld2,myworld3;
+  int Num_Comm_World2,Num_Comm_World3;
   int *NPROCS_ID2;
+  int *NPROCS_ID3;
   int *Comm_World2;
+  int *Comm_World3;
   int *NPROCS_WD2;
+  int *NPROCS_WD3;
   int *Comm_World_StartID2;
+  int *Comm_WOrld_StartID3;
   char fname_original[YOUSO10];
   char fname1[YOUSO10];
   MPI_Comm *MPI_CommWD1;
   MPI_Comm *MPI_CommWD2;
+  MPI_Comm *MPI_CommWD3;
+
+
+  double TStime,TEtime,a0time,a1time,f0time;
+  double b0time,b1time,c0time,c1time,flatstime,flatetime,sumtime=0.0;
+
+  dtime(&TStime);
 
   MPI_Comm_size(MPI_COMM_WORLD1,&numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD1,&myid);
-
+ 
   /* check argv */
 
   if (argc==1){
@@ -144,285 +161,961 @@ void neb(int argc, char *argv[])
      allocate processes to each image in the World1
   ****************************************************/
 
-  Num_Comm_World1 = NEB_Num_Images;
+  if ((PN > numprocs)||(PN > NEB_Num_Images)){
+     PN=0;
+     if (myid==Host_ID){
+       printf("PN should be more smaller than number of CPU cores. set PN=0\n");
+     }
+  } 
 
-  if ( Num_Comm_World1<=numprocs ){
+  if(PN==0){
+    
+    if((NEB_Num_Images<=numprocs)||(numprocs==1) ){
+      Num_Comm_World1 = NEB_Num_Images;
+      
+      if ( Num_Comm_World1<=numprocs ){
+      
+	parallel1_flag = 1; 
+	
+	NPROCS_ID1 = (int*)malloc(sizeof(int)*numprocs); 
+	Comm_World1 = (int*)malloc(sizeof(int)*numprocs); 
+	NPROCS_WD1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
+	Comm_World_StartID1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
+	MPI_CommWD1 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World1);
+	
+	Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World1, &myworld1, MPI_CommWD1, 
+			 NPROCS_ID1, Comm_World1, NPROCS_WD1, Comm_World_StartID1);
+	
+	MPI_Comm_size(MPI_CommWD1[myworld1],&numprocs1);
+	MPI_Comm_rank(MPI_CommWD1[myworld1],&myid1);
+	
+      }
+      else {
+	parallel1_flag = 0; 
+	myworld1 = 0;
+      }
+      
+      /****************************************************
+     allocate processes to each image in the World2
+      ****************************************************/
+    
+      Num_Comm_World2 = 2;
+    
+      if ( Num_Comm_World2<=numprocs ){
+      
+	parallel2_flag = 1; 
+      
+	NPROCS_ID2 = (int*)malloc(sizeof(int)*numprocs); 
+	Comm_World2 = (int*)malloc(sizeof(int)*numprocs); 
+	NPROCS_WD2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
+	Comm_World_StartID2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
+	MPI_CommWD2 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World2);
+	
+	Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World2, &myworld2, MPI_CommWD2, 
+			 NPROCS_ID2, Comm_World2, NPROCS_WD2, Comm_World_StartID2);
+	
+	MPI_Comm_size(MPI_CommWD2[myworld2],&numprocs2);
+	MPI_Comm_rank(MPI_CommWD2[myworld2],&myid2);
+      }
+      else {
+	parallel2_flag = 0; 
+	myworld2 = 0;
+      }
+      
+    /****************************************************
+    SCF calculations for the two terminal structures
+    ****************************************************/
+    
+    /* generate input files */
 
+      generate_input_files(fname_original,1);
+    
+    /* In case of parallel2_mode==1 */
+    
+      if (parallel2_flag==1){
+      
+	if (myworld2==0)  
+	  index_images = 0;
+	else 
+	  index_images = NEB_Num_Images + 1;
+	
+	sprintf(fname1,"%s_%i",fname_original,index_images);
+	argv[1] = fname1;
+	
+	neb_run( argv,MPI_CommWD2[myworld2],index_images,neb_atom_coordinates,
+		 WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	
+	/* find a representative ID in the top world for ID=0 in the world2 */
+      
+	i = 0; po = 0; 
+	do {
+	
+	  if (Comm_World2[i]==0){
+	    ID0 = i; 
+	    po = 1;
+	  }
+	  i++;
+	} while (po==0);
+	
+	/* find a representative ID in the top world for ID=1 in the world2 */
+      
+	i = 0; po = 0; 
+	do {
+	  
+	  if (Comm_World2[i]==1){
+	    ID1 = i; 
+	    po = 1;
+	  }
+	  i++;
+	} while (po==0);
+	
+	/* MPI broadcast of neb_atom_coordinates[0] and neb_atom_coordinates[NEB_Num_Images+1] */
+      
+	MPI_Barrier(MPI_COMM_WORLD);
+	for (i=0; i<=atomnum; i++){
+	  MPI_Bcast(&neb_atom_coordinates[0][i][0], 20, MPI_DOUBLE, ID0, MPI_COMM_WORLD);
+	  MPI_Bcast(&neb_atom_coordinates[NEB_Num_Images+1][i][0], 20, MPI_DOUBLE, ID1, MPI_COMM_WORLD);
+	}
+      
+      } /* if (parallel2_flag==1) */
+    
+      /* In case of parallel2_mode==0 */
+    
+      else {
+      
+	/* SCF calculation of a terminal with the index of 0 */
+	index_images = 0;
+	sprintf(fname1,"%s_%i",fname_original,index_images);
+	argv[1] = fname1;
+	neb_run( argv,MPI_COMM_WORLD1,index_images,neb_atom_coordinates,
+		 WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+      
+	/* SCF calculation of a terminal with the index of (NEB_Num_Images + 1) */
+	index_images = NEB_Num_Images + 1;
+	sprintf(fname1,"%s_%i",fname_original,index_images);
+	argv[1] = fname1;
+	neb_run( argv,MPI_COMM_WORLD1,index_images,neb_atom_coordinates,
+		 WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+      }
+
+      /****************************************************
+     optimiziation for finding a minimum energy path
+     connecting the two terminal structures.
+      ****************************************************/
+    
+      iter = 1;  
+      MD_Opt_OK = 0;
+      dtime(&f0time);
+      do {
+      
+	/* generate input files */
+	
+	generate_input_files(fname_original,iter);
+      
+	/* In case of parallel1_mode==1 */
+      
+	if (parallel1_flag==1){
+	
+	  sprintf(fname1,"%s_%i",fname_original,myworld1+1);
+	  argv[1] = fname1;
+	  dtime(&flatstime);
+	  neb_run( argv,MPI_CommWD1[myworld1],myworld1+1,neb_atom_coordinates,
+		   WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	  dtime(&flatetime);
+	  sumtime += (flatetime-flatstime);	
+	  /* MPI: All_Grid_Origin */
+	
+	  for (i=0; i<=(NEB_Num_Images+1); i++){
+	    for (j=0; j<=3; j++) Tmp_Grid_Origin[i][j] = 0.0;
+	  }  
+	  
+	  if (myid1==Host_ID){
+	    Tmp_Grid_Origin[myworld1+1][1] = Grid_Origin[1];
+	    Tmp_Grid_Origin[myworld1+1][2] = Grid_Origin[2];
+	    Tmp_Grid_Origin[myworld1+1][3] = Grid_Origin[3];
+	  }
+	
+	  MPI_Barrier(MPI_COMM_WORLD);
+	
+	  for (p=1; p<=NEB_Num_Images; p++){ 
+	    MPI_Allreduce( &Tmp_Grid_Origin[p][0], &All_Grid_Origin[p][0], 
+			   4, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
+	  }
+	
+	  /* MPI: neb_atom_coordinates */
+	
+	  for (p=1; p<=NEB_Num_Images; p++){
+	    for (i=0; i<=atomnum; i++){
+	      for (j=0; j<20; j++){ 
+		tmp_neb_atom_coordinates[p][i][j] = 0.0;
+	      }
+	    }
+	  }
+	
+	  if (myid1==Host_ID){
+	    for (i=0; i<=atomnum; i++){
+	      for (j=0; j<20; j++){ 
+		tmp_neb_atom_coordinates[myworld1+1][i][j] = neb_atom_coordinates[myworld1+1][i][j];;
+	      }
+	    }
+	  }
+	  
+	  MPI_Barrier(MPI_COMM_WORLD);
+	  
+	  for (p=1; p<=NEB_Num_Images; p++){ 
+	    for (i=0; i<=atomnum; i++){
+	      
+	      MPI_Allreduce( &tmp_neb_atom_coordinates[p][i][0], &neb_atom_coordinates[p][i][0],
+			     20, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
+	      
+	    }
+	  }
+	  
+	} /* if (parallel1_flag==1) */
+	
+	/* In case of parallel1_flag==0 */
+	else {
+	
+	
+	  for (p=1; p<=NEB_Num_Images; p++){ 
+	    
+	    sprintf(fname1,"%s_%i",fname_original,p);
+	    argv[1] = fname1;
+	    neb_run( argv,MPI_COMM_WORLD1,p,neb_atom_coordinates, 
+		     WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	    
+	    /* store Grid_Origin */
+	    All_Grid_Origin[p][1] = Grid_Origin[1];
+	    All_Grid_Origin[p][2] = Grid_Origin[2];
+	    All_Grid_Origin[p][3] = Grid_Origin[3];
+	  }
+	}
+      
+      
+      
+	MPI_Barrier(MPI_COMM_WORLD);
+      
+	/* calculate the gradients defined by the NEB method */
+      
+	Calc_NEB_Gradients(neb_atom_coordinates);
+      
+	/* make a xyz file storing a set of structures of images at the current step */
+      
+	Make_XYZ_File(fileXYZ,neb_atom_coordinates);    
+      
+	/* update the atomic structures of the images */
+	
+	Update_Coordinates(iter,neb_atom_coordinates);
+	
+	/* generate an input file for restarting */
+	
+	Generate_Restart_File(fname_original,neb_atom_coordinates); 
+	
+	/* increment of iter */
+      
+	iter++;
+      
+      } while (MD_Opt_OK==0 && iter<=MD_IterNumber);
+      MPI_Barrier(MPI_COMM_WORLD);
+    
+      /* freeing of arrays for the World1 */
+    
+      if ( Num_Comm_World1<=numprocs ){
+      
+	MPI_Comm_free(&MPI_CommWD1[myworld1]);
+	free(MPI_CommWD1);
+	free(Comm_World_StartID1);
+	free(NPROCS_WD1);
+	free(Comm_World1);
+	free(NPROCS_ID1);
+      }
+    
+      /* freeing of arrays for the World2 */
+    
+      if ( Num_Comm_World2<=numprocs ){
+      
+	MPI_Comm_free(&MPI_CommWD2[myworld2]);
+	free(MPI_CommWD2);
+	free(Comm_World_StartID2);
+	free(NPROCS_WD2);
+	free(Comm_World2);
+	free(NPROCS_ID2);
+      }
+    
+      /* freeing of arrays */
+    
+      free_arrays();
+    
+      /* show a final message */
+    
+    
+      dtime(&TEtime);
+  
+      printf("\nThe calculation was normally finished. (proc=%3d) TIME=%lf (s) flat time=%lf \n",myid,(TEtime-TStime),sumtime/(iter-1));
+      MPI_Finalize();
+      exit(0);
+    }
+  
+    else{
+      dtime(&a0time);
+      int syou,amari,g,bb;
+      syou=NEB_Num_Images/numprocs;
+      amari=NEB_Num_Images%numprocs;
+      
+      if(amari==0){
+	g=syou;
+      }
+      else{
+	g=syou+1;
+      }
+
+      Num_Comm_World1=numprocs;
+      
+      parallel1_flag = 1; 
+      
+      NPROCS_ID1 = (int*)malloc(sizeof(int)*numprocs); 
+      Comm_World1 = (int*)malloc(sizeof(int)*numprocs); 
+      NPROCS_WD1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
+      Comm_World_StartID1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
+      MPI_CommWD1 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World1);
+      
+      Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World1,      &myworld1, MPI_CommWD1, 
+		       NPROCS_ID1, Comm_World1, NPROCS_WD1, Comm_World_StartID1);
+      
+      MPI_Comm_size(MPI_CommWD1[myworld1],&numprocs1);
+      MPI_Comm_rank(MPI_CommWD1[myworld1],&myid1);
+      
+      
+      
+
+      /****************************************************
+     allocate processes to each image in the World2
+      ****************************************************/
+      
+      Num_Comm_World2 = 2;
+	
+      if ( Num_Comm_World2<=numprocs ){
+	  
+	parallel2_flag = 1; 
+      
+	NPROCS_ID2 = (int*)malloc(sizeof(int)*numprocs); 
+	Comm_World2 = (int*)malloc(sizeof(int)*numprocs); 
+	NPROCS_WD2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
+	Comm_World_StartID2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
+	MPI_CommWD2 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World2);
+      
+	Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World2, &myworld2, MPI_CommWD2, 
+			 NPROCS_ID2, Comm_World2, NPROCS_WD2, Comm_World_StartID2);
+	  
+	MPI_Comm_size(MPI_CommWD2[myworld2],&numprocs2);
+	MPI_Comm_rank(MPI_CommWD2[myworld2],&myid2);
+      }
+	
+	
+      /****************************************************
+    SCF calculations for the two terminal structures
+      ****************************************************/
+	
+      /* generate input files */
+	
+      generate_input_files(fname_original,1);
+	
+      /* In case of parallel2_mode==1 */
+    
+      if (parallel2_flag==1){
+	  
+	if (myworld2==0)  
+	  index_images = 0;
+	else 
+	  index_images = NEB_Num_Images + 1;
+	
+	sprintf(fname1,"%s_%i",fname_original,index_images);
+	argv[1] = fname1;
+      
+	neb_run( argv,MPI_CommWD2[myworld2],index_images,neb_atom_coordinates,
+		 WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+      
+	/* find a representative ID in the top world for ID=0 in the world2 */
+      
+	i = 0; po = 0; 
+	do {
+	
+	  if (Comm_World2[i]==0){
+	    ID0 = i; 
+	    po = 1;
+	  }
+	  i++;
+	} while (po==0);
+      
+	/* find a representative ID in the top world for ID=1 in the world2 */
+      
+	i = 0; po = 0; 
+	do {
+	
+	  if (Comm_World2[i]==1){
+	    ID1 = i; 
+	    po = 1;
+	  }
+	  i++;
+	} while (po==0);
+      
+	/* MPI broadcast of neb_atom_coordinates[0] and neb_atom_coordinates[NEB_Num_Images+1] */
+      
+	MPI_Barrier(MPI_COMM_WORLD);
+	for (i=0; i<=atomnum; i++){
+	  MPI_Bcast(&neb_atom_coordinates[0][i][0], 20, MPI_DOUBLE, ID0, MPI_COMM_WORLD);
+	  MPI_Bcast(&neb_atom_coordinates[NEB_Num_Images+1][i][0], 20, MPI_DOUBLE, ID1, MPI_COMM_WORLD);
+	}
+      
+      } /* if (parallel2_flag==1) */
+
+      /*amari world */
+      if(amari!=0){
+	Num_Comm_World3=amari;
+     
+      
+	NPROCS_ID3 = (int*)malloc(sizeof(int)*numprocs); 
+	Comm_World3 = (int*)malloc(sizeof(int)*numprocs); 
+	NPROCS_WD3 = (int*)malloc(sizeof(int)*Num_Comm_World3); 
+	Comm_WOrld_StartID3 = (int*)malloc(sizeof(int)*Num_Comm_World3); 
+	MPI_CommWD3 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World3);
+	
+	Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World3, &myworld3, MPI_CommWD3, 
+			 NPROCS_ID3, Comm_World3, NPROCS_WD3, Comm_WOrld_StartID3);
+	
+	MPI_Comm_size(MPI_CommWD3[myworld3],&numprocs3);
+	MPI_Comm_rank(MPI_CommWD3[myworld3],&myid3);
+      }
+      /*amari world */
+    
+      dtime(&a1time);
+    
+      /****************************************************
+     optimization for finding a minimum energy path
+     connecting the two terminal structures.
+      ****************************************************/
+      
+      iter = 1;  
+      MD_Opt_OK = 0;
+      dtime(&b0time);
+      
+      do {
+	
+	/* generate input files */
+	
+	generate_input_files(fname_original,iter);
+	
+	for(h=1;h<=g;h++){
+	  if(h==g && g==syou+1){
+	    sprintf(fname1,"%s_%i",fname_original,myworld3+1+(h-1)*numprocs);
+	  }
+	  else{
+	    sprintf(fname1,"%s_%i",fname_original,myworld1+1+(h-1)*numprocs);
+	  }
+	  argv[1] = fname1;
+	  if((h==g) && (g==syou+1)){
+	    neb_run( argv,MPI_CommWD3[myworld3],myworld3+1+(h-1)*numprocs,neb_atom_coordinates,
+		     WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	    
+	    if (myid3==Host_ID){
+	      Tmp_Grid_Origin[myworld3+1+(h-1)*numprocs][1] = Grid_Origin[1];
+	      Tmp_Grid_Origin[myworld3+1+(h-1)*numprocs][2] = Grid_Origin[2];
+	      Tmp_Grid_Origin[myworld3+1+(h-1)*numprocs][3] = Grid_Origin[3];
+	    }
+	  }
+	  else{
+	    neb_run( argv,MPI_CommWD1[myworld1],myworld1+1+(h-1)*numprocs,neb_atom_coordinates,
+		     WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	    
+	    if(h==1){
+	      for (i=0; i<=(NEB_Num_Images+1); i++){
+		for (j=0; j<=3; j++) Tmp_Grid_Origin[i][j] = 0.0;
+	      }  
+	    }
+	    if (myid1==Host_ID){
+	      Tmp_Grid_Origin[myworld1+1+(h-1)*numprocs][1] = Grid_Origin[1];
+	      Tmp_Grid_Origin[myworld1+1+(h-1)*numprocs][2] = Grid_Origin[2];
+	      Tmp_Grid_Origin[myworld1+1+(h-1)*numprocs][3] = Grid_Origin[3];
+	    }
+	  }
+	
+	  /* MPI: All_Grid_Origin */
+        MPI_Barrier(MPI_COMM_WORLD);
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+	  
+	
+	for (p=1; p<=NEB_Num_Images; p++){ 
+	  MPI_Allreduce( &Tmp_Grid_Origin[p][0], &All_Grid_Origin[p][0], 
+			 4, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
+	}
+	  
+
+	  
+	/* MPI: neb_atom_coordinates */
+	
+	for (p=1; p<=NEB_Num_Images; p++){
+	  for (i=0; i<=atomnum; i++){
+	    for (j=0; j<20; j++){ 
+	      tmp_neb_atom_coordinates[p][i][j] = 0.0;
+	    }
+	  }
+	}
+	
+	for(h=1;h<=g;h++){
+	  if(h==g && g==syou+1){
+	    if (myid3==Host_ID){
+	      for (i=0; i<=atomnum; i++){
+		for (j=0; j<20; j++){ 
+		  tmp_neb_atom_coordinates[myworld3+1+(h-1)*numprocs][i][j] = neb_atom_coordinates[myworld3+1+(h-1)*numprocs][i][j];;
+		}
+	      }
+	    }
+	  }
+	  
+	  else{
+	    if (myid1==Host_ID){
+	      for (i=0; i<=atomnum; i++){
+		for (j=0; j<20; j++){ 
+		  tmp_neb_atom_coordinates[myworld1+1+(h-1)*numprocs][i][j] = neb_atom_coordinates[myworld1+1+(h-1)*numprocs][i][j];;
+		}
+	      }
+	    }
+	  }
+	}
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+	
+	for (p=1; p<=NEB_Num_Images; p++){ 
+	  for (i=0; i<=atomnum; i++){
+	    
+	    MPI_Allreduce( &tmp_neb_atom_coordinates[p][i][0], &neb_atom_coordinates[p][i][0],
+			   20, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
+	    
+	  }
+	}
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	
+	
+	/* calculate the gradients defined by the NEB method */
+	
+	Calc_NEB_Gradients(neb_atom_coordinates);
+	
+	/* make a xyz file storing a set of structures of images at the current step */
+	
+	Make_XYZ_File(fileXYZ,neb_atom_coordinates);    
+	
+	/* update the atomic structures of the images */
+	
+	Update_Coordinates(iter,neb_atom_coordinates);
+	
+	/* generate an input file for restarting */
+	
+	Generate_Restart_File(fname_original,neb_atom_coordinates); 
+	
+	/* increment of iter */
+	
+	iter++;
+	
+      } while (MD_Opt_OK==0 && iter<=MD_IterNumber);
+      
+      dtime(&b1time);
+      
+      MPI_Barrier(MPI_COMM_WORLD);
+      
+      /* freeing of arrays for the World1 */
+      
+      dtime(&c0time);
+	
+      MPI_Comm_free(&MPI_CommWD1[myworld1]);
+      free(MPI_CommWD1);
+      free(Comm_World_StartID1);
+      free(NPROCS_WD1);
+      free(Comm_World1);
+      free(NPROCS_ID1);
+      
+      
+      /* freeing of arrays for the World2 */
+      
+       
+      
+      MPI_Comm_free(&MPI_CommWD2[myworld2]);
+      free(MPI_CommWD2);
+      free(Comm_World_StartID2);
+      free(NPROCS_WD2);
+      free(Comm_World2);
+      free(NPROCS_ID2);
+      
+      /* freeing of arrays for the World3 */
+      
+      if(amari!=0){
+	
+	MPI_Comm_free(&MPI_CommWD3[myworld3]);
+	free(MPI_CommWD3);
+	free(Comm_WOrld_StartID3);
+	free(NPROCS_WD3);
+	free(Comm_World3);
+	free(NPROCS_ID3);
+	
+      }
+      
+      
+      
+      /* freeing of arrays */
+      
+      free_arrays();
+      
+      /* show a final message */
+      dtime(&c1time);
+      
+      dtime(&TEtime);
+      
+      printf("\nThe calculation was normally finished. (proc=%3d) TIME=%lf (s)\n",myid,(TEtime-TStime));
+
+      MPI_Finalize();
+      exit(0); 
+    } 
+  }
+  /*parallel number (1~) 's calucuration*/
+  else{
+
+    dtime(&a0time);
+    int syou,amari,g,bb;
+    syou=NEB_Num_Images/PN;
+    amari=NEB_Num_Images%PN;
+    
+    if(amari==0){
+      g=syou;
+    }
+    else{
+      g=syou+1;
+    }
+    
+    Num_Comm_World1=PN;
+
+    if(PN>numprocs){
+      printf("PN is larger than number of processer.can not calucuration");
+      MPI_Finalize();
+      exit(0);
+    }
+    
+      
+    
     parallel1_flag = 1; 
-
+    
     NPROCS_ID1 = (int*)malloc(sizeof(int)*numprocs); 
     Comm_World1 = (int*)malloc(sizeof(int)*numprocs); 
     NPROCS_WD1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
     Comm_World_StartID1 = (int*)malloc(sizeof(int)*Num_Comm_World1); 
     MPI_CommWD1 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World1);
-
+    
     Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World1, &myworld1, MPI_CommWD1, 
 		     NPROCS_ID1, Comm_World1, NPROCS_WD1, Comm_World_StartID1);
-
+    
     MPI_Comm_size(MPI_CommWD1[myworld1],&numprocs1);
     MPI_Comm_rank(MPI_CommWD1[myworld1],&myid1);
-
-  }
-  else {
-    parallel1_flag = 0; 
-    myworld1 = 0;
-  }
-
-  /****************************************************
+    
+    
+    
+    
+    /****************************************************
      allocate processes to each image in the World2
-  ****************************************************/
-
-  Num_Comm_World2 = 2;
-
-  if ( Num_Comm_World2<=numprocs ){
-
-    parallel2_flag = 1; 
-
-    NPROCS_ID2 = (int*)malloc(sizeof(int)*numprocs); 
-    Comm_World2 = (int*)malloc(sizeof(int)*numprocs); 
-    NPROCS_WD2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
-    Comm_World_StartID2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
-    MPI_CommWD2 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World2);
-
-    Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World2, &myworld2, MPI_CommWD2, 
-		     NPROCS_ID2, Comm_World2, NPROCS_WD2, Comm_World_StartID2);
-
-    MPI_Comm_size(MPI_CommWD2[myworld2],&numprocs2);
-    MPI_Comm_rank(MPI_CommWD2[myworld2],&myid2);
-  }
-  else {
-    parallel2_flag = 0; 
-    myworld2 = 0;
-  }
-
-  /****************************************************
-    SCF calculations for the two terminal structures
-  ****************************************************/
-
-  /* generate input files */
-
-  generate_input_files(fname_original,1);
-
-  /* In case of parallel2_mode==1 */
-
-  if (parallel2_flag==1){
-
-    if (myworld2==0)  
-      index_images = 0;
-    else 
-      index_images = NEB_Num_Images + 1;
-
-    sprintf(fname1,"%s_%i",fname_original,index_images);
-    argv[1] = fname1;
-
-    neb_run( argv,MPI_CommWD2[myworld2],index_images,neb_atom_coordinates,
-             WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
-
-    /* find a representative ID in the top world for ID=0 in the world2 */
-
-    i = 0; po = 0; 
-    do {
-
-      if (Comm_World2[i]==0){
-        ID0 = i; 
-        po = 1;
-      }
-      i++;
-    } while (po==0);
-
-    /* find a representative ID in the top world for ID=1 in the world2 */
-
-    i = 0; po = 0; 
-    do {
-
-      if (Comm_World2[i]==1){
-        ID1 = i; 
-        po = 1;
-      }
-      i++;
-    } while (po==0);
-
-    /* MPI broadcast of neb_atom_coordinates[0] and neb_atom_coordinates[NEB_Num_Images+1] */
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (i=0; i<=atomnum; i++){
-      MPI_Bcast(&neb_atom_coordinates[0][i][0], 20, MPI_DOUBLE, ID0, MPI_COMM_WORLD);
-      MPI_Bcast(&neb_atom_coordinates[NEB_Num_Images+1][i][0], 20, MPI_DOUBLE, ID1, MPI_COMM_WORLD);
+    ****************************************************/
+    
+    Num_Comm_World2 = 2;
+    
+    if ( Num_Comm_World2<=numprocs ){
+      
+      parallel2_flag = 1; 
+      
+      NPROCS_ID2 = (int*)malloc(sizeof(int)*numprocs); 
+      Comm_World2 = (int*)malloc(sizeof(int)*numprocs); 
+      NPROCS_WD2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
+      Comm_World_StartID2 = (int*)malloc(sizeof(int)*Num_Comm_World2); 
+      MPI_CommWD2 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World2);
+      
+      Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World2, &myworld2, MPI_CommWD2, 
+		       NPROCS_ID2, Comm_World2, NPROCS_WD2, Comm_World_StartID2);
+      
+      MPI_Comm_size(MPI_CommWD2[myworld2],&numprocs2);
+      MPI_Comm_rank(MPI_CommWD2[myworld2],&myid2);
     }
-
-  } /* if (parallel2_flag==1) */
-
-  /* In case of parallel2_mode==0 */
-
-  else {
-
-    /* SCF calculation of a terminal with the index of 0 */
-    index_images = 0;
-    sprintf(fname1,"%s_%i",fname_original,index_images);
-    argv[1] = fname1;
-    neb_run( argv,MPI_COMM_WORLD1,index_images,neb_atom_coordinates,
-             WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
-
-    /* SCF calculation of a terminal with the index of (NEB_Num_Images + 1) */
-    index_images = NEB_Num_Images + 1;
-    sprintf(fname1,"%s_%i",fname_original,index_images);
-    argv[1] = fname1;
-    neb_run( argv,MPI_COMM_WORLD1,index_images,neb_atom_coordinates,
-             WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
-  }
-
-  /****************************************************
+    else{
+      parallel2_flag = 0; 
+      myworld2 = 0;
+    }
+    
+    
+    /****************************************************
+    SCF calculations for the two terminal structures
+    ****************************************************/
+    
+    /* generate input files */
+    
+    generate_input_files(fname_original,1);
+    
+    /* In case of parallel2_mode==1 */
+    
+    if (parallel2_flag==1){
+      
+      if (myworld2==0)  
+	index_images = 0;
+      else 
+	index_images = NEB_Num_Images + 1;
+      
+      sprintf(fname1,"%s_%i",fname_original,index_images);
+      argv[1] = fname1;
+      
+      neb_run( argv,MPI_CommWD2[myworld2],index_images,neb_atom_coordinates,
+	       WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+      
+      /* find a representative ID in the top world for ID=0 in the world2 */
+      
+      i = 0; po = 0; 
+      do {
+	
+	if (Comm_World2[i]==0){
+	  ID0 = i; 
+	  po = 1;
+	}
+	i++;
+      } while (po==0);
+      
+      /* find a representative ID in the top world for ID=1 in the world2 */
+      
+      i = 0; po = 0; 
+      do {
+	
+	if (Comm_World2[i]==1){
+	  ID1 = i; 
+	  po = 1;
+	}
+	i++;
+      } while (po==0);
+      
+      /* MPI broadcast of neb_atom_coordinates[0] and neb_atom_coordinates[NEB_Num_Images+1] */
+      
+      MPI_Barrier(MPI_COMM_WORLD);
+      for (i=0; i<=atomnum; i++){
+	MPI_Bcast(&neb_atom_coordinates[0][i][0], 20, MPI_DOUBLE, ID0, MPI_COMM_WORLD);
+	MPI_Bcast(&neb_atom_coordinates[NEB_Num_Images+1][i][0], 20, MPI_DOUBLE, ID1, MPI_COMM_WORLD);
+      }
+      
+    } /* if (parallel2_flag==1) */
+    
+      /*amari world */
+    if(amari!=0){
+      Num_Comm_World3=amari;
+      
+      
+      NPROCS_ID3 = (int*)malloc(sizeof(int)*numprocs); 
+      Comm_World3 = (int*)malloc(sizeof(int)*numprocs); 
+      NPROCS_WD3 = (int*)malloc(sizeof(int)*Num_Comm_World3); 
+      Comm_WOrld_StartID3 = (int*)malloc(sizeof(int)*Num_Comm_World3); 
+      MPI_CommWD3 = (MPI_Comm*)malloc(sizeof(MPI_Comm)*Num_Comm_World3);
+      
+      Make_Comm_Worlds(MPI_COMM_WORLD, myid, numprocs, Num_Comm_World3, &myworld3, MPI_CommWD3, 
+		       NPROCS_ID3, Comm_World3, NPROCS_WD3, Comm_WOrld_StartID3);
+      
+      MPI_Comm_size(MPI_CommWD3[myworld3],&numprocs3);
+      MPI_Comm_rank(MPI_CommWD3[myworld3],&myid3);
+    }
+    /*amari world */
+    
+    dtime(&a1time);
+    
+    /****************************************************
      optimization for finding a minimum energy path
      connecting the two terminal structures.
-  ****************************************************/
-
-  iter = 1;  
-  MD_Opt_OK = 0;
-
-  do {
-
-    /* generate input files */
-
-    generate_input_files(fname_original,iter);
-
-    /* In case of parallel1_mode==1 */
-
-    if (parallel1_flag==1){
-
-      sprintf(fname1,"%s_%i",fname_original,myworld1+1);
-      argv[1] = fname1;
-
-      neb_run( argv,MPI_CommWD1[myworld1],myworld1+1,neb_atom_coordinates,
-               WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
-
-      /* MPI: All_Grid_Origin */
-
-      for (i=0; i<=(NEB_Num_Images+1); i++){
-	for (j=0; j<=3; j++) Tmp_Grid_Origin[i][j] = 0.0;
-      }  
-
-      if (myid1==Host_ID){
-        Tmp_Grid_Origin[myworld1+1][1] = Grid_Origin[1];
-        Tmp_Grid_Origin[myworld1+1][2] = Grid_Origin[2];
-        Tmp_Grid_Origin[myworld1+1][3] = Grid_Origin[3];
-      }
-
+    ****************************************************/
+    
+    iter = 1;  
+    MD_Opt_OK = 0;
+    dtime(&b0time);
+    
+    do {
+	
+      /* generate input files */
+	
+      generate_input_files(fname_original,iter);
+      
+      for(h=1;h<=g;h++){
+	if(h==g && g==syou+1){
+	  sprintf(fname1,"%s_%i",fname_original,myworld3+1+(h-1)*PN);
+	}
+	else{
+	  sprintf(fname1,"%s_%i",fname_original,myworld1+1+(h-1)*PN);
+	}
+	argv[1] = fname1;
+	if((h==g) && (g==syou+1)){
+	  neb_run( argv,MPI_CommWD3[myworld3],myworld3+1+(h-1)*PN,neb_atom_coordinates,
+		   WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	  
+	  if (myid3==Host_ID){
+	    Tmp_Grid_Origin[myworld3+1+(h-1)*PN][1] = Grid_Origin[1];
+	    Tmp_Grid_Origin[myworld3+1+(h-1)*PN][2] = Grid_Origin[2];
+	    Tmp_Grid_Origin[myworld3+1+(h-1)*PN][3] = Grid_Origin[3];
+	  }
+	}
+	else{
+	  neb_run( argv,MPI_CommWD1[myworld1],myworld1+1+(h-1)*PN,neb_atom_coordinates,
+		   WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
+	  
+	  if(h==1){
+	    for (i=0; i<=(NEB_Num_Images+1); i++){
+	      for (j=0; j<=3; j++) Tmp_Grid_Origin[i][j] = 0.0;
+	    }  
+	  }
+	  if (myid1==Host_ID){
+	    Tmp_Grid_Origin[myworld1+1+(h-1)*PN][1] = Grid_Origin[1];
+	    Tmp_Grid_Origin[myworld1+1+(h-1)*PN][2] = Grid_Origin[2];
+	    Tmp_Grid_Origin[myworld1+1+(h-1)*PN][3] = Grid_Origin[3];
+	  }
+	}
+	
+	/* MPI: All_Grid_Origin */
       MPI_Barrier(MPI_COMM_WORLD);
-
-      for (p=1; p<=NEB_Num_Images; p++){ 
-        MPI_Allreduce( &Tmp_Grid_Origin[p][0], &All_Grid_Origin[p][0], 
-                       4, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
       }
-
+      MPI_Barrier(MPI_COMM_WORLD);
+      
+      
+      for (p=1; p<=NEB_Num_Images; p++){ 
+	MPI_Allreduce( &Tmp_Grid_Origin[p][0], &All_Grid_Origin[p][0], 
+		       4, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
+      }
+      
+      
+      
       /* MPI: neb_atom_coordinates */
-
+      
       for (p=1; p<=NEB_Num_Images; p++){
-        for (i=0; i<=atomnum; i++){
-          for (j=0; j<20; j++){ 
-            tmp_neb_atom_coordinates[p][i][j] = 0.0;
+	for (i=0; i<=atomnum; i++){
+	  for (j=0; j<20; j++){ 
+	    tmp_neb_atom_coordinates[p][i][j] = 0.0;
 	  }
 	}
       }
-
-      if (myid1==Host_ID){
-        for (i=0; i<=atomnum; i++){
-          for (j=0; j<20; j++){ 
-            tmp_neb_atom_coordinates[myworld1+1][i][j] = neb_atom_coordinates[myworld1+1][i][j];;
+      
+      for(h=1;h<=g;h++){
+	if(h==g && g==syou+1){
+	  if (myid3==Host_ID){
+	    for (i=0; i<=atomnum; i++){
+	      for (j=0; j<20; j++){ 
+		tmp_neb_atom_coordinates[myworld3+1+(h-1)*PN][i][j] = neb_atom_coordinates[myworld3+1+(h-1)*PN][i][j];;
+	      }
+	    }
+	  }
+	}
+	
+	else{
+	  if (myid1==Host_ID){
+	    for (i=0; i<=atomnum; i++){
+	      for (j=0; j<20; j++){ 
+		tmp_neb_atom_coordinates[myworld1+1+(h-1)*PN][i][j] = neb_atom_coordinates[myworld1+1+(h-1)*PN][i][j];;
+	      }
+	    }
 	  }
 	}
       }
-
+      
       MPI_Barrier(MPI_COMM_WORLD);
-
+      
       for (p=1; p<=NEB_Num_Images; p++){ 
-        for (i=0; i<=atomnum; i++){
-
+	for (i=0; i<=atomnum; i++){
+	  
 	  MPI_Allreduce( &tmp_neb_atom_coordinates[p][i][0], &neb_atom_coordinates[p][i][0],
 			 20, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD );
-
+	  
 	}
       }
-
-    } /* if (parallel1_flag==1) */
-
-    /* In case of parallel1_mode==0 */
-
-    else {
-
-      for (p=1; p<=NEB_Num_Images; p++){ 
-
-	sprintf(fname1,"%s_%i",fname_original,p);
-	argv[1] = fname1;
-	neb_run( argv,MPI_COMM_WORLD1,p,neb_atom_coordinates, 
-                 WhatSpecies_NEB,Spe_WhatAtom_NEB,SpeName_NEB );
-
-        /* store Grid_Origin */
-        All_Grid_Origin[p][1] = Grid_Origin[1];
-        All_Grid_Origin[p][2] = Grid_Origin[2];
-        All_Grid_Origin[p][3] = Grid_Origin[3];
-      }
-
-    }
-
+      
+      MPI_Barrier(MPI_COMM_WORLD);
+      
+      
+      
+      /* calculate the gradients defined by the NEB method */
+      
+      Calc_NEB_Gradients(neb_atom_coordinates);
+      
+      /* make a xyz file storing a set of structures of images at the current step */
+      
+      Make_XYZ_File(fileXYZ,neb_atom_coordinates);    
+      
+      /* update the atomic structures of the images */
+      
+      Update_Coordinates(iter,neb_atom_coordinates);
+      
+      /* generate an input file for restarting */
+      
+      Generate_Restart_File(fname_original,neb_atom_coordinates); 
+      
+      /* increment of iter */
+      
+      iter++;
+      
+    } while (MD_Opt_OK==0 && iter<=MD_IterNumber);
+    
+    dtime(&b1time);
+    
     MPI_Barrier(MPI_COMM_WORLD);
-
-    /* calculate the gradients defined by the NEB method */
-
-    Calc_NEB_Gradients(neb_atom_coordinates);
-
-    /* make a xyz file storing a set of structures of images at the current step */
-
-    Make_XYZ_File(fileXYZ,neb_atom_coordinates);    
-
-    /* update the atomic structures of the images */
-
-    Update_Coordinates(iter,neb_atom_coordinates);
-
-    /* generate an input file for restarting */
-
-    Generate_Restart_File(fname_original,neb_atom_coordinates); 
-
-    /* increment of iter */
-            
-    iter++;
-
-  } while (MD_Opt_OK==0 && iter<=MD_IterNumber);
-
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  /* freeing of arrays for the World1 */
-
-  if ( Num_Comm_World1<=numprocs ){
-
+    
+    /* freeing of arrays for the World1 */
+    
+    dtime(&c0time);
+    
     MPI_Comm_free(&MPI_CommWD1[myworld1]);
     free(MPI_CommWD1);
     free(Comm_World_StartID1);
     free(NPROCS_WD1);
     free(Comm_World1);
     free(NPROCS_ID1);
-  }
-
-  /* freeing of arrays for the World2 */
-
-  if ( Num_Comm_World2<=numprocs ){
-
+    
+    
+    /* freeing of arrays for the World2 */
+    
+    
+    
     MPI_Comm_free(&MPI_CommWD2[myworld2]);
     free(MPI_CommWD2);
     free(Comm_World_StartID2);
     free(NPROCS_WD2);
     free(Comm_World2);
     free(NPROCS_ID2);
+    
+    /* freeing of arrays for the World3 */
+    
+    if(amari!=0){
+      
+      MPI_Comm_free(&MPI_CommWD3[myworld3]);
+      free(MPI_CommWD3);
+      free(Comm_WOrld_StartID3);
+      free(NPROCS_WD3);
+      free(Comm_World3);
+      free(NPROCS_ID3);
+      
+    }
+    
+    
+    
+    /* freeing of arrays */
+    
+    free_arrays();
+    
+    /* show a final message */
+    dtime(&c1time);
+    
+    dtime(&TEtime);
+    
+    printf("\nThe calculation was normally finished. (proc=%3d) TIME=%lf (s)\n",myid,(TEtime-TStime));
+
+    MPI_Finalize();
+    exit(0); 
+    
+    
   }
-
-  /* freeing of arrays */
-
-  free_arrays();
-
-  /* show a final message */
-
-  printf("\nThe calculation was normally finished. (proc=%3d)\n",myid);
-  MPI_Finalize();
-  exit(0);  
+  
 }
 
 
@@ -848,6 +1541,7 @@ void Update_Coordinates(int iter, double ***neb_atom_coordinates)
       fprintf(fp_E,"# 2nd column: Total energy (Hartree) of each image\n");
       fprintf(fp_E,"# 3rd column: distance (Bohr) between neighbors\n");
       fprintf(fp_E,"# 4th column: distance (Bohr) from the image of the index 0\n");
+      fprintf(fp_E,"# 5th column: x distance\n " );
       fprintf(fp_E,"#\n");
 
       sum_dis = 0.0;
@@ -869,8 +1563,8 @@ void Update_Coordinates(int iter, double ***neb_atom_coordinates)
 
         sum_dis += dis; 
     
-        fprintf(fp_E,"  %3d  %15.8f  %15.8f  %15.8f\n",
-                p, neb_atom_coordinates[p][0][0], dis, sum_dis);
+        fprintf(fp_E,"  %3d  %15.8f  %15.8f  %15.8f  %15.8f\n",
+                p, neb_atom_coordinates[p][0][0], dis, sum_dis, neb_atom_coordinates[p][2][1]*BohrR-neb_atom_coordinates[p][1][1]*BohrR);
 
       }
 
@@ -1786,6 +2480,8 @@ void read_input(char *file)
   input_int("MD.NEB.Number.Images",&NEB_Num_Images,10);
   input_int("MD.NEB.Spring.Const",&NEB_Spring_Const,0.1); /* hartree/bohr^2  */
   input_int("MD.maxIter",&MD_IterNumber,1);
+  
+  input_int("MD.NEB.Parallel.Number",&PN,0);
 
   s_vec[0]="Off"; s_vec[1]="On"; s_vec[2]="NC";
   i_vec[0]=0    ; i_vec[1]=1   ; i_vec[2]=3;

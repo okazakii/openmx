@@ -15,19 +15,11 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
 
+
+static void Make_VNA_Grid();
 
 
 void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
@@ -40,321 +32,66 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
   ****************************************************/
 
   int i,j,k,n,nmax,ri,Mc_AN,Gc_AN,Rn,GNc,GRc;
-  int Nc,Nd,n1,n2,n3,Cwan,spin,MN,ct_AN;
-  int h_AN,Gh_AN,Hwan,Rnh,size1,size2;
-  int My_Max,Max_Size,top_num;
-  int hNgrid1,hNgrid2,hNgrid3;
-  double Gx,Gy,Gz,sum,x,y,z,dx,dy,dz,r,xc,yc,zc;
-  double Cxyz[4];
-  double *tmp_array;
-  double *tmp_array2;
-  double **AtomVNA_Grid,*AtomVNA2_Grid;
-  int *Snd_Size,*Rcv_Size;
-  int numprocs,myid,tag=999,ID,IDS,IDR;
-  double Stime_atom, Etime_atom;
+  int Nc,Nd,n1,n2,n3,Cwan,spin,MN,BN,DN,ct_AN;
+  int N2D,GNs,BN_AB,GN_AB;
+  int h_AN,Gh_AN,Hwan,Rnh,N3[4];
+  int hNgrid1,hNgrid2,hNgrid3,Ng1,Ng2,Ng3;
+  double Gx,Gy,Gz,sum,x,y,z;
+  double Cxyz[4],dx,dy,dz,r,xc,yc,zc;
+  int numprocs,myid;
+  double Stime_atom,Etime_atom;
 
   /* for OpenMP */
   int OMPID,Nthrds,Nprocs;
-
-  MPI_Status stat;
-  MPI_Request request;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
   /****************************************************
-    allocation of array:
-
-    int Snd_Size[numprocs]
-    int Rcv_Size[numprocs]
-
-    double AtomVNA_Grid[Matomnum+MatomnumF+1]
-                       [GridN_Atom[Gc_AN]]
-  ****************************************************/
-
-  if ( SCF_iter<=2 && ProExpn_VNA==0 ){
-    Snd_Size = (int*)malloc(sizeof(int)*numprocs);
-    Rcv_Size = (int*)malloc(sizeof(int)*numprocs); 
-
-    AtomVNA_Grid = (double**)malloc(sizeof(double*)*(Matomnum+MatomnumF+1)); 
-    AtomVNA_Grid[0] = (double*)malloc(sizeof(double)*1); 
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-      Gc_AN = F_M2G[Mc_AN];
-      AtomVNA_Grid[Mc_AN] = (double*)malloc(sizeof(double)*GridN_Atom[Gc_AN]);
-    }
-  }
-
-  /****************************************************
                        Vxc on grid
   ****************************************************/
 
   Set_XC_Grid(XC_P_switch,XC_switch,
-               Density_Grid[0],Density_Grid[1],
-               Density_Grid[2],Density_Grid[3],
-               Vxc_Grid[0], Vxc_Grid[1],
-               Vxc_Grid[2], Vxc_Grid[3] );
+               Density_Grid_D[0],Density_Grid_D[1],
+               Density_Grid_D[2],Density_Grid_D[3],
+               Vxc_Grid_D[0], Vxc_Grid_D[1],
+               Vxc_Grid_D[2], Vxc_Grid_D[3] );
+
+  /****************************************************
+             copy Vxc_Grid_D to Vxc_Grid_B
+  ****************************************************/
+
+  Ng1 = Max_Grid_Index_D[1] - Min_Grid_Index_D[1] + 1;
+  Ng2 = Max_Grid_Index_D[2] - Min_Grid_Index_D[2] + 1;
+  Ng3 = Max_Grid_Index_D[3] - Min_Grid_Index_D[3] + 1;
+
+  for (n=0; n<Num_Rcv_Grid_B2D[myid]; n++){
+    DN = Index_Rcv_Grid_B2D[myid][n];
+    BN = Index_Snd_Grid_B2D[myid][n];
+
+    i = DN/(Ng2*Ng3);
+    j = (DN-i*Ng2*Ng3)/Ng3;
+    k = DN - i*Ng2*Ng3 - j*Ng3; 
+
+    if ( !(i<=1 || (Ng1-2)<=i || j<=1 || (Ng2-2)<=j || k<=1 || (Ng3-2)<=k)){
+      for (spin=0; spin<=SpinP_switch; spin++){
+        Vxc_Grid_B[spin][BN] = Vxc_Grid_D[spin][DN];
+      }
+    }
+  }
 
   /****************************************************
           The neutral atom potential on grids
   ****************************************************/
 
-  if (SCF_iter<=2 && ProExpn_VNA==0){
-
-    for (MN=0; MN<My_NumGrid1; MN++) VNA_Grid[MN] = 0.0;
-
-    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
-
-      dtime(&Stime_atom);
-
-      Gc_AN = M2G[Mc_AN];    
-      Cwan = WhatSpecies[Gc_AN];
-
-#pragma omp parallel shared(AtomVNA_Grid,GridN_Atom,atv,Gxyz,Gc_AN,Cwan,Mc_AN,GridListAtom,CellListAtom) private(OMPID,Nthrds,Nprocs,Nc,GNc,GRc,Cxyz,dx,dy,dz,r)
-      {
-
-	OMPID = omp_get_thread_num();
-	Nthrds = omp_get_num_threads();
-	Nprocs = omp_get_num_procs();
-
-	for (Nc=OMPID*GridN_Atom[Gc_AN]/Nthrds; Nc<(OMPID+1)*GridN_Atom[Gc_AN]/Nthrds; Nc++){
-
-	  GNc = GridListAtom[Mc_AN][Nc];
-	  GRc = CellListAtom[Mc_AN][Nc];
-
-	  Get_Grid_XYZ(GNc,Cxyz);
-	  dx = Cxyz[1] + atv[GRc][1] - Gxyz[Gc_AN][1];
-	  dy = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2];
-	  dz = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
-
-	  r = sqrt(dx*dx + dy*dy + dz*dz);
-	  AtomVNA_Grid[Mc_AN][Nc] = VNAF(Cwan,r);
-	}
-
-#pragma omp flush(AtomVNA_Grid)
-
-      } /* #pragma omp parallel */
-
-      dtime(&Etime_atom);
-      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-    }
-
-    for (Mc_AN=Matomnum+1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-      Gc_AN = F_M2G[Mc_AN];    
-      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
-        AtomVNA_Grid[Mc_AN][Nc] = 0.0;
-      }
-    }
-
-    /******************************************************
-     MPI:
-          AtomVNA_Grid
-    ******************************************************/
-
-    /* find data size for sending and receiving */
-
-    tag = 999;
-    My_Max = -10000;
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      if (ID!=0){
-
-        /*  sending size */
-        if (F_Snd_Num[IDS]!=0){
-          /* find data size */ 
-          size1 = 0; 
-          for (n=0; n<F_Snd_Num[IDS]; n++){
-            Gc_AN = Snd_GAN[IDS][n];
-            size1 += GridN_Atom[Gc_AN];
-          }
-          Snd_Size[IDS] = size1;
-          MPI_Isend(&size1, 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-        }
-        else{
-          Snd_Size[IDS] = 0;
-        }
-
-        /*  receiving size */
-        if (F_Rcv_Num[IDR]!=0){
-          MPI_Recv(&size2, 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-          Rcv_Size[IDR] = size2;
-        }
-        else{
-          Rcv_Size[IDR] = 0;
-        }
-        if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
-      } 
-      else{
-        Snd_Size[IDS] = 0;
-        Rcv_Size[IDR] = 0;
-      }
-      if (My_Max<Snd_Size[IDS]) My_Max = Snd_Size[IDS];
-      if (My_Max<Rcv_Size[IDR]) My_Max = Rcv_Size[IDR];
-    }  
-
-    MPI_Allreduce(&My_Max, &Max_Size, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
-    tmp_array  = (double*)malloc(sizeof(double)*Max_Size);
-    tmp_array2 = (double*)malloc(sizeof(double)*Max_Size);
-
-    /* send and receive AtomVNA_Grid */
-
-    tag = 999;
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      if (ID!=0){
-
-        /*  sending of data  */
-
-        if (F_Snd_Num[IDS]!=0){
-
-          /* find data size */
-          size1 = Snd_Size[IDS];
-
-          /* multidimentional array to vector array */
-          k = -1; 
-          for (n=0; n<F_Snd_Num[IDS]; n++){
-            Mc_AN = Snd_MAN[IDS][n];
-            Gc_AN = Snd_GAN[IDS][n];
-            for (i=0; i<GridN_Atom[Gc_AN]; i++){
-              k++;
-              tmp_array[k] = AtomVNA_Grid[Mc_AN][i];
-            }          
-  	  } 
-          /* MPI_Isend */
-          MPI_Isend(&tmp_array[0], size1, MPI_DOUBLE, IDS, tag, mpi_comm_level1, &request);
-        }
-
-        /* receiving of block data */
-        if (F_Rcv_Num[IDR]!=0){
-  
-	  /* find data size */
-          size2 = Rcv_Size[IDR]; 
-          for (i=0; i<size2; i++) tmp_array2[i] = 0.0;
-
-          /* MPI_Recv */
-          MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
-
-          k = -1;
-          Mc_AN = F_TopMAN[IDR] - 1;
-          for (n=0; n<F_Rcv_Num[IDR]; n++){
-            Mc_AN++;
-            Gc_AN = Rcv_GAN[IDR][n];
-            for (i=0; i<GridN_Atom[Gc_AN]; i++){
-              k++;
-              AtomVNA_Grid[Mc_AN][i] = tmp_array2[k];
-            }          
-          }
-        }
-
-        if (F_Snd_Num[IDS]!=0) MPI_Wait(&request,&stat);
-
-      }
-    }  
-
-    /******************************************************
-                superposition of AtomVNA
-    ******************************************************/
-
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-
-      dtime(&Stime_atom);
-
-      Gc_AN = F_M2G[Mc_AN];
-      Cwan = WhatSpecies[Gc_AN];
-      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
-        MN = MGridListAtom[Mc_AN][Nc];
-        if (0<=MN){ 
-          VNA_Grid[MN] += AtomVNA_Grid[Mc_AN][Nc];
-        }
-      }
-
-      dtime(&Etime_atom);
-      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-    }
-
-    /* freeing */
-    free(tmp_array);
-    free(tmp_array2);
-
-  } /*  if (SCF_iter<=2){ */
-
-  /**********************************************************
-    neutral atom potential (AtomVNA2_Grid) in terms of FNAN2   
-  **********************************************************/
-
-  if (SCF_iter<=2 && ProExpn_VNA==0){
-
-    AtomVNA2_Grid = (double*)malloc(sizeof(double)*FNAN2_Grid);
-
-    /* MPI */
-    tag = 999;
-    for (ID=0; ID<numprocs; ID++){
-
-      IDS = (myid + ID) % numprocs;
-      IDR = (myid - ID + numprocs) % numprocs;
-
-      if (ID!=0){
-
-	/*****************************
-               sending of data 
-	*****************************/
-
-	if (Num_Snd_FNAN2_Grid[IDS]!=0){
-
-	  tmp_array = (double*)malloc(sizeof(double)*Num_Snd_FNAN2_Grid[IDS]);
-
-	  /* vector array */
-	  for (i=0; i<Num_Snd_FNAN2_Grid[IDS]; i++){
-	    Gc_AN = Snd_FNAN2_At[IDS][i];
-	    Mc_AN = F_G2M[Gc_AN];
-	    Nc    = Snd_FNAN2_Nc[IDS][i];
-	    tmp_array[i] = AtomVNA_Grid[Mc_AN][Nc];
-	  }
-
-	  /* MPI_Isend */
-	  MPI_Isend(&tmp_array[0], Num_Snd_FNAN2_Grid[IDS], MPI_DOUBLE,
-		    IDS, tag, mpi_comm_level1, &request);
-	}
-
-	/*****************************
-              receiving of data
-	*****************************/
-
-	if (Num_Rcv_FNAN2_Grid[IDR]!=0){
-	  top_num = TopMAN2_Grid[IDR];
-	  /* MPI_Recv */
-	  MPI_Recv(&AtomVNA2_Grid[top_num], Num_Rcv_FNAN2_Grid[IDR], MPI_DOUBLE,
-		   IDR, tag, mpi_comm_level1, &stat);
-	}
-
-	if (Num_Snd_FNAN2_Grid[IDS]!=0){
-	  MPI_Wait(&request,&stat);
-	  free(tmp_array);
-	}
-
-      }
-    }
-
-    /* VNA_Grid += AtomVNA2_Grid */
-    for (i=0; i<FNAN2_Grid; i++){
-      MN = Rcv_FNAN2_MN[i];
-      VNA_Grid[MN] += AtomVNA2_Grid[i];
-    }
-
-    free(AtomVNA2_Grid);
-  }
+  if (SCF_iter==1 && ProExpn_VNA==0) Make_VNA_Grid();
 
   /****************************************************
-                 external electric field
+                external electric field
   ****************************************************/
 
-  if ( SCF_iter<=2 && E_Field_switch==1 ){
+  if ( SCF_iter==1 && E_Field_switch==1 ){
 
     /* the center of the system */
 
@@ -376,39 +113,33 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
     hNgrid2 = Ngrid2/2;
     hNgrid3 = Ngrid3/2;
 
-#pragma omp parallel shared(E_Field,My_Cell1,Num_Cells0,Ngrid2,Ngrid3,VEF_Grid,length_gtv,hNgrid1,hNgrid2,hNgrid3,xc,yc,zc) private(OMPID,Nthrds,Nprocs,nmax,n,i,j,k,ri,MN,dx,dy,dz)
-    {
+    /* calculate VEF_Grid in the partition B */
 
-      OMPID = omp_get_thread_num();
-      Nthrds = omp_get_num_threads();
-      Nprocs = omp_get_num_procs();
-      nmax = Num_Cells0*Ngrid2*Ngrid3; 
+    N2D = Ngrid1*Ngrid2;
+    GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid3;
 
-      for (n=OMPID*nmax/Nthrds; n<(OMPID+1)*nmax/Nthrds; n++){
+    for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+       
+      GN_AB = BN_AB + GNs;
+      i = GN_AB/(Ngrid2*Ngrid3);
+      j = (GN_AB - i*(Ngrid2*Ngrid3))/Ngrid3;
+      k = GN_AB - i*(Ngrid2*Ngrid3) - j*Ngrid3;
 
-	i = n/(Ngrid2*Ngrid3);
-	j = (n-i*Ngrid2*Ngrid3)/Ngrid3;
-	k = n - i*Ngrid2*Ngrid3 - j*Ngrid3; 
-	ri = My_Cell1[i];
+      Find_CGrids(1,i,j,k,Cxyz,N3);
+      i = N3[1];
+      j = N3[2];
+      k = N3[3];
 
-	MN = i*Ngrid2*Ngrid3 + j*Ngrid3 + k; 
+      dx = (double)i*length_gtv[1] + Grid_Origin[1] - xc;
+      dy = (double)j*length_gtv[2] + Grid_Origin[2] - yc;
+      dz = (double)k*length_gtv[3] + Grid_Origin[3] - zc;
+      VEF_Grid_B[BN_AB] = dx*E_Field[0] + dy*E_Field[1] + dz*E_Field[2];
+    } 
 
-        dx = (double)ri*length_gtv[1] + Grid_Origin[1] - xc;
-        dy =  (double)j*length_gtv[2] + Grid_Origin[2] - xc;
-        dz =  (double)k*length_gtv[3] + Grid_Origin[3] - xc;
-	VEF_Grid[MN] = dx*E_Field[0] + dy*E_Field[1] + dz*E_Field[2];
-
-	/*
-	VEF_Grid[MN] = (double)(ri-hNgrid1)*E_Field[0]*length_gtv[1]
-	              + (double)(j-hNgrid2)*E_Field[1]*length_gtv[2]
-	              + (double)(k-hNgrid3)*E_Field[2]*length_gtv[3];
-	*/
-      }
-
-#pragma omp flush(VEF_Grid)
-
-    } /* #pragma omp parallel */
-  }
+    /* MPI: from the partitions B to C */
+    Data_Grid_Copy_B2C_1( VEF_Grid_B, VEF_Grid );
+ 
+  } /* if ( SCF_iter<=2 && E_Field_switch==1 ) */
 
   /****************************************************
                          Sum
@@ -427,20 +158,20 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
 
       if (ProExpn_VNA==0){
         for (spin=0; spin<=1; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN]
-                                + F_VNA_flag*VNA_Grid[MN]
-                                + F_VEF_flag*VEF_Grid[MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN]
+                                  + F_VNA_flag*VNA_Grid_B[MN]
+                                  + F_VEF_flag*VEF_Grid_B[MN];
           }
         }
       }
       else{
         for (spin=0; spin<=1; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN]
-                                + F_VEF_flag*VEF_Grid[MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN]
+                                  + F_VEF_flag*VEF_Grid_B[MN];
           }
         }
       }
@@ -451,19 +182,19 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
 
       if (ProExpn_VNA==0){
         for (spin=0; spin<=1; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN] 
-                                + F_Vxc_flag*Vxc_Grid[spin][MN]
-                                + F_VNA_flag*VNA_Grid[MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN] 
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN]
+                                  + F_VNA_flag*VNA_Grid_B[MN];
           }
         }
       }
       else{
 
         for (spin=0; spin<=1; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN];
           }
         }
       }
@@ -476,8 +207,8 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
     ******************************/
 
     for (spin=2; spin<=3; spin++){
-      for (MN=0; MN<My_NumGrid1; MN++){
-        Vpot_Grid[spin][MN] = F_Vxc_flag*Vxc_Grid[spin][MN];
+      for (MN=0; MN<My_NumGridB_AB; MN++){
+        Vpot_Grid_B[spin][MN] = F_Vxc_flag*Vxc_Grid_B[spin][MN];
       }
     }
   }
@@ -489,20 +220,20 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
 
       if (ProExpn_VNA==0){
         for (spin=0; spin<=SpinP_switch; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN]
-                                + F_VNA_flag*VNA_Grid[MN]
-                                + F_VEF_flag*VEF_Grid[MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN]
+                                  + F_VNA_flag*VNA_Grid_B[MN]
+                                  + F_VEF_flag*VEF_Grid_B[MN];
           }
         }
       }
       else{
         for (spin=0; spin<=SpinP_switch; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN]
-                                + F_VEF_flag*VEF_Grid[MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN]
+                                  + F_VEF_flag*VEF_Grid_B[MN];
           }
         }
       }
@@ -512,73 +243,242 @@ void Set_Vpot(int SCF_iter, int XC_P_switch, double *****CDM)
      
       if (ProExpn_VNA==0){
         for (spin=0; spin<=SpinP_switch; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN]
-                                + F_VNA_flag*VNA_Grid[MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN]
+                                  + F_VNA_flag*VNA_Grid_B[MN];
           }
         }
       }
       else{
         for (spin=0; spin<=SpinP_switch; spin++){
-          for (MN=0; MN<My_NumGrid1; MN++){
-            Vpot_Grid[spin][MN] = F_dVHart_flag*dVHart_Grid[MN]
-                                + F_Vxc_flag*Vxc_Grid[spin][MN];
+          for (MN=0; MN<My_NumGridB_AB; MN++){
+            Vpot_Grid_B[spin][MN] = F_dVHart_flag*dVHart_Grid_B[MN]
+                                  + F_Vxc_flag*Vxc_Grid_B[spin][MN];
           }
         }
       }
-
     }
   }
 
-  /*
-  for (spin=0; spin<=SpinP_switch; spin++){
-    for (MN=0; MN<My_NumGrid1; MN++){
-      printf("spin=%2d MN=%7d Vxc=%10.5f d %7.3f %7.3f %7.3f %7.3f\n",
-              spin,MN,Vxc_Grid[spin][MN],
-              Density_Grid[0][MN],Density_Grid[1][MN],Density_Grid[2][MN],Density_Grid[3][MN]);
+  /******************************************************
+             MPI: from the partitions B to C
+  ******************************************************/
+
+  Data_Grid_Copy_B2C_2( Vpot_Grid_B, Vpot_Grid );
+}
+
+
+
+void Make_VNA_Grid()
+{
+  static int firsttime=1;
+  unsigned long long int n2D,N2D,GNc,GN;
+  int i,Mc_AN,Gc_AN,BN,CN,LN,GRc,N3[4];
+  int AN,Nc,MN,Cwan,NN_S,NN_R;
+  int size_AtomVNA_Grid;
+  int size_AtomVNA_Snd_Grid_A2B;
+  int size_AtomVNA_Rcv_Grid_A2B;
+  double Cxyz[4];
+  double r,dx,dy,dz;
+  double **AtomVNA_Grid;
+  double **AtomVNA_Snd_Grid_A2B;
+  double **AtomVNA_Rcv_Grid_A2B;
+  double Stime_atom, Etime_atom;
+  int numprocs,myid,tag=999,ID,IDS,IDR;
+  int OMPID,Nthrds,Nprocs;
+  
+  MPI_Status stat;
+  MPI_Request request;
+  MPI_Status *stat_send;
+  MPI_Status *stat_recv;
+  MPI_Request *request_send;
+  MPI_Request *request_recv;
+  
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+  
+  /* allocation of arrays */
+  
+  size_AtomVNA_Grid = 1;
+  AtomVNA_Grid = (double**)malloc(sizeof(double*)*(Matomnum+1)); 
+  AtomVNA_Grid[0] = (double*)malloc(sizeof(double)*1); 
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = F_M2G[Mc_AN];
+    AtomVNA_Grid[Mc_AN] = (double*)malloc(sizeof(double)*GridN_Atom[Gc_AN]);
+    size_AtomVNA_Grid += GridN_Atom[Gc_AN];
+  }
+  
+  size_AtomVNA_Snd_Grid_A2B = 0; 
+  AtomVNA_Snd_Grid_A2B = (double**)malloc(sizeof(double*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    AtomVNA_Snd_Grid_A2B[ID] = (double*)malloc(sizeof(double)*Num_Snd_Grid_A2B[ID]);
+    size_AtomVNA_Snd_Grid_A2B += Num_Snd_Grid_A2B[ID];
+  }  
+  
+  size_AtomVNA_Rcv_Grid_A2B = 0;   
+  AtomVNA_Rcv_Grid_A2B = (double**)malloc(sizeof(double*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    AtomVNA_Rcv_Grid_A2B[ID] = (double*)malloc(sizeof(double)*Num_Rcv_Grid_A2B[ID]);
+    size_AtomVNA_Rcv_Grid_A2B += Num_Rcv_Grid_A2B[ID];   
+  }
+
+  /* PrintMemory */
+  if (firsttime) {
+    PrintMemory("Set_Vpot: AtomVNA_Grid",sizeof(double)*size_AtomVNA_Grid,NULL);
+    PrintMemory("Set_Vpot: AtomVNA_Snd_Grid_A2B",sizeof(double)*size_AtomVNA_Snd_Grid_A2B,NULL);
+    PrintMemory("Set_Vpot: AtomVNA_Rcv_Grid_A2B",sizeof(double)*size_AtomVNA_Rcv_Grid_A2B,NULL);
+  }
+
+  /* calculation of AtomVNA_Grid */
+
+  for (MN=0; MN<My_NumGridC; MN++) VNA_Grid[MN] = 0.0;
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+    dtime(&Stime_atom);
+
+    Gc_AN = M2G[Mc_AN];    
+    Cwan = WhatSpecies[Gc_AN];
+
+#pragma omp parallel shared(AtomVNA_Grid,GridN_Atom,atv,Gxyz,Gc_AN,Cwan,Mc_AN,GridListAtom,CellListAtom) private(OMPID,Nthrds,Nprocs,Nc,GNc,GRc,Cxyz,dx,dy,dz,r)
+    {
+
+      OMPID = omp_get_thread_num();
+      Nthrds = omp_get_num_threads();
+      Nprocs = omp_get_num_procs();
+
+      for (Nc=OMPID*GridN_Atom[Gc_AN]/Nthrds; Nc<(OMPID+1)*GridN_Atom[Gc_AN]/Nthrds; Nc++){
+
+	GNc = GridListAtom[Mc_AN][Nc];
+	GRc = CellListAtom[Mc_AN][Nc];
+
+	Get_Grid_XYZ(GNc,Cxyz);
+	dx = Cxyz[1] + atv[GRc][1] - Gxyz[Gc_AN][1];
+	dy = Cxyz[2] + atv[GRc][2] - Gxyz[Gc_AN][2];
+	dz = Cxyz[3] + atv[GRc][3] - Gxyz[Gc_AN][3];
+
+	r = sqrt(dx*dx + dy*dy + dz*dz);
+	AtomVNA_Grid[Mc_AN][Nc] = VNAF(Cwan,r);
+      }
+
+#pragma omp flush(AtomVNA_Grid)
+
+    } /* #pragma omp parallel */
+
+    dtime(&Etime_atom);
+    time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+
+  } /* Mc_AN */
+
+  /******************************************************
+    MPI communication from the partitions A to B 
+  ******************************************************/
+  
+  /* copy AtomVNA_Grid to AtomVNA_Snd_Grid_A2B */
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_A2B[ID] = 0;
+  
+  N2D = Ngrid1*Ngrid2;
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+    Gc_AN = M2G[Mc_AN];
+
+    for (AN=0; AN<GridN_Atom[Gc_AN]; AN++){
+
+      GN = GridListAtom[Mc_AN][AN];
+      GN2N(GN,N3);
+      n2D = N3[1]*Ngrid2 + N3[2];
+      ID = (int)(n2D*(unsigned long long int)numprocs/N2D);
+      AtomVNA_Snd_Grid_A2B[ID][Num_Snd_Grid_A2B[ID]] = AtomVNA_Grid[Mc_AN][AN];
+
+      Num_Snd_Grid_A2B[ID]++;
+    }
+  }    
+
+  /* MPI: A to B */  
+
+  request_send = malloc(sizeof(MPI_Request)*NN_A2B_S);
+  request_recv = malloc(sizeof(MPI_Request)*NN_A2B_R);
+  stat_send = malloc(sizeof(MPI_Status)*NN_A2B_S);
+  stat_recv = malloc(sizeof(MPI_Status)*NN_A2B_R);
+
+  NN_S = 0;
+  NN_R = 0;
+
+  tag = 999;
+  for (ID=1; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (Num_Snd_Grid_A2B[IDS]!=0){
+      MPI_Isend(&AtomVNA_Snd_Grid_A2B[IDS][0], Num_Snd_Grid_A2B[IDS], MPI_DOUBLE,
+		IDS, tag, mpi_comm_level1, &request_send[NN_S]);
+      NN_S++;
+    }
+
+    if (Num_Rcv_Grid_A2B[IDR]!=0){
+      MPI_Irecv( &AtomVNA_Rcv_Grid_A2B[IDR][0], Num_Rcv_Grid_A2B[IDR],
+  	         MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request_recv[NN_R]);
+      NN_R++;
     }
   }
-  */
 
-  /*
-  {
+  if (NN_S!=0) MPI_Waitall(NN_S,request_send,stat_send);
+  if (NN_R!=0) MPI_Waitall(NN_R,request_recv,stat_recv);
 
-  int nn1,nn0,MN1,MN2;
+  free(request_send);
+  free(request_recv);
+  free(stat_send);
+  free(stat_recv);
 
-  n2 = Ngrid2/2;
-  n3 = Ngrid3/2;
-
-  for (n1=Start_Grid1[myid]; n1<=End_Grid1[myid]; n1++){
-    nn1 = My_Cell0[n1];
-    nn0 = n1 - Start_Grid1[myid]; 
-    MN1 = nn1*Ngrid2*Ngrid3;
-    MN2 = n2*Ngrid3;
-    MN = MN1 + MN2 + n3;
-    printf("%2d %18.15f\n",n1,Vpot_Grid[0][MN]);
+  /* for myid */
+  for (i=0; i<Num_Rcv_Grid_A2B[myid]; i++){
+    AtomVNA_Rcv_Grid_A2B[myid][i] = AtomVNA_Snd_Grid_A2B[myid][i];
   }
 
+  /******************************************************
+           superposition of VNA in the partition B
+  ******************************************************/
+
+  /* initialize VNA_Grid_B */
+
+  for (BN=0; BN<My_NumGridB_AB; BN++) VNA_Grid_B[BN] = 0.0;
+
+  /* superposition of VNA */
+
+  for (ID=0; ID<numprocs; ID++){
+    for (LN=0; LN<Num_Rcv_Grid_A2B[ID]; LN++){
+
+      BN = Index_Rcv_Grid_A2B[ID][3*LN+0];      
+      VNA_Grid_B[BN] += AtomVNA_Rcv_Grid_A2B[ID][LN];
+
+    } /* LN */ 
+  } /* ID */  
+
+  /******************************************************
+           MPI: from the partitions B to C
+  ******************************************************/
+
+  Data_Grid_Copy_B2C_1( VNA_Grid_B, VNA_Grid );
+
+  /* freeing of arrays */
+
+  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+    free(AtomVNA_Grid[Mc_AN]);
   }
+  free(AtomVNA_Grid);
 
-  MPI_Finalize();
-  exit(0);
-  */
+  for (ID=0; ID<numprocs; ID++){
+    free(AtomVNA_Snd_Grid_A2B[ID]);
+  }  
+  free(AtomVNA_Snd_Grid_A2B);
 
-  /****************************************************
-    freeing of array:
-
-    double AtomVNA_Grid[Matomnum+MatomnumF+1]
-                       [GridN_Atom[Gc_AN]]
-  ****************************************************/
-
-  if (SCF_iter<=2 && ProExpn_VNA==0){
-    free(Snd_Size);
-    free(Rcv_Size);
-
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-      free(AtomVNA_Grid[Mc_AN]);
-    }
-    free(AtomVNA_Grid);
+  for (ID=0; ID<numprocs; ID++){
+    free(AtomVNA_Rcv_Grid_A2B[ID]);
   }
-
+  free(AtomVNA_Rcv_Grid_A2B);
 }

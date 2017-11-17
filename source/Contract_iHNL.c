@@ -21,8 +21,6 @@ void Contract_iHNL(double *****iHNL, double *****iCntHNL)
   int p,q,p0,q0,al,be,Cwan,Hwan;
   double sumiHNL[5],sumS,tmp0;
 
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
-
   for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
     Gc_AN = M2G[Mc_AN];
     Cwan = WhatSpecies[Gc_AN];

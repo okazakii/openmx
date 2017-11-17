@@ -90,6 +90,11 @@ void zheevx_(char *JOBZ, char *RANGE, char *UPLO, int *N, dcomplex *A, int *LDA,
                         double *ABSTOL, int *M, double *W, dcomplex *Z, int *LDZ, dcomplex *WORK, int *LWORK, double *RWORK,
                         int *IWORK, int *IFAIL, int *INFO);
 
+int dgemm_(char *transa, char *transb, int *m, int *n, int *k, 
+           double *alpha, double *a, int *lda,
+	   double *b, int *ldb, double *beta, double *c__,
+	   int *ldc);
+
 void zgemm_(char* TRANSA, char* TRANSB, int * M, int * N,int *K, dcomplex *alpha, 
          dcomplex *A, int *LDA, dcomplex *B, int*LDB, dcomplex *beta, dcomplex *C, int *LDC);
 void zgetrf_(int *m, int *n, dcomplex *a,int *lda,int *ipvt, int *info );
@@ -113,3 +118,55 @@ void dggevx_(char *balanc, char *jobvl, char *jobvr, char *sense,
 
 void dsytrd_(char *uplo, INTEGER *n, double *a, INTEGER *lda, double *d__, double *e, 
              double *tau, double *work, INTEGER *lwork, INTEGER *info);
+
+
+typedef enum {CblasRowMajor=101, CblasColMajor=102} CBLAS_ORDER;
+typedef enum {CblasNoTrans=111, CblasTrans=112, CblasConjTrans=113} CBLAS_TRANSPOSE;
+
+/* MKL integer types for LP64 and ILP64 */
+#if (!defined(__INTEL_COMPILER)) & defined(_MSC_VER)
+    #define MKL_INT64 __int64
+    #define MKL_UINT64 unsigned __int64
+#else
+    #define MKL_INT64 long long int
+    #define MKL_UINT64 unsigned long long int
+#endif
+ 
+#ifdef MKL_ILP64
+
+/* MKL ILP64 integer types */
+#ifndef MKL_INT
+    #define MKL_INT MKL_INT64
+#endif
+#ifndef MKL_UINT
+    #define MKL_UINT MKL_UINT64
+#endif
+#define MKL_LONG MKL_INT64
+
+#else
+
+/* MKL LP64 integer types */
+#ifndef MKL_INT
+    #define MKL_INT int
+#endif
+#ifndef MKL_UINT
+    #define MKL_UINT unsigned int
+#endif
+#define MKL_LONG long int
+
+#endif
+
+void cblas_dgemm(const  CBLAS_ORDER Order, const  CBLAS_TRANSPOSE TransA,
+                 const  CBLAS_TRANSPOSE TransB, const MKL_INT M, const MKL_INT N,
+                 const MKL_INT K, const double alpha, const double *A,
+                 const MKL_INT lda, const double *B, const MKL_INT ldb,
+                 const double beta, double *C, const MKL_INT ldc);
+
+
+void DGEMM(const char *transa, const char *transb, const MKL_INT *m, const MKL_INT *n, const MKL_INT *k,
+           const double *alpha, const double *a, const MKL_INT *lda, const double *b, const MKL_INT *ldb,
+           const double *beta, double *c, const MKL_INT *ldc);
+
+void dgemm(const char *transa, const char *transb, const MKL_INT *m, const MKL_INT *n, const MKL_INT *k,
+           const double *alpha, const double *a, const MKL_INT *lda, const double *b, const MKL_INT *ldb,
+           const double *beta, double *c, const MKL_INT *ldc);

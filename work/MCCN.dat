@@ -13,7 +13,7 @@ level.of.fileout                  1    # default=1 (1-3)
 
 Species.Number       1
 <Definition.of.Atomic.Species
- C   C4.5-s2p1   C_LDA
+ C   C5.0-s2p1   C_CA13
 Definition.of.Atomic.Species>
 
 #
@@ -601,7 +601,6 @@ Atoms.UnitVectors>
 
 scf.XcType                 LDA             # LDA|LSDA-CA|LSDA-PW
 scf.SpinPolarization       Off             # On|Off
-scf.partialCoreCorrection  Off             # On|Off
 scf.ElectronicTemperature  500.0           # default=300 (K)
 scf.energycutoff           130.0           # default=150 (Ry)
 scf.maxIter                300             # default=40
@@ -611,12 +610,10 @@ scf.Mixing.Type           rmm-diisk        # Simple|Rmm-Diis|Gr-Pulay
 scf.Init.Mixing.Weight     0.010           # default=0.30 
 scf.Min.Mixing.Weight      0.001           # default=0.001 
 scf.Max.Mixing.Weight      0.200           # default=0.40 
-scf.Kerker.factor          8.000           # default=1.00 
 scf.Mixing.History          35             # default=5
 scf.Mixing.StartPulay       20             # default=6
 scf.Mixing.EveryPulay        1             # default=6
-scf.Mixing.Control.Temp     on             # default=off
-scf.criterion             1.0e-10          # default=1.0e-6 (Hartree) 
+scf.criterion             1.0e-7           # default=1.0e-6 (Hartree) 
 
 #
 # 1D FFT
@@ -652,8 +649,6 @@ Atoms.Cont.Orbitals>
 #
 
 orderN.HoppingRanges        6.5        # default=5.0 (Ang) 
-orderN.NumHoppings           2         # default=2
-
 orderN.KrylovH.order        400
 orderN.KrylovS.order       2048
 orderN.Expand.Core           on

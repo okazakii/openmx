@@ -2,12 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void array0();
 void array1();
@@ -25,10 +21,10 @@ void Free_Arrays(int wherefrom)
 
 void array0()
 {
-  int i,j,k,ii,l,L,n,ct_AN,h_AN,wan,al,tno,Cwan;
+  int i,j,k,ii,l,L,n,ct_AN,h_AN,wan,al,tno,Cwan,Nc;
   int tno0,tno1,Mc_AN,Gc_AN,Gh_AN,Hwan,m,so,s1,s2;
   int q_AN,Gq_AN,Qwan,Lmax,spe,ns,nc,spin,fan;
-  int num,n2,wanA,Gi,Mc_AN_GDC,MAnum;
+  int num,n2,wanA,Gi,MAnum,Mh_AN,NO1;
   int Anum,p,vsize,NUM;
   int numprocs,myid,ID;
 
@@ -53,29 +49,12 @@ void array0()
         free(GListTAtoms2[Mc_AN][h_AN]);
         free(GListTAtoms1[Mc_AN][h_AN]);
 
-        if (Allocate_TAtoms0==1){
-          free(GListTCells0[Mc_AN][h_AN]);
-          free(GListTAtoms3[Mc_AN][h_AN]);
-          free(GListTAtoms0[Mc_AN][h_AN]);
-	}
       }
       free(GListTAtoms2[Mc_AN]);
       free(GListTAtoms1[Mc_AN]);
-
-      if (Allocate_TAtoms0==1){
-        free(GListTCells0[Mc_AN]);
-        free(GListTAtoms3[Mc_AN]);
-        free(GListTAtoms0[Mc_AN]);
-      }
     }
     free(GListTAtoms2);
     free(GListTAtoms1);
-
-    if (Allocate_TAtoms0==1){
-      free(GListTCells0);
-      free(GListTAtoms3);
-      free(GListTAtoms0);
-    }
   }
 
   if (alloc_first[1]==0){
@@ -85,17 +64,17 @@ void array0()
 
   if (alloc_first[2]==0){
 
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(MGridListAtom[Mc_AN]);
     }
     free(MGridListAtom);
 
-    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(GridListAtom[Mc_AN]);
     }
     free(GridListAtom);
 
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(CellListAtom[Mc_AN]);
     }
     free(CellListAtom);
@@ -111,7 +90,6 @@ void array0()
         free(Density_Grid[k]);
       }
       free(Density_Grid);
-
     }
     else{ 
       for (k=0; k<=1; k++){
@@ -119,9 +97,6 @@ void array0()
       }
       free(Density_Grid);
     }
-
-    free(ADensity_Grid);
-    free(PCCDensity_Grid);
 
     if (SpinP_switch==3){ /* spin non-collinear */
       for (k=0; k<=3; k++){
@@ -137,8 +112,6 @@ void array0()
     }
 
     free(RefVxc_Grid);
-
-    free(VNA_Grid);
     free(dVHart_Grid);
 
     if (SpinP_switch==3){ /* spin non-collinear */
@@ -154,23 +127,108 @@ void array0()
       free(Vpot_Grid);
     }
 
-    /* external electric field */
-    free(VEF_Grid);
+    /* arrays for the partition B */
 
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Density_Grid_B[k]);
+      }
+      free(Density_Grid_B);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Density_Grid_B[k]);
+      }
+      free(Density_Grid_B);
+    }
+
+    free(ADensity_Grid_B);
+    free(PCCDensity_Grid_B);
+    free(dVHart_Grid_B);
+    free(RefVxc_Grid_B);
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Vxc_Grid_B[k]);
+      }
+      free(Vxc_Grid_B);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Vxc_Grid_B[k]);
+      }
+      free(Vxc_Grid_B);
+    }
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Vpot_Grid_B[k]);
+      }
+      free(Vpot_Grid_B);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Vpot_Grid_B[k]);
+      }
+      free(Vpot_Grid_B);
+    }
+
+    /* if (ProExpn_VNA==off) */
+    if (ProExpn_VNA==0){
+      free(VNA_Grid);
+      free(VNA_Grid_B);
+    }
+
+    /* electric energy by electric field */
+    if (E_Field_switch==1){
+      free(VEF_Grid);
+      free(VEF_Grid_B);
+    }
+
+    /* arrays for the partition D */
+
+    free(PCCDensity_Grid_D);
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Density_Grid_D[k]);
+      }
+      free(Density_Grid_D);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Density_Grid_D[k]);
+      }
+      free(Density_Grid_D);
+    }
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Vxc_Grid_D[k]);
+      }
+      free(Vxc_Grid_D);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Vxc_Grid_D[k]);
+      }
+      free(Vxc_Grid_D);
+    }
+
+    /* AITUNE */
     /* Orbs_Grid */
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       if (Mc_AN==0){
-        tno = 1;
         Gc_AN = 0;
+        num = 1;
       }
       else{
         Gc_AN = F_M2G[Mc_AN];
-        Cwan = WhatSpecies[Gc_AN];
-        tno = Spe_Total_NO[Cwan];
+        num = GridN_Atom[Gc_AN];
       }
 
-      for (i=0; i<tno; i++){
-        free(Orbs_Grid[Mc_AN][i]); 
+      for (Nc=0; Nc<num; Nc++){
+        free(Orbs_Grid[Mc_AN][Nc]);
       }
       free(Orbs_Grid[Mc_AN]); 
     }
@@ -196,6 +254,47 @@ void array0()
       }
       free(COrbs_Grid);
     }
+
+    /* Orbs_Grid_FNAN */
+
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+      if (Mc_AN==0){
+        free(Orbs_Grid_FNAN[0][0][0]);
+        free(Orbs_Grid_FNAN[0][0]);
+      }
+      else{
+
+	Gc_AN = M2G[Mc_AN];    
+
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	  Gh_AN = natn[Gc_AN][h_AN];
+
+	  if (G2ID[Gh_AN]!=myid){
+
+	    Mh_AN = F_G2M[Gh_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+	    NO1 = Spe_Total_NO[Hwan];
+            num = NumOLG[Mc_AN][h_AN];  
+	  }
+	  else {
+            num = 1;
+	  }
+
+          if (0<NumOLG[Mc_AN][h_AN]){
+            for (Nc=0; Nc<num; Nc++){
+              free(Orbs_Grid_FNAN[Mc_AN][h_AN][Nc]);
+            }
+            free(Orbs_Grid_FNAN[Mc_AN][h_AN]);
+	  }
+
+	} /* h_AN */
+      } /* else */
+
+      free(Orbs_Grid_FNAN[Mc_AN]);
+    }
+    free(Orbs_Grid_FNAN);
   }
 
   /****************************************************
@@ -220,7 +319,6 @@ void array0()
       ResidualDM
       EDM
       PDM
-      IOLP  
       iHNL
       iCntHNL
       H_Hub
@@ -244,20 +342,9 @@ void array0()
 	}    
 
 	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	  if (Mc_AN==0){
-	    tno1 = 1;  
-	  }
-	  else{
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno1 = Spe_Total_NO[Hwan];
-	  } 
-
 	  for (i=0; i<tno0; i++){
 	    free(H0[k][Mc_AN][h_AN][i]);
 	  }
-
 	  free(H0[k][Mc_AN][h_AN]);
 	}
 	free(H0[k][Mc_AN]);
@@ -406,16 +493,6 @@ void array0()
 	  }    
 
 	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_NO[Hwan];
-	    } 
-
 	    for (i=0; i<tno0; i++){
 	      free(H_Hub[k][Mc_AN][h_AN][i]);
 	    }
@@ -472,16 +549,6 @@ void array0()
 	  }    
 
 	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_NO[Hwan];
-	    } 
-
 	    for (i=0; i<tno0; i++){
 	      free(iHNL0[k][Mc_AN][h_AN][i]);
 	    }
@@ -512,16 +579,6 @@ void array0()
 	}    
 
 	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	  if (Mc_AN==0){
-	    tno1 = 1;  
-	  }
-	  else{
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno1 = Spe_Total_NO[Hwan];
-	  } 
-
 	  for (i=0; i<tno0; i++){
 	    free(OLP_L[k][Mc_AN][h_AN][i]);
 	  }
@@ -542,6 +599,11 @@ void array0()
           Gc_AN = 0;
 	  tno0 = 1;
 	}
+        else if ( (Hub_U_switch==0 || Hub_U_occupation!=1) && 0<k && Matomnum<Mc_AN){
+          Gc_AN = S_M2G[Mc_AN];
+          Cwan = WhatSpecies[Gc_AN];
+          tno0 = 1;
+        }    
 	else{
           Gc_AN = S_M2G[Mc_AN];
 	  Cwan = WhatSpecies[Gc_AN];
@@ -550,19 +612,9 @@ void array0()
 
 	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
 
-	  if (Mc_AN==0){
-	    tno1 = 1;  
-	  }
-	  else{
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno1 = Spe_Total_NO[Hwan];
-	  }
-
 	  for (i=0; i<tno0; i++){
 	    free(OLP[k][Mc_AN][h_AN][i]);
 	  }
-
 	  free(OLP[k][Mc_AN][h_AN]);
 	}
 	free(OLP[k][Mc_AN]);
@@ -619,19 +671,9 @@ void array0()
 
 	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
 
-	  if (Mc_AN==0){
-	    tno1 = 1;  
-	  }
-	  else{
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno1 = Spe_Total_NO[Hwan];
-	  } 
-
 	  for (i=0; i<tno0; i++){
 	    free(H[k][Mc_AN][h_AN][i]);
 	  }
-
 	  free(H[k][Mc_AN][h_AN]);
 	}
 	free(H[k][Mc_AN]);
@@ -658,20 +700,9 @@ void array0()
 	  }    
 
 	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_CNO[Hwan];
-	    } 
-
 	    for (i=0; i<tno0; i++){
 	      free(CntH[k][Mc_AN][h_AN][i]);
 	    }
-
 	    free(CntH[k][Mc_AN][h_AN]);
 	  }
 	  free(CntH[k][Mc_AN]);
@@ -686,29 +717,25 @@ void array0()
     for (so=0; so<(SO_switch+1); so++){
       for (k=0; k<4; k++){
 	FNAN[0] = 0;
-	for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	for (Mc_AN=0; Mc_AN<(Matomnum+2); Mc_AN++){
 
 	  if (Mc_AN==0){
 	    Gc_AN = 0;
 	    tno0 = 1;
+	    fan = FNAN[Gc_AN];
+	  }
+	  else if ( (Matomnum+1)<=Mc_AN ){
+	    fan = List_YOUSO[8];
+	    tno0 = List_YOUSO[7];
 	  }
 	  else{
 	    Gc_AN = F_M2G[Mc_AN];
 	    Cwan = WhatSpecies[Gc_AN];
 	    tno0 = Spe_Total_NO[Cwan];  
+	    fan = FNAN[Gc_AN];
 	  }    
 
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_VPS_Pro[Hwan] + 2;
-	    } 
-
+	  for (h_AN=0; h_AN<(fan+1); h_AN++){
 	    for (i=0; i<tno0; i++){
 	      free(DS_NL[so][k][Mc_AN][h_AN][i]);
 	    }
@@ -729,30 +756,25 @@ void array0()
       for (so=0; so<(SO_switch+1); so++){
 	for (k=0; k<4; k++){
 	  FNAN[0] = 0;
-	  for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	  for (Mc_AN=0; Mc_AN<(Matomnum+2); Mc_AN++){
 
 	    if (Mc_AN==0){
 	      Gc_AN = 0;
 	      tno0 = 1;
-	      FNAN[0] = 0;
+	      fan = FNAN[Gc_AN];
+	    }
+	    else if ( (Matomnum+1)<=Mc_AN ){
+	      fan = List_YOUSO[8];
+	      tno0 = List_YOUSO[7];
 	    }
 	    else{
 	      Gc_AN = F_M2G[Mc_AN];
 	      Cwan = WhatSpecies[Gc_AN];
 	      tno0 = Spe_Total_CNO[Cwan];  
+	      fan = FNAN[Gc_AN];
 	    }    
 
-	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	      if (Mc_AN==0){
-		tno1 = 1;  
-	      }
-	      else{
-		Gh_AN = natn[Gc_AN][h_AN];
-		Hwan = WhatSpecies[Gh_AN];
-		tno1 = Spe_Total_VPS_Pro[Hwan] + 2;
-	      } 
-
+	    for (h_AN=0; h_AN<(fan+1); h_AN++){
 	      for (i=0; i<tno0; i++){
 		free(CntDS_NL[so][k][Mc_AN][h_AN][i]);
 	      }
@@ -785,16 +807,6 @@ void array0()
 	  }    
 
 	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_NO[Hwan];
-	    } 
-
 	    for (i=0; i<tno0; i++){
 	      free(DM[m][k][Mc_AN][h_AN][i]);
 	    }
@@ -828,16 +840,6 @@ void array0()
 	  }    
 
 	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_NO[Hwan];
-	    } 
-
 	    for (i=0; i<tno0; i++){
 	      free(Partial_DM[k][Mc_AN][h_AN][i]);
 	    }
@@ -869,21 +871,9 @@ void array0()
 	      tno0 = Spe_Total_NO[Cwan];  
 	    }  
 
-	    h_AN = 0;
-	      
-	    if (Mc_AN==0){
-	      tno1 = 1;  
-	    }
-	    else{
-	      Gh_AN = natn[Gc_AN][h_AN];
-	      Hwan = WhatSpecies[Gh_AN];
-	      tno1 = Spe_Total_NO[Hwan];
-	    } 
-
 	    for (i=0; i<tno0; i++){
 	      free(DM_onsite[m][k][Mc_AN][i]);
 	    }
-
             free(DM_onsite[m][k][Mc_AN]);
 	  }
           free(DM_onsite[m][k]);
@@ -1209,44 +1199,6 @@ void array0()
     }
     free(iDM);
 
-    /* IOLP */  
-
-    if (Solver==1 || Solver==7){
-      FNAN[0] = 0;
-      SNAN[0] = 0;
-      for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF+MatomnumS); Mc_AN++){
-
-	if (Mc_AN==0){
-	  Gc_AN = 0;
-	  tno0 = 1;
-	}
-	else{
-	  Gc_AN = S_M2G[Mc_AN];
-	  Cwan = WhatSpecies[Gc_AN];
-	  tno0 = Spe_Total_NO[Cwan];  
-	}    
-
-	for (h_AN=0; h_AN<=(FNAN[Gc_AN]+SNAN[Gc_AN]); h_AN++){
-
-	  if (Mc_AN==0){
-	    tno1 = 1;  
-	  }
-	  else{
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno1 = Spe_Total_NO[Hwan];
-	  } 
-
-	  for (i=0; i<tno0; i++){
-	    free(IOLP[Mc_AN][h_AN][i]);
-	  }
-	  free(IOLP[Mc_AN][h_AN]);
-	}
-	free(IOLP[Mc_AN]);
-      }
-      free(IOLP);
-    }
-
     /* S12 */  
 
     if (Solver==1 || Solver==5){ /* for recursion, DC and EC */
@@ -1273,111 +1225,6 @@ void array0()
         free(S12[Mc_AN]);
       }
       free(S12);
-    }
-
-    else if (Solver==6){ /* for GDC */
-
-      for (Mc_AN_GDC=0; Mc_AN_GDC<=Matomnum_GDC; Mc_AN_GDC++){
-
-	if (Mc_AN_GDC==0) n2 = 1;
-	else{
-
-	  Mc_AN = Mnatn_GDC[Mc_AN_GDC][0];
-	  Gc_AN = M2G[Mc_AN];
-	  wan = WhatSpecies[Gc_AN];
-
-	  num = 1;
-	  for (i=0; i<=(FNAN[Gc_AN]+SNAN[Gc_AN]); i++){
-	    Gi = natn[Gc_AN][i];
-	    wanA = WhatSpecies[Gi];
-	    num += Spe_Total_CNO[wanA];
-	  }
-	  n2 = num + 2;
-	}
-
-	for (i=0; i<n2; i++){
-	  free(S12[Mc_AN_GDC][i]);
-	}
-        free(S12[Mc_AN_GDC]);
-      }
-      free(S12);
-    }
-
-    if (Solver==1) { /* for recursion */
-
-      /* Left_U0 */
-
-      for (i=0; i<=SpinP_switch; i++){
-	for (j=0; j<=Matomnum; j++){
-
-	  if (j==0){
-	    tno1 = 1;
-	    vsize = 1;
-	  }
-	  else{
-	    Gc_AN = M2G[j];
-	    wanA = WhatSpecies[Gc_AN];
-	    tno1 = Spe_Total_CNO[wanA];
-
-	    Anum = 1;
-	    for (p=0; p<=(FNAN[Gc_AN]+SNAN[Gc_AN]); p++){
-	      Gi = natn[Gc_AN][p];
-	      wanA = WhatSpecies[Gi];
-	      Anum += Spe_Total_CNO[wanA];
-	    }
-
-	    NUM = Anum - 1;
-	    vsize = NUM + 2;
-	  }
-
-	  for (k=0; k<List_YOUSO[3]; k++){
-	    for (l=0; l<tno1; l++){
-	      free(Left_U0[i][j][k][l]);
-	    }
-            free(Left_U0[i][j][k]);
-	  }
-          free(Left_U0[i][j]);
-	}
-        free(Left_U0[i]);
-      }
-      free(Left_U0);
-
-      /* Right_U0 */
-
-      for (i=0; i<=SpinP_switch; i++){
-	for (j=0; j<=Matomnum; j++){
-
-	  if (j==0){
-	    tno1 = 1;
-	    vsize = 1;
-	  }
-	  else{
-	    Gc_AN = M2G[j];
-	    wanA = WhatSpecies[Gc_AN];
-	    tno1 = Spe_Total_CNO[wanA];
-
-	    Anum = 1;
-	    for (p=0; p<=(FNAN[Gc_AN]+SNAN[Gc_AN]); p++){
-	      Gi = natn[Gc_AN][p];
-	      wanA = WhatSpecies[Gi];
-	      Anum += Spe_Total_CNO[wanA];
-	    }
-
-	    NUM = Anum - 1;
-	    vsize = NUM + 2;
-	  }
-
-	  for (k=0; k<List_YOUSO[3]; k++){
-	    for (l=0; l<tno1; l++){
-	      free(Right_U0[i][j][k][l]);
-	    }
-            free(Right_U0[i][j][k]);
-	  }
-          free(Right_U0[i][j]);
-	}
-        free(Right_U0[i]);
-      }
-      free(Right_U0);
     }
 
     if (Cnt_switch==1){
@@ -1528,7 +1375,7 @@ void array0()
 
       for (k=0; k<4; k++){
 	FNAN[0] = 0;
-	for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
 	  if (Mc_AN==0){
 	    Gc_AN = 0;
@@ -1552,13 +1399,44 @@ void array0()
       }
       free(HVNA2);
 
+      /* HVNA3 */
+
+      for (k=0; k<4; k++){
+	FNAN[0] = 0;
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	  if (Mc_AN==0)  Gc_AN = 0;
+	  else           Gc_AN = F_M2G[Mc_AN];
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    if (Mc_AN==0){
+	      tno0 = 1;
+	    }
+	    else{
+	      Gh_AN = natn[Gc_AN][h_AN];        
+	      Hwan = WhatSpecies[Gh_AN];
+	      tno0 = Spe_Total_NO[Hwan];  
+	    }    
+
+	    for (i=0; i<tno0; i++){
+	      free(HVNA3[k][Mc_AN][h_AN][i]);
+	    }
+	    free(HVNA3[k][Mc_AN][h_AN]);
+	  }
+	  free(HVNA3[k][Mc_AN]);
+	}
+	free(HVNA3[k]);
+      }
+      free(HVNA3);
+
       /* CntHVNA2 */
 
       if (Cnt_switch==1){
 
 	for (k=0; k<4; k++){
 	  FNAN[0] = 0;
-	  for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
 	    if (Mc_AN==0){
 	      Gc_AN = 0;
@@ -1583,6 +1461,39 @@ void array0()
 	free(CntHVNA2);
       }
 
+      /* CntHVNA3 */
+
+      if (Cnt_switch==1){
+
+	for (k=0; k<4; k++){
+	  FNAN[0] = 0;
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	    if (Mc_AN==0) Gc_AN = 0;
+	    else          Gc_AN = F_M2G[Mc_AN];
+
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      if (Mc_AN==0){
+		tno0 = 1;
+	      }
+	      else{
+		Gh_AN = natn[Gc_AN][h_AN];        
+		Hwan = WhatSpecies[Gh_AN];
+		tno0 = Spe_Total_CNO[Hwan];  
+	      }    
+
+	      for (i=0; i<tno0; i++){
+		free(CntHVNA3[k][Mc_AN][h_AN][i]);
+	      }
+	      free(CntHVNA3[k][Mc_AN][h_AN]);
+	    }
+	    free(CntHVNA3[k][Mc_AN]);
+	  }
+	  free(CntHVNA3[k]);
+	}
+	free(CntHVNA3);
+      }
     }
 
     if (Solver==8) { /* embedding cluster method */
@@ -1599,12 +1510,6 @@ void array0()
 	    tno0 = Spe_Total_NO[Cwan];  
 	  }    
 
-          for (k=0; k<rlmax_EC[j]; k++){
-	    for (l=0; l<EKC_core_size[j]; l++){
-	      free(Krylov_U[i][j][k][l]);
-	    }
-            free(Krylov_U[i][j][k]);
-	  }
           free(Krylov_U[i][j]);
 	}
         free(Krylov_U[i]);
@@ -1690,7 +1595,7 @@ void array0()
   } /* if (alloc_first[6]==0){ */
 
   if (alloc_first[9]==0 && Solver==2){
-    for (i=0; i<(Size_Total_Matrix+2); i++){
+    for (i=0; i<(Size_Total_Matrix+1); i++){
       free(S[i]);
     }
     free(S);
@@ -1725,65 +1630,6 @@ void array0()
   if (alloc_first[13]==0){
     free(F_M2G);
     free(S_M2G);
-  }
-
-  if (alloc_first[14]==0){
-    free(My_Cell1);
-  }
-
-  if (alloc_first[15]==0){
-    free(My_Cell0);
-    free(Cell_ID0);
-    free(edge_block);
-  }
-
-  if (alloc_first[16]==0){
-    free(Num_Rcv_Grid1);
-    free(Num_Snd_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(Rcv_Grid1[ID]);
-    }
-    free(Rcv_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(Snd_Grid1[ID]);
-    }
-    free(Snd_Grid1);
-  }
-
-  if (alloc_first[17]==0){
-    free(Num_IRcv_Grid1);
-    free(Num_ISnd_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(IRcv_Grid1[ID]);
-    }
-    free(IRcv_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(ISnd_Grid1[ID]);
-    }
-    free(ISnd_Grid1);
-  }
-
-  if (alloc_first[18]==0){
-    free(Num_Rcv_FNAN2_Grid);
-    free(Num_Snd_FNAN2_Grid);
-    free(Rcv_FNAN2_MN);
-    free(Rcv_FNAN2_GRc);
-    free(Rcv_FNAN2_GA);
-    free(TopMAN2_Grid);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(Snd_FNAN2_At[ID]);
-    }  
-    free(Snd_FNAN2_At);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(Snd_FNAN2_Nc[ID]);
-    }  
-    free(Snd_FNAN2_Nc);
   }
 
   if (alloc_first[22]==0){
@@ -1942,11 +1788,100 @@ void array0()
   free(Rcv_DS_NL_Size);
   free(Snd_HFS_Size);
   free(Rcv_HFS_Size);
-  free(Start_Grid1);
-  free(End_Grid1);
-  free(Start_Grid2);
-  free(End_Grid2);
   free(VPS_j_dependency);
+  free(Num_Snd_Grid_A2B);
+  free(Num_Rcv_Grid_A2B);
+  free(Num_Snd_Grid_B2C);
+  free(Num_Rcv_Grid_B2C);
+  free(Num_Snd_Grid_B2D);
+  free(Num_Rcv_Grid_B2D);
+  free(Num_Snd_Grid_B_AB2CA);
+  free(Num_Rcv_Grid_B_AB2CA);
+  free(Num_Snd_Grid_B_CA2CB);
+  free(Num_Rcv_Grid_B_CA2CB);
+
+  if (alloc_first[26]==0){
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_A2B[ID]);
+    }  
+    free(Index_Snd_Grid_A2B);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_A2B[ID]);
+    }  
+    free(Index_Rcv_Grid_A2B);
+  }
+
+  if (alloc_first[27]==0){
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B2C[ID]);
+    }  
+    free(Index_Snd_Grid_B2C);
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B2C[ID]);
+    }  
+    free(Index_Rcv_Grid_B2C);
+
+    free(ID_NN_B2C_S);
+    free(ID_NN_B2C_R);
+    free(GP_B2C_S);
+    free(GP_B2C_R);
+  }
+
+  if (alloc_first[28]==0){
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B_AB2CA[ID]);
+    }  
+    free(Index_Snd_Grid_B_AB2CA);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B_AB2CA[ID]);
+    }  
+    free(Index_Rcv_Grid_B_AB2CA);
+
+    free(ID_NN_B_AB2CA_S);
+    free(ID_NN_B_AB2CA_R);
+    free(GP_B_AB2CA_S);
+    free(GP_B_AB2CA_R);
+  }
+
+  if (alloc_first[29]==0){
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B_CA2CB[ID]);
+    }  
+    free(Index_Snd_Grid_B_CA2CB);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B_CA2CB[ID]);
+    }  
+    free(Index_Rcv_Grid_B_CA2CB);
+
+    free(ID_NN_B_CA2CB_S);
+    free(ID_NN_B_CA2CB_R);
+    free(GP_B_CA2CB_S);
+    free(GP_B_CA2CB_R);
+  }
+
+  if (alloc_first[30]==0){
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B2D[ID]);
+    }  
+    free(Index_Snd_Grid_B2D);
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B2D[ID]);
+    }  
+    free(Index_Rcv_Grid_B2D);
+
+    free(ID_NN_B2D_S);
+    free(ID_NN_B2D_R);
+    free(GP_B2D_S);
+    free(GP_B2D_R);
+  }
 
   for (i=0; i<SpeciesNum; i++){
     free(EH0_scaling[i]);
@@ -2039,6 +1974,14 @@ void array0()
     free(Hessian);
   }
 
+  /* for MD_VS4 */
+  if (MD_switch==14){
+
+    free(AtomGr);
+    free(atnum_AtGr);
+    free(Temp_AtGr);
+  }
+
   /* spin non-collinear */
   if (SpinP_switch==3){
     free(Angle0_Spin);
@@ -2076,8 +2019,6 @@ void array0()
   free(Spe_Total_CNO);
   free(FNAN);
   free(SNAN);
-  free(SNAN_GDC);
-  free(True_SNAN);
   free(zp);
   free(Ep);
   free(Rp);
@@ -2189,6 +2130,11 @@ void array0()
     free(Spe_Atomic_Den[i]);
   }
   free(Spe_Atomic_Den);
+
+  for (i=0; i<List_YOUSO[18]; i++){
+    free(Spe_Atomic_Den2[i]);
+  }
+  free(Spe_Atomic_Den2);
 
   for (i=0; i<List_YOUSO[18]; i++){
     for (j=0; j<=List_YOUSO[25]; j++){

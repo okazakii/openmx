@@ -13,13 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include <mpi.h>
-#endif
-
 #include "tran_prototypes.h"
 
 

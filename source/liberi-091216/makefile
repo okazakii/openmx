@@ -3,7 +3,7 @@
 #-----------------------------------------------------------------------
 .PHONY: compile clean rebuild demo selfcheck
 
-SRCDIR=./source
+SRCDIR     =./source
 INSTALL_DIR=.
 
 
@@ -17,11 +17,13 @@ INSTALL_DIR=.
 #LIB  = -lm -g2c -L$(HOME)/local/lib -lfftw3 -lblas -llapack
 
 # Linux , gcc 4.3.2 
-CC   = gcc
-LOADER = gfortran
-OPT  = -O3 -w -static 
-FFTW3_INCLUDE_DIR = $(HOME)/local/include
-LIB  = -lm -g2c -L$(HOME)/local/lib -lfftw3 -lcblas -llapack
+CC                = xlc
+LOADER            = f90
+OPT               = -q64 -O3 -qnosmp -qlargepage -qstrict -qtune=pwr7 -qarch=pwr7 -qlanglvl=ansi -qmaxmem=-1
+FFTW3_INCLUDE_DIR = /hsfs/home/n16319/IBM/include
+LIB               = -L/opt/common/freeware/lib/LAPACK/LIB.S -llapack_s64 \
+                    -L/opt/common/freeware/lib/BLAS/LIB.S   -lblas_s64   \
+                    -L/hsfs/home/n16319/IBM/lib -lfftw3 -lm
 
 # eniac2 cluster in RCIS (Linux, Intel Xeon, icc 10.0, Intel MKL 10.0)
 #CC   = icc
@@ -55,21 +57,18 @@ LIB  = -lm -g2c -L$(HOME)/local/lib -lfftw3 -lcblas -llapack
 #FFTW3_INCLUDE_DIR = /opt/fftw/include
 #LIB = -f2c -L/opt/fftw/lib -lfftw3 -lmkl_intel_lp64 -lmkl_lapack -lguide -pthread
 
+FLAG   = $(OPT) -DNDEBUG -I$(FFTW3_INCLUDE_DIR) -I$(SRCDIR) 
+LDFLAG = -64 -noparallel
 
-FLAG = $(OPT) -DNDEBUG
+# ifdef FFTW3_INCLUDE_DIR
+#   FLAG += -I$(FFTW3_INCLUDE_DIR)
+# endif
 
-ifdef FFTW3_INCLUDE_DIR
-  FLAG += -I$(FFTW3_INCLUDE_DIR)
-endif
+# ifndef LOADER
+#   LOADER=$(CC)
+# endif
 
-ifndef LOADER
-  LOADER=$(CC)
-endif
-
-
-FLAG += -I$(SRCDIR) 
-
-
+# FLAG += -I$(SRCDIR) 
 
 #----- FILES -----
 LIBNAME = $(SRCDIR)/liberi.a
@@ -87,6 +86,8 @@ LIBOBJ = \
   $(SRCDIR)/sbt/log/eri_fsbt.o \
   $(SRCDIR)/sbt/log/eri_logfsbt.o \
   $(SRCDIR)/sbt/linear/eri_linfsbt.o \
+
+###    $(SRCDIR)/dgtsv.o  $(SRCDIR)/xerbla.o
   
 #$(SRCDIR)/eri_gaunt_table.o \
 
@@ -104,7 +105,6 @@ OBJ2= ./test/selfcheck/demo.o \
 OBJ3=./test/realsh/realsh.o
 
 HEADERS = $(SRCDIR)/eri.h 
-
 
 #----- MAKE COMMANDS -----
 compile:
@@ -137,18 +137,17 @@ rebuild:
 	make
 
 $(LIBNAME): $(LIBOBJ)
-	ar rv $(LIBNAME) $(LIBOBJ)
+	ar -X64 curv $(LIBNAME) $(LIBOBJ)
 	#ranlib $(libname)
 
 $(TEST1NAME): $(LIBOBJ) $(OBJ1)
-	$(LOADER) $(FLAG) -o $(TEST1NAME) $(LIBOBJ) $(OBJ1) $(LIB)
+	$(LOADER) $(LDFLAG) -o $(TEST1NAME) $(LIBOBJ) $(OBJ1) $(LIB)
 
 $(TEST2NAME): $(LIBOBJ) $(OBJ2)
-	$(LOADER) $(FLAG) -o $(TEST2NAME) $(LIBOBJ) $(OBJ2) $(LIB)
+	$(LOADER) $(LDFLAG) -o $(TEST2NAME) $(LIBOBJ) $(OBJ2) $(LIB)
 
 $(TEST3NAME): $(LIBOBJ) $(OBJ3)
-	$(LOADER) $(FLAG) -o $(TEST3NAME) $(LIBOBJ) $(OBJ3) $(LIB)
+	$(LOADER) $(LDFLAG) -o $(TEST3NAME) $(LIBOBJ) $(OBJ3) $(LIB)
 
 .c.o:
 	$(CC) $(FLAG) -c $< -o $@
-

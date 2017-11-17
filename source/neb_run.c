@@ -19,18 +19,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include <omp.h>
-#endif
 
 
 
@@ -73,10 +63,6 @@ void neb_run(char *argv[], MPI_Comm mpi_commWD, int index_images, double ***neb_
   MPI_Comm_size(MPI_COMM_WORLD1,&numprocs);
   MPI_Comm_rank(MPI_COMM_WORLD1,&myid);
 
-  /* setup CPU group */
-
-  setup_CPU_group(argv[1]);
-
   init_alloc_first();
 
   CompTime[myid][1] = readfile(argv);
@@ -101,7 +87,7 @@ void neb_run(char *argv[], MPI_Comm mpi_commWD, int index_images, double ***neb_
 
   MD_iter = 1;
 
-  CompTime[myid][2] += truncation(MD_iter,Solver==6,1);
+  CompTime[myid][2] += truncation(MD_iter,1);
   CompTime[myid][3] += DFT(MD_iter,(MD_iter-1)%orbitalOpt_per_MDIter+1);
 
   /****************************************************
@@ -148,29 +134,25 @@ void neb_run(char *argv[], MPI_Comm mpi_commWD, int index_images, double ***neb_
                finalize the calculation
   ****************************************************/
 
-  if (MYID_MPI_COMM_WORLD<atomnum){
+  /* elapsed time */
 
-    /* elapsed time */
-
-    dtime(&TEtime);
-    CompTime[myid][0] = TEtime - TStime;
-    Output_CompTime();
-    for (i=0; i<numprocs; i++){
-      free(CompTime[i]);
-    }
-    free(CompTime);
-
-    /* merge log files */
-
-    Merge_LogFile(argv[1]);
-
-    /* print memory */
-
-    PrintMemory("total",0,"sum");
-
-    /* free arrays */
-
-    Free_Arrays(0);
+  dtime(&TEtime);
+  CompTime[myid][0] = TEtime - TStime;
+  Output_CompTime();
+  for (i=0; i<numprocs; i++){
+    free(CompTime[i]);
   }
+  free(CompTime);
 
+  /* merge log files */
+
+  Merge_LogFile(argv[1]);
+
+  /* print memory */
+
+  PrintMemory("total",0,"sum");
+
+  /* free arrays */
+
+  Free_Arrays(0);
 }

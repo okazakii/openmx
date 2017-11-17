@@ -72,10 +72,18 @@ void Allocate_Arrays(int wherefrom)
       Rcv_DS_NL_Size = (int*)malloc(sizeof(int)*Num_Procs);
       Snd_HFS_Size = (int*)malloc(sizeof(int)*Num_Procs);
       Rcv_HFS_Size = (int*)malloc(sizeof(int)*Num_Procs);
-      Start_Grid1 = (int*)malloc(sizeof(int)*Num_Procs);
-      End_Grid1   = (int*)malloc(sizeof(int)*Num_Procs);
-      Start_Grid2 = (int*)malloc(sizeof(int)*Num_Procs);
-      End_Grid2   = (int*)malloc(sizeof(int)*Num_Procs);
+
+      Num_Snd_Grid_A2B = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Rcv_Grid_A2B = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Snd_Grid_B2C = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Rcv_Grid_B2C = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Snd_Grid_B2D = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Rcv_Grid_B2D = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Snd_Grid_B_AB2CA = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Rcv_Grid_B_AB2CA = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Snd_Grid_B_CA2CB = (int*)malloc(sizeof(int)*Num_Procs);
+      Num_Rcv_Grid_B_CA2CB = (int*)malloc(sizeof(int)*Num_Procs);
+
       VPS_j_dependency = (int*)malloc(sizeof(int)*SpeciesNum);
 
       EH0_scaling = (double**)malloc(sizeof(double*)*SpeciesNum);
@@ -272,8 +280,6 @@ void Allocate_Arrays(int wherefrom)
       Spe_Total_CNO = (int*)malloc(sizeof(int)*SpeciesNum);
       FNAN = (int*)malloc(sizeof(int)*(atomnum+1));
       SNAN = (int*)malloc(sizeof(int)*(atomnum+1));
-      SNAN_GDC = (int*)malloc(sizeof(int)*(atomnum+1));
-      True_SNAN = (int*)malloc(sizeof(int)*(atomnum+1));
       zp = (dcomplex*)malloc(sizeof(dcomplex)*POLES);
       Ep = (dcomplex*)malloc(sizeof(dcomplex)*POLES);
       Rp = (dcomplex*)malloc(sizeof(dcomplex)*POLES);
@@ -331,12 +337,12 @@ void Allocate_Arrays(int wherefrom)
 
       ncn  = (int**)malloc(sizeof(int*)*(atomnum+1));
       for (ct_AN=0; ct_AN<=atomnum; ct_AN++){
-        ncn[ct_AN]  = (int*)malloc(sizeof(int)*((int)(Max_FSNAN*ScaleSize)+1));
+        ncn[ct_AN] = (int*)malloc(sizeof(int)*((int)(Max_FSNAN*ScaleSize)+1));
       }
 
       Dis  = (double**)malloc(sizeof(double*)*(atomnum+1));
       for (ct_AN=0; ct_AN<=atomnum; ct_AN++){
-        Dis[ct_AN]  = (double*)malloc(sizeof(double)*((int)(Max_FSNAN*ScaleSize)+1));
+        Dis[ct_AN] = (double*)malloc(sizeof(double)*((int)(Max_FSNAN*ScaleSize)+1));
       }
 
       alloc_first[8] = 0;
@@ -403,8 +409,14 @@ void Allocate_Arrays(int wherefrom)
 
       Spe_Atomic_Den = (double**)malloc(sizeof(double*)*List_YOUSO[18]);
       for (i=0; i<List_YOUSO[18]; i++){
-        Spe_Atomic_Den[i] = (double*)malloc(sizeof(double)*List_YOUSO[21]);
-        for (j=0; j<List_YOUSO[21]; j++) Spe_Atomic_Den[i][j] = 0.0;
+        Spe_Atomic_Den[i] = (double*)malloc(sizeof(double)*(List_YOUSO[21]+2));
+        for (j=0; j<(List_YOUSO[21]+2); j++) Spe_Atomic_Den[i][j] = 0.0;
+      }
+
+      Spe_Atomic_Den2 = (double**)malloc(sizeof(double*)*List_YOUSO[18]);
+      for (i=0; i<List_YOUSO[18]; i++){
+        Spe_Atomic_Den2[i] = (double*)malloc(sizeof(double)*(List_YOUSO[21]+2));
+        for (j=0; j<(List_YOUSO[21]+2); j++) Spe_Atomic_Den2[i][j] = 0.0;
       }
 
       Spe_PAO_RWF = (double****)malloc(sizeof(double***)*List_YOUSO[18]);
@@ -455,14 +467,14 @@ void Allocate_Arrays(int wherefrom)
 
       Spe_VH_Atom = (double**)malloc(sizeof(double*)*List_YOUSO[18]);
       for (i=0; i<List_YOUSO[18]; i++){
-        Spe_VH_Atom[i] = (double*)malloc(sizeof(double)*List_YOUSO[22]);
-        for (j=0; j<List_YOUSO[22]; j++) Spe_VH_Atom[i][j] = 0.0;
+        Spe_VH_Atom[i] = (double*)malloc(sizeof(double)*(List_YOUSO[22]+2));
+        for (j=0; j<(List_YOUSO[22]+2); j++) Spe_VH_Atom[i][j] = 0.0;
       }
 
       Spe_Atomic_PCC = (double**)malloc(sizeof(double*)*List_YOUSO[18]);
       for (i=0; i<List_YOUSO[18]; i++){
-        Spe_Atomic_PCC[i] = (double*)malloc(sizeof(double)*List_YOUSO[22]);
-        for (j=0; j<List_YOUSO[22]; j++) Spe_Atomic_PCC[i][j] = 0.0;
+        Spe_Atomic_PCC[i] = (double*)malloc(sizeof(double)*(List_YOUSO[22]+2));
+        for (j=0; j<(List_YOUSO[22]+2); j++) Spe_Atomic_PCC[i][j] = 0.0;
       }
 
       Spe_VNL = (double****)malloc(sizeof(double***)*(SO_switch+1));
@@ -663,6 +675,17 @@ void Allocate_Arrays(int wherefrom)
       alloc_first[25] = 0; 
 
       break;
+
+
+  case 10:
+
+    /* MD_VS4 */
+
+    AtomGr = (int*)malloc(sizeof(int)*(atomnum+1));
+    atnum_AtGr = (int*)malloc(sizeof(int)*(num_AtGr+1));
+    Temp_AtGr = (double*)malloc(sizeof(double)*(num_AtGr+1));
+
+    break;
 
   }
 

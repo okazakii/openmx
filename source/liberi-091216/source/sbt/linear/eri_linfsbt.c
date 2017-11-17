@@ -980,8 +980,6 @@ static void transform_in(
     abort();
   }
 
-  //ERI_LinFSBT_Core_Transform_F(ptr->F, in, ptr->in, ptr->out, 
-  //                           meshx, nmesh, parity);
   transform_f(ptr->F, in, meshx, nmesh, parity);
 
   /* gamma terms */

@@ -415,7 +415,6 @@ static void quad(
     f1 = EXX_Index_Cmp_Sites(iatom1, iatom2, icell1, nshell_op); /* i=j ? */
     f2 = EXX_Index_Cmp_Sites(iatom3, iatom4, icell2, nshell_op); /* k=l ? */
     
-    //f3 = cmp_site(iatom1, iatom2, icell1, nshell_op); /* i=k ? */
     f3 = EXX_Index_Cmp_OP(iatom1, iatom2, iatom3, iatom4,
       icell1, icell2, icell3, nshell_op, nshell_ep);
     

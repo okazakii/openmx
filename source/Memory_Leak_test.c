@@ -22,12 +22,8 @@
 /*  end stat section */
 #include "openmx_common.h"
 #include "Inputtools.h"
- 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+ 
 
 
 void Get_VSZ(int MD_iter);
@@ -152,7 +148,6 @@ void Get_VSZ(int MD_iter)
   int column_CPU,po_CPU;
   int line,po_line,num;
   int i,max;
-
   FILE *fp,*fp1,*fp2;
   char fname0[YOUSO10];
   char fname1[YOUSO10];
@@ -295,9 +290,11 @@ void Get_VSZ(int MD_iter)
     printf("Could not find %s in checking memory leak (4)\n",fname1);
   }  
   
+  /*
   printf("Used_CPU (percent) = %6.3f\n",Used_CPU);fflush(stdout);
   printf("Used_VSZ (kbyte)   = %6d\n", (long int)(Used_VSZ));fflush(stdout);
   printf("Used_RSS (kbyte)   = %6d\n", (long int)(Used_RSS));fflush(stdout);
+  */
 
   /* write Used_CPU and Used_VSZ in a file */
 

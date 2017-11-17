@@ -18,15 +18,8 @@
 #include <math.h>
 #include <time.h>
 #include <string.h>
-
 #include "Inputtools.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
 #include "tran_prototypes.h"
 
 #define eV2Hartree    27.2113845                
@@ -2765,7 +2758,7 @@ int main(int argc, char **argv)
     printf(" Welcome to TranMain                                   \n");
     printf(" This is a post-processing code of OpenMX to calculate \n");
     printf(" electronic transmission and current.                  \n");
-    printf(" Copyright (C), 2002-2011, H.Kino and T.Ozaki          \n"); 
+    printf(" Copyright (C), 2002-2013, H.Kino and T.Ozaki          \n"); 
     printf(" TranMain comes with ABSOLUTELY NO WARRANTY.            \n"); 
     printf(" This is free software, and you are welcome to         \n"); 
     printf(" redistribute it under the constitution of the GNU-GPL.\n");

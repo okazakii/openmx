@@ -16,65 +16,50 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h" 
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
 #include "omp.h"
-#endif
-
 #include "tran_prototypes.h"
 
-#define Scale_BCR_DPCC    2.1    /* a cutoff factor for BCR_DPCC */
-#define rcut_buffer       0.0
-#define Min_Bond_Length   1.0e-12
+#define  measure_time   0
+
 
 static void Fixed_FNAN_SNAN();
-static void LT(int CorL);
-static void Reflexive(int Iatom, int Catom, int a, int b, int c, int Chops,int Fhops);
-static int Get_R_index(int R_switch,int i,int j,int Rn);
-static void Set_R_index(int R_switch,int i,int j,int Rn);
 static int Set_Periodic(int CpyN, int Allocate_switch);
 static void Free_truncation(int CpyN, int TN, int Free_switch);
 static void free_arrays_truncation0();
-static void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_GDC2);
-static void Estimate_Trn_System(int CpyCell, int TCpyCell, int flag_GDC);
+static void Trn_System(int MD_iter, int CpyCell, int TCpyCell);
+static void Estimate_Trn_System(int CpyCell, int TCpyCell);
 static void Check_System();
 static void Set_RMI();
 static void Output_Connectivity(FILE *fp);
 static void UCell_Box(int MD_iter, int estimate_switch, int CpyCell);
 static void Set_Inf_SndRcv();
-static void allocate_grids2atoms(int MD_iter);
+static void Construct_MPI_Data_Structure_Grid();
 
 int TFNAN,TFNAN2,TSNAN,TSNAN2;
-double **CellDis;
-unsigned long asize1;
-long *R_index1,*R_index2;
 
 
 
-double truncation(int MD_iter, int flag_GDC, int UCell_flag)
+
+double truncation(int MD_iter,int UCell_flag)
 {
   static int firsttime=1;
-  int i,j,m,l,ct_AN,h_AN,Gh_AN,Mc_AN,Gc_AN,s1,s2;
-  int k,tno,tno0,tno1,Cwan,Hwan,N,Nmax,so,nc,ns,spin;
-  int num,wan,n2,wanA,Gi,Mc_AN_GDC,Max_Num_Cells0;
-  int vsize,Anum,Bnum,NUM,p,MAnum,fan;
+  int i,j,k,m,l,ct_AN,h_AN,Gh_AN,Mc_AN,Gc_AN,s1,s2;
+  int tno,tno0,tno1,Cwan,Hwan,N,so,nc,ns,spin;
+  int num,wan,n2,wanA,Gi,Max_Num_Cells0;
+  int NO1,Mh_AN,Rnh;
+  int vsize,Anum,Bnum,NUM,p,MAnum,fan,csize;
   int size_Orbs_Grid,size_COrbs_Grid;
+  int size_Orbs_Grid_FNAN;
   int size_H0,size_CntH0,size_H,size_CntH;
-  int size_HNL,size_Left_U0;
+  int size_HNL;
   int size_iHNL,size_iHNL0,size_iCntHNL;
-  int size_DS_NL,size_CntDS_NL,size_IOLP;
+  int size_DS_NL,size_CntDS_NL;
   int size_NumOLG,size_OLP,size_CntOLP;
   int size_OLP_L;
   int size_HVNA,size_DS_VNA,size_CntDS_VNA;
   int size_HVNA2,size_CntHVNA2;
+  int size_HVNA3,size_CntHVNA3;
   int size_H_Hub,size_DM_onsite;
   int size_v_eff,size_NC_OcpN,size_NC_v_eff;
   int size_S12,size_iDM;
@@ -87,7 +72,10 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   int numprocs,myid,tag=999,ID;
   double rcutA,r0,scale_rc0;
   int po,po0;
-  double time0;
+  double time0,time1,time2,time3,time4,time5,time6,time7;
+  double time8,time9,time10,time11,time12,time13,time14;
+  double time15,time16,time17,time18,time19,time20,time21;
+  double stime,etime;
 
   double My_KryDH,My_KryDS;
   double KryDH,KryDS;
@@ -98,15 +86,19 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   char buf[fp_bsize];          /* setvbuf */
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return 0.0;
+
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
+  time0 = 0.0; time1 = 0.0; time2 = 0.0; time3 = 0.0; time4 = 0.0;
+  time5 = 0.0; time6 = 0.0; time7 = 0.0; time8 = 0.0; time9 = 0.0;
+  time10= 0.0; time11= 0.0; time12= 0.0; time13= 0.0; time14= 0.0;
+  time15= 0.0; time16= 0.0; time17= 0.0; time18= 0.0; time19= 0.0;
+
   if (myid==Host_ID && 0<level_stdout){
     printf("\n*******************************************************\n"); 
-    printf("            Truncation and setting of grids            \n");
+    printf("        Analysis of neigbors and setting of grids        \n");
     printf("*******************************************************\n\n"); 
-    printf("<truncation>  Logically truncation of the whole system\n");
   }
 
   dtime(&TStime); 
@@ -116,49 +108,43 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
      FNAN and SNAN at the previous MD step
   ****************************************************/
 
+  if (measure_time) dtime(&stime); 
+
   for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
     ID = G2ID[Gc_AN];
     MPI_Bcast(&time_per_atom[Gc_AN], 1, MPI_DOUBLE, ID, mpi_comm_level1);
   }
 
-   free_arrays_truncation0();
-  
+  free_arrays_truncation0();
+
+  if (measure_time){
+    dtime(&etime); 
+    time0 = etime - stime;
+  }
+
   /****************************************************
             allocation of atoms to processors
   ****************************************************/
 
-  if (2<=MD_iter && flag_GDC==0){
+  if (measure_time) dtime(&stime); 
+
+  if (2<=MD_iter){
 
     /*****************************
-      final input
+      last input
       0: atomnum, 
-      1: the neighbor 
-      2: elapsed time 
+      1: elapsed time 
     *****************************/    
 
-    /* DC or Krylov */
-    if (Solver==5 || Solver==8)
-      Set_Allocate_Atom2CPU(MD_iter,0,2);  /* 2: elapsed time */
+    if (Solver==5 || Solver==8)  /* DC or Krylov */
+      Set_Allocate_Atom2CPU(MD_iter,0,1);  /* 1: elapsed time */
     else 
       Set_Allocate_Atom2CPU(MD_iter,0,0);  /* 0: atomnum */
   }
 
-  else if (2<=MD_iter && flag_GDC==1){ /* for GDC */
-
-    /************************************************
-    the way of allocation of atoms to cpus in the GDC
-
-    (1) find FNAN, SNAN, natn, ncn, Dis
-    (2) Set_Allocate_Atom2CPU in truncation.c
-    (3) free arrays allocated by Set_Periodic 
-    ************************************************/
-
-    TCpyCell = Set_Periodic(CpyCell,0);
-    Estimate_Trn_System(CpyCell,TCpyCell,0);
-    Allocate_Arrays(3);
-    Trn_System(MD_iter,CpyCell,TCpyCell,0,1);
-    Set_Allocate_Atom2CPU(MD_iter,0,2);
-    Free_truncation(CpyCell,TCpyCell,0);
+  if (measure_time){
+    dtime(&etime); 
+    time1 = etime - stime;
   }
 
   /****************************************************
@@ -179,17 +165,8 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
             ratv           (global)
             atv            (global
             atv_ijk        (global)
-            R_index1       (local)
-            R_index2       (local)
-            CellDis        (local)
             and
         Generation_ATV(CpyN);
-
-       In Set_Periodic(CpyCell,1)
-         allocation of arrays:
-            R_index1       (local)
-            R_index2       (local) 
-            CellDis        (local) 
 
        In Allocate_Arrays(3) 
          freeing and allocation of arrays:
@@ -202,15 +179,7 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
             ratv           (global)
             atv            (global)
             atv_ijk        (global)
-            R_index1       (local)  
-            R_index2       (local) 
-            CellDis        (local)
 
-       In Free_truncation(CpyCell,TCpyCell,1)
-         freeing of arrays:
-            R_index1       (local) 
-            R_index2       (local) 
-            CellDis        (local)
     ****************************************************/
 
     CpyCell = 0;
@@ -227,20 +196,41 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
                  Generation_ATV(CpyN);
       **********************************************/
 
+      if (measure_time) dtime(&stime); 
+
       TCpyCell = Set_Periodic(CpyCell,0);
+
+      if (measure_time){
+	dtime(&etime); 
+	time2 += etime - stime;
+      }
 
       /**********************************************
         find Max_FSNAN by the physical truncation
           for allocation of natn, ncn, and Dis 
       **********************************************/
 
-      Estimate_Trn_System(CpyCell,TCpyCell,0);
+      if (measure_time) dtime(&stime); 
+
+      Estimate_Trn_System(CpyCell,TCpyCell);
+
+      if (measure_time){
+	dtime(&etime); 
+	time3 += etime - stime;
+      }
 
       /**********************************************
               allocation of natn, ncn, and Dis 
       **********************************************/
 
+      if (measure_time) dtime(&stime); 
+
       Allocate_Arrays(3);
+
+      if (measure_time){
+	dtime(&etime); 
+	time4 += etime - stime;
+      }
 
       /**********************
        find TFNAN and TSNAN
@@ -249,50 +239,99 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
       TFNAN2 = TFNAN;
       TSNAN2 = TSNAN;
 
-      Trn_System(MD_iter,CpyCell,TCpyCell,0,1);
+      if (measure_time) dtime(&stime); 
+
+      Trn_System(MD_iter,CpyCell,TCpyCell);
+
+      if (measure_time){
+	dtime(&etime); 
+	time5 += etime - stime;
+      }
 
       if ( TFNAN==TFNAN2 && TSNAN==TSNAN2 && (Solver==1 || Solver==5 || Solver==6 || Solver==8) ) po++;
       else if (TFNAN==TFNAN2 && (Solver==2 || Solver==3 || Solver==4 || Solver==7 || Solver==9) ) po++;
       else if (CellNN_flag==1)                                                                    po++;
 
       /**********************************************
-         if (flag_GDC==1)
-      **********************************************/
-
-      if (flag_GDC==1)  Set_Allocate_Atom2CPU(MD_iter,0,2);
-
-      /**********************************************
          freeing of arrays which are allocated in
                  Set_Periodic(CpyCell,0)
       **********************************************/
 
+      if (measure_time) dtime(&stime); 
+
       Free_truncation(CpyCell,TCpyCell,0);
+
+      if (measure_time){
+	dtime(&etime); 
+	time6 += etime - stime;
+      }
 
     } while (po==0);
 
     List_YOUSO[4] = CpyCell;
-    TCpyCell = Set_Periodic(CpyCell,0);
-    Estimate_Trn_System(CpyCell,TCpyCell,flag_GDC);
-    Allocate_Arrays(3);
-    Trn_System(MD_iter,CpyCell,TCpyCell,flag_GDC,1);
 
-    /* for GDC */
-    if (flag_GDC==1)  Set_Allocate_Atom2CPU(MD_iter,0,2);
+    if (measure_time) dtime(&stime); 
+
+    TCpyCell = Set_Periodic(CpyCell,0);
+
+    if (measure_time){
+      dtime(&etime); 
+      time2 += etime - stime;
+    }
+
+    if (measure_time) dtime(&stime); 
+
+    Estimate_Trn_System(CpyCell,TCpyCell);
+
+    if (measure_time){
+      dtime(&etime); 
+      time3 += etime - stime;
+    }
+
+    if (measure_time) dtime(&stime); 
+
+    Allocate_Arrays(3);
+
+    if (measure_time){
+      dtime(&etime); 
+      time7 += etime - stime;
+    }
+
+    if (measure_time) dtime(&stime); 
+
+    Trn_System(MD_iter,CpyCell,TCpyCell);
+
+    if (measure_time){
+      dtime(&etime); 
+      time5 += etime - stime;
+    }
+
+    if (measure_time) dtime(&stime); 
 
     Set_Inf_SndRcv();
+
+    if (measure_time){
+      dtime(&etime); 
+      time8 += etime - stime;
+    }
+
+    if (measure_time) dtime(&stime); 
+
     Set_RMI();
+
+    if (measure_time){
+      dtime(&etime); 
+      time9 += etime - stime;
+    }
 
   } /* if (MD_iter==1) */ 
     
   else{
 
     TCpyCell = Set_Periodic(CpyCell,0);
-    Estimate_Trn_System(CpyCell,TCpyCell,flag_GDC);
+    Estimate_Trn_System(CpyCell,TCpyCell);
     Allocate_Arrays(3);
-    Trn_System(MD_iter,CpyCell,TCpyCell,flag_GDC,1);
-
-    /* for GDC */
-    if (flag_GDC==1)  Set_Allocate_Atom2CPU(MD_iter,0,2);
+    Trn_System(MD_iter,CpyCell,TCpyCell);
 
     Set_Inf_SndRcv();
     Set_RMI();
@@ -307,6 +346,8 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 
     NumOLG
   ****************************************************/
+
+  if (measure_time) dtime(&stime); 
 
   FNAN[0] = 0;
   NumOLG = (int**)malloc(sizeof(int*)*(Matomnum+1));
@@ -329,11 +370,23 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   if (firsttime)
   PrintMemory("truncation: NumOLG", sizeof(int)*size_NumOLG, NULL);
 
+  if (measure_time){
+    dtime(&etime); 
+    time10 += etime - stime;
+  }
+
   /****************************************************
                   check the system type
   ****************************************************/
 
+  if (measure_time) dtime(&stime); 
+
   if (MD_iter==1) Check_System();
+
+  if (measure_time){
+    dtime(&etime); 
+    time11 += etime - stime;
+  }
 
   /****************************************************
                        UCell_Box
@@ -351,7 +404,16 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
     Max_OneD_Grids = 0;
     if (2<=level_stdout) printf("\n***** UCell_Box(MD_iter,1,CpyCell) *****\n");
 
+    if (measure_time) dtime(&stime); 
+
     UCell_Box(MD_iter,1,CpyCell);
+
+    if (measure_time){
+      dtime(&etime); 
+      time12 += etime - stime;
+    }
+
+    if (measure_time) dtime(&stime); 
 
     My_Max_GridN_Atom = Max_GridN_Atom;
 
@@ -370,6 +432,11 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
       printf("Max_OneD_Grids=%2d\n",Max_OneD_Grids);
     }
 
+    if (measure_time){
+      dtime(&etime); 
+      time13 += etime - stime;
+    }
+
     /*************************************
       find 
             Max_NumOLG
@@ -378,7 +445,14 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
     Max_NumOLG = 0;
     if (2<=level_stdout) printf("\n***** UCell_Box(MD_iter,2,CpyCell) *****\n");
 
+    if (measure_time) dtime(&stime); 
+
     UCell_Box(MD_iter,2,CpyCell);
+
+    if (measure_time){
+      dtime(&etime); 
+      time14 += etime - stime;
+    }
 
     My_Max_NumOLG = Max_NumOLG;
     MPI_Reduce(&My_Max_NumOLG, &Max_NumOLG, 1,
@@ -393,16 +467,20 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 
     /*************************************
       setting of
-                 GListTAtoms0
                  GListTAtoms1
                  GListTAtoms2
-                 GListTAtoms3 
-                 GListTCells0
     *************************************/
 
     if (myid==Host_ID && 0<level_stdout)  printf("<UCell_Box> Info. of cutoff energy and num. of grids\n");
 
+    if (measure_time) dtime(&stime); 
+
     UCell_Box(MD_iter,0,CpyCell);
+
+    if (measure_time){
+      dtime(&etime); 
+      time15 += etime - stime;
+    }
 
     My_Max_GridN_Atom = Max_GridN_Atom;
     MPI_Reduce(&My_Max_GridN_Atom, &Max_GridN_Atom, 1,
@@ -443,7 +521,6 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
      ResidualDM
      EDM
      PDM
-     IOLP 
      double CntCoes[Matomnum+MatomnumF+1][YOUSO7][YOUSO24];
      HVNA
      DS_VNA
@@ -456,6 +533,8 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
      NC_OcpN
      NC_v_eff
   ****************************************************/
+
+  if (measure_time) dtime(&stime); 
 
   /* H0 */  
 
@@ -845,6 +924,11 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
         Gc_AN = 0;
         tno0 = 1;
       }
+      else if ( (Hub_U_switch==0 || Hub_U_occupation!=1) && 0<k && Matomnum<Mc_AN){
+        Gc_AN = S_M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        tno0 = 1;
+      }    
       else{
         Gc_AN = S_M2G[Mc_AN];
         Cwan = WhatSpecies[Gc_AN];
@@ -857,6 +941,9 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
         if (Mc_AN==0){
           tno1 = 1;  
         }
+        else if ( (Hub_U_switch==0 || Hub_U_occupation!=1) && 0<k && Matomnum<Mc_AN){
+          tno1 = 1;
+	}
         else{
           Gh_AN = natn[Gc_AN][h_AN];
           Hwan = WhatSpecies[Gh_AN];
@@ -1008,25 +1095,34 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   for (so=0; so<(SO_switch+1); so++){
     DS_NL[so] = (double*****)malloc(sizeof(double****)*4);
     for (k=0; k<4; k++){
-      DS_NL[so][k] = (double****)malloc(sizeof(double***)*(Matomnum+MatomnumF+1)); 
+      DS_NL[so][k] = (double****)malloc(sizeof(double***)*(Matomnum+2)); 
       FNAN[0] = 0;
-      for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+      for (Mc_AN=0; Mc_AN<(Matomnum+2); Mc_AN++){
 
 	if (Mc_AN==0){
 	  Gc_AN = 0;
 	  tno0 = 1;
+          fan = FNAN[Gc_AN];
+	}
+	else if ( (Matomnum+1)<=Mc_AN ){
+          fan = List_YOUSO[8];
+          tno0 = List_YOUSO[7];
 	}
 	else{
 	  Gc_AN = F_M2G[Mc_AN];
 	  Cwan = WhatSpecies[Gc_AN];
 	  tno0 = Spe_Total_NO[Cwan];  
+          fan = FNAN[Gc_AN];
 	}    
 
-	DS_NL[so][k][Mc_AN] = (double***)malloc(sizeof(double**)*(FNAN[Gc_AN]+1)); 
-	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	DS_NL[so][k][Mc_AN] = (double***)malloc(sizeof(double**)*(fan+1)); 
+	for (h_AN=0; h_AN<(fan+1); h_AN++){
 
 	  if (Mc_AN==0){
 	    tno1 = 1;  
+	  }
+  	  else if ( (Matomnum+1)<=Mc_AN ){
+	    tno1 = List_YOUSO[20];  
 	  }
 	  else{
 	    Gh_AN = natn[Gc_AN][h_AN];
@@ -1054,25 +1150,34 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
     for (so=0; so<(SO_switch+1); so++){
       CntDS_NL[so] = (double*****)malloc(sizeof(double****)*4); 
       for (k=0; k<4; k++){
-	CntDS_NL[so][k] = (double****)malloc(sizeof(double***)*(Matomnum+MatomnumF+1)); 
+	CntDS_NL[so][k] = (double****)malloc(sizeof(double***)*(Matomnum+2)); 
 	FNAN[0] = 0;
-	for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	for (Mc_AN=0; Mc_AN<(Matomnum+2); Mc_AN++){
 
 	  if (Mc_AN==0){
 	    Gc_AN = 0;
 	    tno0 = 1;
+            fan = FNAN[Gc_AN];
 	  }
+	  else if ( (Matomnum+1)<=Mc_AN ){
+            fan = List_YOUSO[8];
+            tno0 = List_YOUSO[7];
+  	  }
 	  else{
 	    Gc_AN = F_M2G[Mc_AN];
 	    Cwan = WhatSpecies[Gc_AN];
 	    tno0 = Spe_Total_CNO[Cwan];  
+            fan = FNAN[Gc_AN];
 	  }    
 
-	  CntDS_NL[so][k][Mc_AN] = (double***)malloc(sizeof(double**)*(FNAN[Gc_AN]+1)); 
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  CntDS_NL[so][k][Mc_AN] = (double***)malloc(sizeof(double**)*(fan+1)); 
+	  for (h_AN=0; h_AN<(fan+1); h_AN++){
 
 	    if (Mc_AN==0){
 	      tno1 = 1;  
+	    }
+  	    else if ( (Matomnum+1)<=Mc_AN ){
+	      tno1 = List_YOUSO[20];  
 	    }
 	    else{
 	      Gh_AN = natn[Gc_AN][h_AN];
@@ -1580,46 +1685,6 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
     }
   }
 
-  /* IOLP */  
-
-  size_IOLP = 0;
-  if (Solver==1 || Solver==7){
-    IOLP = (double****)malloc(sizeof(double***)*(Matomnum+MatomnumF+MatomnumS+1)); 
-    FNAN[0] = 0;
-    SNAN[0] = 0;
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF+MatomnumS); Mc_AN++){
-
-      if (Mc_AN==0){
-	Gc_AN = 0;
-	tno0 = 1;
-      }
-      else{
-	Gc_AN = S_M2G[Mc_AN];
-	Cwan = WhatSpecies[Gc_AN];
-	tno0 = Spe_Total_NO[Cwan];  
-      }
-
-      IOLP[Mc_AN] = (double***)malloc(sizeof(double**)*(FNAN[Gc_AN]+SNAN[Gc_AN]+1)); 
-      for (h_AN=0; h_AN<=(FNAN[Gc_AN]+SNAN[Gc_AN]); h_AN++){
-
-	if (Mc_AN==0){
-	  tno1 = 1;  
-	}
-	else{
-	  Gh_AN = natn[Gc_AN][h_AN];
-	  Hwan = WhatSpecies[Gh_AN];
-	  tno1 = Spe_Total_NO[Hwan];
-	} 
-
-	IOLP[Mc_AN][h_AN] = (double**)malloc(sizeof(double*)*tno0); 
-	for (i=0; i<tno0; i++){
-	  IOLP[Mc_AN][h_AN][i] = (double*)malloc(sizeof(double)*tno1); 
-	  size_IOLP += tno1;
-	}
-      }
-    }
-  }
-
   /* S12 for recursion or DC */  
 
   if (Solver==1 || Solver==5){
@@ -1649,120 +1714,6 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
         S12[Mc_AN][i] = (double*)malloc(sizeof(double)*n2);
       }
       size_S12 += n2*n2;
-    }
-  }
-
-  else if (Solver==6){ /* for GDC */
-
-    size_S12 = 0;
-
-    S12 = (double***)malloc(sizeof(double**)*(Matomnum_GDC+1));
-
-    for (Mc_AN_GDC=0; Mc_AN_GDC<=Matomnum_GDC; Mc_AN_GDC++){
-
-      if (Mc_AN_GDC==0) n2 = 1;
-      else{
-
-        Mc_AN = Mnatn_GDC[Mc_AN_GDC][0];
-        Gc_AN = M2G[Mc_AN];
-        wan = WhatSpecies[Gc_AN];
-
-	num = 1;
-	for (i=0; i<=(FNAN[Gc_AN]+SNAN[Gc_AN]); i++){
-	  Gi = natn[Gc_AN][i];
-	  wanA = WhatSpecies[Gi];
-	  num += Spe_Total_CNO[wanA];
-	}
-	n2 = num + 2;
-      }
-
-      S12[Mc_AN_GDC] = (double**)malloc(sizeof(double*)*n2);
-      for (i=0; i<n2; i++){
-        S12[Mc_AN_GDC][i] = (double*)malloc(sizeof(double)*n2);
-      }
-      size_S12 += n2*n2;
-    }
-  }
-
-  if (Solver==1) { /* for recursion */
-
-    /* Left_U0 */
-
-    size_Left_U0 = 0; 
-
-    Left_U0 = (double*****)malloc(sizeof(double****)*(SpinP_switch+1));
-    for (i=0; i<=SpinP_switch; i++){
-      Left_U0[i] = (double****)malloc(sizeof(double***)*(Matomnum+1)); 
-      for (j=0; j<=Matomnum; j++){
-
-	if (j==0){
-          tno1 = 1;
-          vsize = 1;
-	}
-        else{
-          Gc_AN = M2G[j];
-          wanA = WhatSpecies[Gc_AN];
-          tno1 = Spe_Total_CNO[wanA];
-
-          Anum = 1;
-          for (p=0; p<=(FNAN[Gc_AN]+SNAN[Gc_AN]); p++){
-  	    Gi = natn[Gc_AN][p];
-	    wanA = WhatSpecies[Gi];
-	    Anum += Spe_Total_CNO[wanA];
-          }
-
-          NUM = Anum - 1;
-          vsize = NUM + 2;
-	}
-
-	Left_U0[i][j] = (double***)malloc(sizeof(double**)*List_YOUSO[3]); 
-	for (k=0; k<List_YOUSO[3]; k++){
-	  Left_U0[i][j][k] = (double**)malloc(sizeof(double*)*tno1); 
-	  for (l=0; l<tno1; l++){
-	    Left_U0[i][j][k][l] = (double*)malloc(sizeof(double)*vsize); 
-	    for (m=0; m<vsize; m++) Left_U0[i][j][k][l][m] = 0.0; 
-	  }
-          size_Left_U0 += tno1*vsize; 
-	}
-      }
-    }
-
-    /* Right_U0 */
-
-    Right_U0 = (double*****)malloc(sizeof(double****)*(SpinP_switch+1));
-    for (i=0; i<=SpinP_switch; i++){
-      Right_U0[i] = (double****)malloc(sizeof(double***)*(Matomnum+1)); 
-      for (j=0; j<=Matomnum; j++){
-
-	if (j==0){
-          tno1 = 1;
-          vsize = 1;
-	}
-        else{
-          Gc_AN = M2G[j];
-          wanA = WhatSpecies[Gc_AN];
-          tno1 = Spe_Total_CNO[wanA];
-
-          Anum = 1;
-          for (p=0; p<=(FNAN[Gc_AN]+SNAN[Gc_AN]); p++){
-  	    Gi = natn[Gc_AN][p];
-	    wanA = WhatSpecies[Gi];
-	    Anum += Spe_Total_CNO[wanA];
-          }
-
-          NUM = Anum - 1;
-          vsize = NUM + 2;
-	}
-
-	Right_U0[i][j] = (double***)malloc(sizeof(double**)*List_YOUSO[3]); 
-	for (k=0; k<List_YOUSO[3]; k++){
-	  Right_U0[i][j][k] = (double**)malloc(sizeof(double*)*tno1); 
-	  for (l=0; l<tno1; l++){
-	    Right_U0[i][j][k][l] = (double*)malloc(sizeof(double)*vsize); 
-	    for (m=0; m<vsize; m++) Right_U0[i][j][k][l][m] = 0.0;
-	  }
-	}
-      }
     }
   }
 
@@ -1926,9 +1877,9 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
     size_HVNA2 = 0;
     HVNA2 = (double*****)malloc(sizeof(double****)*4);
     for (k=0; k<4; k++){
-      HVNA2[k] = (double****)malloc(sizeof(double***)*(Matomnum+MatomnumF+1)); 
+      HVNA2[k] = (double****)malloc(sizeof(double***)*(Matomnum+1)); 
       FNAN[0] = 0;
-      for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+      for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
 	if (Mc_AN==0){
 	  Gc_AN = 0;
@@ -1952,6 +1903,39 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
       }
     }
 
+    /* HVNA3 */  
+
+    size_HVNA3 = 0;
+    HVNA3 = (double*****)malloc(sizeof(double****)*4);
+    for (k=0; k<4; k++){
+      HVNA3[k] = (double****)malloc(sizeof(double***)*(Matomnum+1)); 
+      FNAN[0] = 0;
+      for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	if (Mc_AN==0)  Gc_AN = 0;
+	else           Gc_AN = F_M2G[Mc_AN];
+
+	HVNA3[k][Mc_AN] = (double***)malloc(sizeof(double**)*(FNAN[Gc_AN]+1)); 
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	  if (Mc_AN==0){
+	    tno0 = 1;
+	  }
+	  else{
+            Gh_AN = natn[Gc_AN][h_AN];        
+            Hwan = WhatSpecies[Gh_AN];
+	    tno0 = Spe_Total_NO[Hwan];  
+	  }    
+
+	  HVNA3[k][Mc_AN][h_AN] = (double**)malloc(sizeof(double*)*tno0); 
+	  for (i=0; i<tno0; i++){
+	    HVNA3[k][Mc_AN][h_AN][i] = (double*)malloc(sizeof(double)*tno0); 
+	    size_HVNA3 += tno0;
+	  }
+	}
+      }
+    }
+
     /* CntHVNA2 */  
 
     if (Cnt_switch==1){
@@ -1959,9 +1943,9 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
       size_CntHVNA2 = 0;
       CntHVNA2 = (double*****)malloc(sizeof(double****)*4);
       for (k=0; k<4; k++){
-	CntHVNA2[k] = (double****)malloc(sizeof(double***)*(Matomnum+MatomnumF+1)); 
+	CntHVNA2[k] = (double****)malloc(sizeof(double***)*(Matomnum+1)); 
 	FNAN[0] = 0;
-	for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
 	  if (Mc_AN==0){
 	    Gc_AN = 0;
@@ -1980,6 +1964,42 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 	    for (i=0; i<tno0; i++){
 	      CntHVNA2[k][Mc_AN][h_AN][i] = (double*)malloc(sizeof(double)*tno0); 
 	      size_CntHVNA2 += tno0;
+	    }
+	  }
+	}
+      }
+    }
+
+    /* CntHVNA3 */  
+
+    if (Cnt_switch==1){
+
+      size_CntHVNA3 = 0;
+      CntHVNA3 = (double*****)malloc(sizeof(double****)*4);
+      for (k=0; k<4; k++){
+	CntHVNA3[k] = (double****)malloc(sizeof(double***)*(Matomnum+1)); 
+	FNAN[0] = 0;
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	  if (Mc_AN==0) Gc_AN = 0;
+	  else          Gc_AN = F_M2G[Mc_AN];
+
+	  CntHVNA3[k][Mc_AN] = (double***)malloc(sizeof(double**)*(FNAN[Gc_AN]+1)); 
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    if (Mc_AN==0){
+	      tno0 = 1;
+	    }
+	    else{
+	      Gh_AN = natn[Gc_AN][h_AN];        
+	      Hwan = WhatSpecies[Gh_AN];
+	      tno0 = Spe_Total_CNO[Hwan];  
+	    }    
+
+	    CntHVNA3[k][Mc_AN][h_AN] = (double**)malloc(sizeof(double*)*tno0); 
+	    for (i=0; i<tno0; i++){
+	      CntHVNA3[k][Mc_AN][h_AN][i] = (double*)malloc(sizeof(double)*tno0); 
+	      size_CntHVNA3 += tno0;
 	    }
 	  }
 	}
@@ -2050,10 +2070,10 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 
     size_Krylov_U = 0;
 
-    Krylov_U = (double*****)malloc(sizeof(double****)*(SpinP_switch+1));
+    Krylov_U = (double***)malloc(sizeof(double**)*(SpinP_switch+1));
     for (i=0; i<=SpinP_switch; i++){
 
-      Krylov_U[i] = (double****)malloc(sizeof(double***)*(Matomnum+1));
+      Krylov_U[i] = (double**)malloc(sizeof(double*)*(Matomnum+1));
 
       My_KryDH = 0.0;
       My_KryDS = 0.0;
@@ -2114,16 +2134,13 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 
 	}    
 
-        Krylov_U[i][j] = (double***)malloc(sizeof(double**)*rlmax_EC[j]);
-        for (k=0; k<rlmax_EC[j]; k++){
-          Krylov_U[i][j][k] = (double**)malloc(sizeof(double*)*EKC_core_size[j]);
-          for (l=0; l<EKC_core_size[j]; l++){
-            Krylov_U[i][j][k][l] = (double*)malloc(sizeof(double)*(Bnum+2));
-	  }
-        }
+	csize = Bnum + 2;
+	
+	Krylov_U[i][j] = (double*)malloc(sizeof(double)*rlmax_EC[j]*EKC_core_size[j]*csize);
 
-        size_Krylov_U += rlmax_EC[j]*EKC_core_size[j]*(Bnum+2);
-      }
+        size_Krylov_U += rlmax_EC[j]*EKC_core_size[j]*csize;
+
+      } /* j */
 
       if (i==0){
         MPI_Reduce(&My_KryDH, &KryDH, 1, MPI_DOUBLE, MPI_SUM, Host_ID, mpi_comm_level1);
@@ -2135,7 +2152,7 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
         }       
       }
 
-    }
+    } /* i */
 
     size_EC_matrix = 0;
 
@@ -2213,7 +2230,6 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   PrintMemory("truncation: ResidualDM",sizeof(double)*size_ResidualDM,  NULL);
   PrintMemory("truncation: EDM",     sizeof(double)*size_H0,      NULL);
   PrintMemory("truncation: PDM",     sizeof(double)*size_H0,      NULL);
-  PrintMemory("truncation: IOLP",    sizeof(double)*size_IOLP,    NULL);
   if (SO_switch==1 || SpinP_switch==3){
   PrintMemory("truncation: iResidualDM",sizeof(double)*size_iResidualDM,  NULL);
   PrintMemory("truncation: iHNL",    sizeof(double)*size_iHNL,    NULL);
@@ -2226,10 +2242,12 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   PrintMemory("truncation: DS_VNA",  sizeof(Type_DS_VNA)*size_DS_VNA,      NULL);
   PrintMemory("truncation: HVNA",    sizeof(double)*size_HVNA,        NULL);
   PrintMemory("truncation: HVNA2",   sizeof(double)*size_HVNA2,       NULL);
+  PrintMemory("truncation: HVNA3",   sizeof(double)*size_HVNA3,       NULL);
   }
   if (Cnt_switch==1){
   PrintMemory("truncation: CntDS_VNA",sizeof(Type_DS_VNA)*size_CntDS_VNA,  NULL);
   PrintMemory("truncation: CntHVNA2", sizeof(double)*size_CntHVNA2,   NULL);
+  PrintMemory("truncation: CntHVNA3", sizeof(double)*size_CntHVNA3,   NULL);
   }
   if (Hub_U_switch==1 || Constraint_NCS_switch==1 || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1){
   PrintMemory("truncation: H_Hub",     sizeof(double)*size_H_Hub,     NULL);
@@ -2247,10 +2265,6 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   if (Solver==1 || Solver==5 || Solver==6){
   PrintMemory("truncation: S12",       sizeof(double)*size_S12,       NULL);
   }
-  if (Solver==1){
-  PrintMemory("truncation: Left_U0",       sizeof(double)*size_Left_U0,      NULL);
-  PrintMemory("truncation: Right_U0",      sizeof(double)*size_Left_U0,      NULL);
-  }
   if (Solver==8){
   PrintMemory("truncation: Krylov_U",      sizeof(double)*size_Krylov_U,      NULL);
   PrintMemory("truncation: EC_matrix",     sizeof(double)*size_EC_matrix,     NULL);
@@ -2261,66 +2275,27 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
   }
 
   /****************************************************
-    allocation of arrays:
-
-      Density_Grid
-      ADensity_Grid
-      PCCDensity_Grid
-      Vxc_Grid
-      RefVxc_Grid
-      VNA_Grid
-      dVHart_Grid
-      Vpot_Grid
-      Orbs_Grid
-      COrbs_Grid
+     allocation of arrays:
   ****************************************************/
 
   if (UCell_flag==1){
 
-    MPI_Reduce(&Num_Cells0, &Max_Num_Cells0, 1, MPI_INT, MPI_MAX, Host_ID, mpi_comm_level1);
-    MPI_Bcast(&Max_Num_Cells0, 1, MPI_INT, Host_ID, mpi_comm_level1);
-
-    N = Num_Cells0*Ngrid2*Ngrid3;
-    Nmax = Max_Num_Cells0*Ngrid2*Ngrid3;
-
-    /******************************************************************************
-     Since Density_Grid is used in TRAN_FFT_Dinterpolation3D.c as a work array,
-     the size of the second index must be Nmax in the NEGF calculation (Solver==4). 
-    ******************************************************************************/
-
-    /*
-    printf("myid=%2d Num_Cells0*Ngrid2*Ngrid3=%2d\n",myid,Num_Cells0*Ngrid2*Ngrid3);
-    */
+    N = My_NumGridC;
 
     if (SpinP_switch==3){ /* spin non-collinear */
       Density_Grid = (double**)malloc(sizeof(double*)*4); 
       for (k=0; k<=3; k++){
-        if (Solver==4){
-          Density_Grid[k] = (double*)malloc(sizeof(double)*Nmax); 
-          for (i=0; i<Nmax; i++) Density_Grid[k][i] = 0.0;
-	}
-        else{
-          Density_Grid[k] = (double*)malloc(sizeof(double)*N); 
-          for (i=0; i<N; i++) Density_Grid[k][i] = 0.0;
-        }
+        Density_Grid[k] = (double*)malloc(sizeof(double)*N); 
+        for (i=0; i<N; i++) Density_Grid[k][i] = 0.0;
       }
     }
     else{
       Density_Grid = (double**)malloc(sizeof(double*)*2); 
       for (k=0; k<=1; k++){
-        if (Solver==4){
-          Density_Grid[k] = (double*)malloc(sizeof(double)*Nmax); 
-          for (i=0; i<Nmax; i++) Density_Grid[k][i] = 0.0;
-	}
-        else{
-          Density_Grid[k] = (double*)malloc(sizeof(double)*N); 
-          for (i=0; i<N; i++) Density_Grid[k][i] = 0.0;
-        }
+        Density_Grid[k] = (double*)malloc(sizeof(double)*N); 
+        for (i=0; i<N; i++) Density_Grid[k][i] = 0.0;
       }
     }
-
-    ADensity_Grid   = (double*)malloc(sizeof(double)*N); 
-    PCCDensity_Grid = (double*)malloc(sizeof(double)*N); 
 
     if (SpinP_switch==3){ /* spin non-collinear */
       Vxc_Grid = (double**)malloc(sizeof(double*)*4); 
@@ -2336,8 +2311,6 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
     }
 
     RefVxc_Grid = (double*)malloc(sizeof(double)*N); 
-
-    VNA_Grid = (double*)malloc(sizeof(double)*N); 
 
     dVHart_Grid = (double*)malloc(sizeof(double)*N); 
     for (i=0; i<N; i++) dVHart_Grid[i] = 0.0;
@@ -2355,22 +2328,118 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
       }
     }
 
-    /* external electric field */
-    VEF_Grid = (double*)malloc(sizeof(double)*N); 
+    /* arrays for the partitions B and C */
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      Density_Grid_B = (double**)malloc(sizeof(double*)*4); 
+      for (k=0; k<=3; k++){
+        Density_Grid_B[k] = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+        for (i=0; i<My_NumGridB_AB; i++) Density_Grid_B[k][i] = 0.0;
+      }
+    }
+    else{
+      Density_Grid_B = (double**)malloc(sizeof(double*)*2); 
+      for (k=0; k<=1; k++){
+        Density_Grid_B[k] = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+        for (i=0; i<My_NumGridB_AB; i++) Density_Grid_B[k][i] = 0.0;
+      }
+    }
+
+    ADensity_Grid_B = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+    PCCDensity_Grid_B = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+    for (i=0; i<My_NumGridB_AB; i++) PCCDensity_Grid_B[i] = 0.0;
+
+    dVHart_Grid_B = (double*)malloc(sizeof(double)*My_Max_NumGridB); 
+    for (i=0; i<My_Max_NumGridB; i++) dVHart_Grid_B[i] = 0.0;
+
+    RefVxc_Grid_B = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      Vxc_Grid_B = (double**)malloc(sizeof(double*)*4); 
+      for (k=0; k<=3; k++){
+        Vxc_Grid_B[k] = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+      }
+    }
+    else{
+      Vxc_Grid_B = (double**)malloc(sizeof(double*)*2); 
+      for (k=0; k<=1; k++){
+        Vxc_Grid_B[k] = (double*)malloc(sizeof(double)*My_NumGridB_AB);
+      }
+    }
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      Vpot_Grid_B = (double**)malloc(sizeof(double*)*4); 
+      for (k=0; k<=3; k++){
+        Vpot_Grid_B[k] = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+      }
+    }
+    else{
+      Vpot_Grid_B = (double**)malloc(sizeof(double*)*2); 
+      for (k=0; k<=1; k++){
+        Vpot_Grid_B[k] = (double*)malloc(sizeof(double)*My_NumGridB_AB);
+      }
+    }
+
+    /* if (ProExpn_VNA==off) */
+    if (ProExpn_VNA==0){
+      VNA_Grid = (double*)malloc(sizeof(double)*N); 
+      VNA_Grid_B = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+    }
+
+    /* electric energy by electric field */
+    if (E_Field_switch==1){
+      VEF_Grid = (double*)malloc(sizeof(double)*N); 
+      VEF_Grid_B = (double*)malloc(sizeof(double)*My_NumGridB_AB); 
+    }
+
+    /* arrays for the partitions D */
+
+    PCCDensity_Grid_D = (double*)malloc(sizeof(double)*My_NumGridD); 
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      Density_Grid_D = (double**)malloc(sizeof(double*)*4); 
+      for (k=0; k<=3; k++){
+        Density_Grid_D[k] = (double*)malloc(sizeof(double)*My_NumGridD); 
+        for (i=0; i<My_NumGridD; i++) Density_Grid_D[k][i] = 0.0;
+      }
+    }
+    else{
+      Density_Grid_D = (double**)malloc(sizeof(double*)*2); 
+      for (k=0; k<=1; k++){
+        Density_Grid_D[k] = (double*)malloc(sizeof(double)*My_NumGridD); 
+        for (i=0; i<My_NumGridD; i++) Density_Grid_D[k][i] = 0.0;
+      }
+    }
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      Vxc_Grid_D = (double**)malloc(sizeof(double*)*4); 
+      for (k=0; k<=3; k++){
+        Vxc_Grid_D[k] = (double*)malloc(sizeof(double)*My_NumGridD); 
+      }
+    }
+    else{
+      Vxc_Grid_D = (double**)malloc(sizeof(double*)*2); 
+      for (k=0; k<=1; k++){
+        Vxc_Grid_D[k] = (double*)malloc(sizeof(double)*My_NumGridD);
+      }
+    }
 
     /* Orbs_Grid */
     size_Orbs_Grid = 0;
-    Orbs_Grid = (Type_Orbs_Grid***)malloc(sizeof(Type_Orbs_Grid**)*(Matomnum+MatomnumF+1)); 
+    Orbs_Grid = (Type_Orbs_Grid***)malloc(sizeof(Type_Orbs_Grid**)*(Matomnum+1)); 
     Orbs_Grid[0] = (Type_Orbs_Grid**)malloc(sizeof(Type_Orbs_Grid*)*1); 
     Orbs_Grid[0][0] = (Type_Orbs_Grid*)malloc(sizeof(Type_Orbs_Grid)*1); 
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
       Gc_AN = F_M2G[Mc_AN];
       Cwan = WhatSpecies[Gc_AN];
-      Orbs_Grid[Mc_AN] = (Type_Orbs_Grid**)malloc(sizeof(Type_Orbs_Grid*)*Spe_Total_NO[Cwan]); 
-      for (i=0; i<Spe_Total_NO[Cwan]; i++){
-        Orbs_Grid[Mc_AN][i] = (Type_Orbs_Grid*)malloc(sizeof(Type_Orbs_Grid)*GridN_Atom[Gc_AN]); 
-        size_Orbs_Grid += GridN_Atom[Gc_AN];
-      }     
+      /* AITUNE */
+      Orbs_Grid[Mc_AN] = (Type_Orbs_Grid**)malloc(sizeof(Type_Orbs_Grid*)*GridN_Atom[Gc_AN]); 
+      int Nc;
+      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+        Orbs_Grid[Mc_AN][Nc] = (Type_Orbs_Grid*)malloc(sizeof(Type_Orbs_Grid)*Spe_Total_NO[Cwan]); 
+	size_Orbs_Grid += Spe_Total_NO[Cwan];
+      }
+      /* AITUNE */
     }
 
     /* COrbs_Grid */
@@ -2390,38 +2459,84 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
       }
     }
 
+    /* Orbs_Grid_FNAN */
+    size_Orbs_Grid_FNAN = 0;
+    Orbs_Grid_FNAN = (Type_Orbs_Grid****)malloc(sizeof(Type_Orbs_Grid***)*(Matomnum+1)); 
+    Orbs_Grid_FNAN[0] = (Type_Orbs_Grid***)malloc(sizeof(Type_Orbs_Grid**)*1); 
+    Orbs_Grid_FNAN[0][0] = (Type_Orbs_Grid**)malloc(sizeof(Type_Orbs_Grid*)*1); 
+    Orbs_Grid_FNAN[0][0][0] = (Type_Orbs_Grid*)malloc(sizeof(Type_Orbs_Grid)*1); 
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+      Gc_AN = M2G[Mc_AN];    
+      Orbs_Grid_FNAN[Mc_AN] = (Type_Orbs_Grid***)malloc(sizeof(Type_Orbs_Grid**)*(FNAN[Gc_AN]+1)); 
+
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+        Gh_AN = natn[Gc_AN][h_AN];
+
+        if (G2ID[Gh_AN]!=myid){
+
+	  Mh_AN = F_G2M[Gh_AN];
+	  Rnh = ncn[Gc_AN][h_AN];
+	  Hwan = WhatSpecies[Gh_AN];
+          NO1 = Spe_Total_NO[Hwan];
+          /* AITUNE */
+          if (0<NumOLG[Mc_AN][h_AN]){
+  	    Orbs_Grid_FNAN[Mc_AN][h_AN] = (Type_Orbs_Grid**)malloc(sizeof(Type_Orbs_Grid*)*NumOLG[Mc_AN][h_AN]); 
+            int Nc;
+	    for (Nc=0; Nc<NumOLG[Mc_AN][h_AN]; Nc++){
+              Orbs_Grid_FNAN[Mc_AN][h_AN][Nc] = (Type_Orbs_Grid*)malloc(sizeof(Type_Orbs_Grid)*NO1); 
+              size_Orbs_Grid_FNAN += NO1;
+	    }
+	  }
+          /* AITUNE */
+	}
+        else {
+          Orbs_Grid_FNAN[Mc_AN][h_AN] = (Type_Orbs_Grid**)malloc(sizeof(Type_Orbs_Grid*)*1); 
+          Orbs_Grid_FNAN[Mc_AN][h_AN][0] = (Type_Orbs_Grid*)malloc(sizeof(Type_Orbs_Grid)*1); 
+          size_Orbs_Grid_FNAN += 1;
+        }
+      }
+    }
+
     alloc_first[3] = 0;
 
     /* PrintMemory */
 
     if (firsttime){
-    if (SpinP_switch==3){
-    PrintMemory("truncation: Density_Grid",    sizeof(double)*N*4,              NULL);
-    PrintMemory("truncation: ADensity_Grid",   sizeof(double)*N,                NULL);
-    PrintMemory("truncation: PCCDensity_Grid", sizeof(double)*N,                NULL);
-    PrintMemory("truncation: Vxc_Grid",        sizeof(double)*N*4,              NULL);
-    PrintMemory("truncation: RefVxc_Grid",     sizeof(double)*N,                NULL);
-    PrintMemory("truncation: VNA_Grid",        sizeof(double)*N,                NULL);
-    PrintMemory("truncation: dVHart_Grid",     sizeof(double)*N,                NULL);
-    PrintMemory("truncation: Vpot_Grid",       sizeof(double)*N*4,              NULL);
-    PrintMemory("truncation: Orbs_Grid",       sizeof(Type_Orbs_Grid)*size_Orbs_Grid,   NULL);
-    PrintMemory("truncation: COrbs_Grid",      sizeof(Type_Orbs_Grid)*size_COrbs_Grid,  NULL);
-    }  
-    else{
-    PrintMemory("truncation: Density_Grid",    sizeof(double)*N*2,              NULL);
-    PrintMemory("truncation: ADensity_Grid",   sizeof(double)*N,                NULL);
-    PrintMemory("truncation: PCCDensity_Grid", sizeof(double)*N,                NULL);
-    PrintMemory("truncation: Vxc_Grid",        sizeof(double)*N*2,              NULL);
-    PrintMemory("truncation: RefVxc_Grid",     sizeof(double)*N,                NULL);
-    PrintMemory("truncation: VNA_Grid",        sizeof(double)*N,                NULL);
-    PrintMemory("truncation: dVHart_Grid",     sizeof(double)*N,                NULL);
-    PrintMemory("truncation: Vpot_Grid",       sizeof(double)*N*2,              NULL);
-    PrintMemory("truncation: Orbs_Grid",       sizeof(Type_Orbs_Grid)*size_Orbs_Grid,   NULL);
-    PrintMemory("truncation: COrbs_Grid",      sizeof(Type_Orbs_Grid)*size_COrbs_Grid,  NULL);
-    }
 
-    /* external electric field */
-    PrintMemory("truncation: VEF_Grid",        sizeof(double)*N,                NULL);
+      int mul;
+      if (SpinP_switch==3) mul = 4;
+      else                 mul = 2;
+
+      PrintMemory("truncation: Density_Grid",     sizeof(double)*N*mul,              NULL);
+      PrintMemory("truncation: Vxc_Grid",         sizeof(double)*N*mul,              NULL);
+      PrintMemory("truncation: RefVxc_Grid",      sizeof(double)*N,                  NULL);
+      PrintMemory("truncation: Vpot_Grid",        sizeof(double)*N*mul,              NULL);
+      PrintMemory("truncation: dVHart_Grid",      sizeof(double)*N,                  NULL);
+      PrintMemory("truncation: Vpot_Grid_B",      sizeof(double)*My_NumGridB_AB*mul, NULL);
+      PrintMemory("truncation: Density_Grid_B",   sizeof(double)*My_NumGridB_AB*mul, NULL);
+      PrintMemory("truncation: ADensity_Grid_B",  sizeof(double)*My_NumGridB_AB,     NULL);
+      PrintMemory("truncation: PCCDensity_Grid_B",sizeof(double)*My_NumGridB_AB,     NULL);
+      PrintMemory("truncation: dVHart_Grid_B",    sizeof(double)*My_Max_NumGridB,    NULL);
+      PrintMemory("truncation: RefVxc_Grid_B",    sizeof(double)*My_NumGridB_AB,     NULL);
+      PrintMemory("truncation: Vxc_Grid_B",       sizeof(double)*My_NumGridB_AB*mul, NULL);
+      PrintMemory("truncation: Density_Grid_D",   sizeof(double)*My_NumGridD*mul,    NULL);
+      PrintMemory("truncation: Vxc_Grid_D",       sizeof(double)*My_NumGridD*mul,    NULL);
+      PrintMemory("truncation: PCCDensity_Grid_D",sizeof(double)*My_NumGridD,        NULL);
+      PrintMemory("truncation: Orbs_Grid",        sizeof(Type_Orbs_Grid)*size_Orbs_Grid,   NULL);
+      PrintMemory("truncation: COrbs_Grid",       sizeof(Type_Orbs_Grid)*size_COrbs_Grid,  NULL);
+      PrintMemory("truncation: Orbs_Grid_FNAN",   sizeof(Type_Orbs_Grid)*size_Orbs_Grid_FNAN,  NULL);
+
+      if (ProExpn_VNA==0){
+        PrintMemory("truncation: VNA_Grid",         sizeof(double)*N,                  NULL);
+	PrintMemory("truncation: VNA_Grid_B",       sizeof(double)*My_NumGridB_AB,   NULL);
+      }
+      if (E_Field_switch==1){
+	PrintMemory("truncation: VEF_Grid",         sizeof(double)*N,                NULL);
+	PrintMemory("truncation: VEF_Grid_B",       sizeof(double)*My_NumGridB_AB,   NULL);
+      }
     }
   
   } /* if (UCell_flag==1) */
@@ -2446,23 +2561,26 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 
   }
 
-  /****************************************************
-    freeing of arrays:
+  if (measure_time){
+    dtime(&etime); 
+    time16 += etime - stime;
+  }
 
-            R_index1       (local) 
-            R_index2       (local) 
-            CellDis        (local)
-  ****************************************************/
-
-  Free_truncation(CpyCell,TCpyCell,1);
+  if (measure_time){
+    printf("myid=%5d time0 =%6.3f time1 =%6.3f time2 =%6.3f time3 =%6.3f time4 =%6.3f time5 =%6.3f\n",
+            myid,time0,time1,time2,time3,time4,time5);
+    printf("myid=%5d time6 =%6.3f time7 =%6.3f time8 =%6.3f time9 =%6.3f time10=%6.3f time11=%6.3f\n",
+            myid,time6,time7,time8,time9,time10,time11);
+    printf("myid=%5d time12=%6.3f time13=%6.3f time14=%6.3f time15=%6.3f time16=%6.3f\n",
+            myid,time12,time13,time14,time15,time16);
+  }
 
   /* for PrintMemory */
   firsttime = 0;
  
   /* for time */
   dtime(&TEtime);
-  time0 = TEtime - TStime;
-  return time0;
+  return (TEtime-TStime);
 }
 
 
@@ -2471,12 +2589,12 @@ double truncation(int MD_iter, int flag_GDC, int UCell_flag)
 
 
 
-void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_GDC2)
+void Trn_System(int MD_iter, int CpyCell, int TCpyCell)
 {
   int i,j,k,l,m,Rn,fan,san,tan,wanA,wanB,po0;
   int ct_AN,h_AN,m2,m3,i0,size_RMI1,size_array;
   int My_TFNAN,My_TSNAN,Gh_AN,LT_switch,Nloop;
-  double r,rcutA,rcutB,rcut,dx,dy,dz;
+  double r,rcutA,rcutB,rcut,dx,dy,dz,rcut_max;
   double *fDis,*sDis;
   int *fnan2,*fncn;
   int *snan2,*sncn;
@@ -2493,7 +2611,7 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
                       start calc.
   *******************************************************/
 
-#pragma omp parallel shared(ScaleSize,Max_FSNAN,level_stdout,BCR,CellDis,atv,Gxyz,Dis,ncn,natn,TCpyCell,CpyCell,atomnum,FNAN,SNAN,Spe_Atom_Cut1,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,i,ct_AN,wanA,rcutA,j,wanB,rcutB,rcut,Rn,dx,dy,dz,r,l,k,fDis,fncn,fnan2,sDis,sncn,snan2,size_array)
+#pragma omp parallel shared(myid,ScaleSize,Max_FSNAN,level_stdout,BCR,atv,Gxyz,Dis,ncn,natn,TCpyCell,CpyCell,atomnum,FNAN,SNAN,Spe_Atom_Cut1,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,i,ct_AN,wanA,rcutA,j,wanB,rcutB,rcut,Rn,dx,dy,dz,r,l,k,fDis,fncn,fnan2,sDis,sncn,snan2,size_array,rcut_max)
   {
 
     /* allocation of arrays */
@@ -2527,7 +2645,10 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
 
 	wanB = WhatSpecies[j];
 	rcutB = Spe_Atom_Cut1[wanB];
-	rcut = rcutA + rcutB + rcut_buffer;
+	rcut = rcutA + rcutB;
+
+        if (rcut<BCR) rcut_max = BCR;
+        else          rcut_max = rcut; 
 
 	for (Rn=0; Rn<=TCpyCell; Rn++){
 
@@ -2538,33 +2659,28 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
 	  }
             
 	  else{
-            
-	    if (((Rn==0)&&(ct_AN!=j)) || Rn!=0){
-	      dx = fabs(Gxyz[ct_AN][1] - Gxyz[j][1] - atv[Rn][1]);
-	      dy = fabs(Gxyz[ct_AN][2] - Gxyz[j][2] - atv[Rn][2]);
-	      dz = fabs(Gxyz[ct_AN][3] - Gxyz[j][3] - atv[Rn][3]);
+
+	    dx = fabs(Gxyz[ct_AN][1] - Gxyz[j][1] - atv[Rn][1]);
+	    dy = fabs(Gxyz[ct_AN][2] - Gxyz[j][2] - atv[Rn][2]);
+	    dz = fabs(Gxyz[ct_AN][3] - Gxyz[j][3] - atv[Rn][3]);
+
+            if (dx<=rcut_max && dy<=rcut_max && dz<=rcut_max){
+
 	      r = sqrt(dx*dx + dy*dy + dz*dz);
-	    }
 
-	    if (ct_AN==j && ct_AN==1){
-	      CellDis[Rn][0] = r;
-	      CellDis[Rn][1] = dx;
-	      CellDis[Rn][2] = dy;
-	      CellDis[Rn][3] = dz;
-	    }
+	      if (r<=rcut){
+		FNAN[ct_AN]++;
+		fnan2[FNAN[ct_AN]] = j;
+		fncn[FNAN[ct_AN]] = Rn;
+		fDis[FNAN[ct_AN]] = r;
+	      }
 
-	    if (r<=rcut){
-	      FNAN[ct_AN]++;
-	      fnan2[FNAN[ct_AN]] = j;
-	      fncn[FNAN[ct_AN]] = Rn;
-	      fDis[FNAN[ct_AN]] = r;
-	    }
-
-	    else if (r<=BCR){
-	      SNAN[ct_AN]++;
-	      snan2[SNAN[ct_AN]] = j;
-	      sncn[SNAN[ct_AN]] = Rn;
-	      sDis[SNAN[ct_AN]] = r;
+	      else if (r<=BCR){
+		SNAN[ct_AN]++;
+		snan2[SNAN[ct_AN]] = j;
+		sncn[SNAN[ct_AN]] = Rn;
+		sDis[SNAN[ct_AN]] = r;
+	      }
 	    }
 
 	  } /* else */
@@ -2583,8 +2699,9 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
 	ncn[ct_AN][l] = sncn[k];
 	Dis[ct_AN][l] = sDis[k];
       }
+
       if (2<=level_stdout){
-	printf("<physical truncation> myid=%4d CpyCell=%2d ct_AN=%4d FNAN SNAN %3d %3d\n",
+	printf("<truncation> myid=%4d CpyCell=%2d ct_AN=%4d FNAN SNAN %3d %3d\n",
 	       myid,CpyCell,ct_AN,FNAN[ct_AN],SNAN[ct_AN]);fflush(stdout);
       }
 
@@ -2602,166 +2719,10 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
   } /* #pragma omp parallel */
 
   /****************************************************
-   MPI: 
-
-         FNAN
-         SNAN 
-         natn
-         ncn
-         Dis
+                     Fixed_FNAN_SNAN
   ****************************************************/
 
-  for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
-
-    ID = G2ID[ct_AN];
-    MPI_Bcast(&FNAN[ct_AN], 1, MPI_INT, ID, mpi_comm_level1);
-    MPI_Bcast(&SNAN[ct_AN], 1, MPI_INT, ID, mpi_comm_level1);
-    MPI_Bcast(&natn[ct_AN][0], FNAN[ct_AN]+SNAN[ct_AN]+1,
-              MPI_INT, ID, mpi_comm_level1);
-    MPI_Bcast(&ncn[ct_AN][0], FNAN[ct_AN]+SNAN[ct_AN]+1,
-              MPI_INT, ID, mpi_comm_level1);
-    MPI_Bcast(&Dis[ct_AN][0], FNAN[ct_AN]+SNAN[ct_AN]+1,
-              MPI_DOUBLE, ID, mpi_comm_level1);
-  }  
-
-  if (myid==Host_ID && 2<=level_stdout){
-    for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
-      printf("   myid=%i ct_AN=%i  FNAN=%2d  SNAN=%2d\n",
-              myid,ct_AN,FNAN[ct_AN],SNAN[ct_AN]);fflush(stdout);
-    }
-  }
-
-  /****************************************************
-                   logical truncation
-  ****************************************************/
-
-  if      (orderN_FNAN_SNAN_flag==0) LT_switch = 1;
-  else if (orderN_FNAN_SNAN_flag==1) LT_switch = 0;
-
-  if (LT_switch==1) LT(1);
   if (orderN_FNAN_SNAN_flag==1)  Fixed_FNAN_SNAN();
-
-#pragma omp parallel shared(atv,Gxyz,ncn_GDC,natn_GDC,SNAN_GDC,flag_GDC2,flag_GDC,True_SNAN,Dis,ScaleSize,Max_FSNAN,LT_switch,ncn,natn,FNAN,SNAN,M2G,Matomnum) private(i,OMPID,Nthrds,Nprocs,ct_AN,m2,m3,j,l,k,Rn,size_array,fDis,sDis,fnan2,fncn,snan2,sncn,po0,Gh_AN,dx,dy,dz)
-  {
-
-    /* allocation of arrays */
- 
-    size_array = (int)((Max_FSNAN+2)*ScaleSize);
-
-    fDis = (double*)malloc(sizeof(double)*size_array); 
-    sDis = (double*)malloc(sizeof(double)*size_array);
-
-    fnan2 = (int*)malloc(sizeof(int)*size_array);
-    fncn  = (int*)malloc(sizeof(int)*size_array); 
-    snan2 = (int*)malloc(sizeof(int)*size_array); 
-    sncn  = (int*)malloc(sizeof(int)*size_array); 
-
-    /* get info. on OpenMP */ 
-  
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    for (i=(OMPID+1); i<=Matomnum; i+=Nthrds){
-
-      ct_AN = M2G[i];
-
-      m2 = 0;
-      m3 = 0;
-
-      for (j=1; j<=SNAN[ct_AN]; j++){
-
-	l = FNAN[ct_AN] + j;
-	k = natn[ct_AN][l];
-	Rn = ncn[ct_AN][l];
-
-	if (LT_switch==1){  
-	  if (Get_R_index(2,ct_AN,k,Rn)==1){
-	    m2++;
-	    snan2[m2] = k;
-	    sncn[m2] = Rn;
-	    sDis[m2] = Dis[ct_AN][l];
-	  }
-	}
-
-	else{
-
-	  m2++;
-	  snan2[m2] = k;
-	  sncn[m2]  = Rn;
-	  sDis[m2]  = Dis[ct_AN][l];
-	}  
-      }
-
-      SNAN[ct_AN]      = m2;
-      True_SNAN[ct_AN] = m2;
-
-      for (j=1; j<=SNAN[ct_AN]; j++){
-	l = FNAN[ct_AN] + j;
-	natn[ct_AN][l] = snan2[j];
-	ncn[ct_AN][l] = sncn[j];
-	Dis[ct_AN][l] = sDis[j];
-      }
-
-      /***********************************************************
-       taking account of SNAN_GDC[ct_AN] when GDC method is used. 
-      ***********************************************************/
-
-      if (flag_GDC==1 && flag_GDC2==1){
-
-	m2 = 0;
-
-	for (k=0; k<SNAN_GDC[ct_AN]; k++){
-
-	  po0 = 0;
-	  for (j=0; j<=(FNAN[ct_AN]+SNAN[ct_AN]); j++){
-	    if (natn[ct_AN][j]==natn_GDC[ct_AN][k] && 
-		ncn[ct_AN][j]==ncn_GDC[ct_AN][k]) po0 = 1;                         
-	  }
-
-	  if (po0==0){
-
-	    m2++;
-	    l = FNAN[ct_AN] + SNAN[ct_AN] + m2;
-
-	    Gh_AN = natn_GDC[ct_AN][k];
-	    Rn = ncn_GDC[ct_AN][k];
-
-	    natn[ct_AN][l] = Gh_AN;
-	    ncn[ct_AN][l]  = Rn;
-
-	    dx = fabs(Gxyz[ct_AN][1] - Gxyz[Gh_AN][1] - atv[Rn][1]);
-	    dy = fabs(Gxyz[ct_AN][2] - Gxyz[Gh_AN][2] - atv[Rn][2]);
-	    dz = fabs(Gxyz[ct_AN][3] - Gxyz[Gh_AN][3] - atv[Rn][3]);
-
-	    Dis[ct_AN][l]  = sqrt(dx*dx + dy*dy + dz*dz);
-	  } 
-
-	}
-
-	SNAN[ct_AN] += m2;
-      }
-    
-    } /*  for (i=1; i<=Matomnum; i++){ */
-
-    /* freeing of arrays */
-
-    free(sncn);
-    free(snan2);
-    free(fncn);
-    free(fnan2);
-    free(sDis);
-    free(fDis);
-
-  } /* #pragma omp parallel */
-
-  My_TFNAN = 0;
-  My_TSNAN = 0;
-  for (i=1; i<=Matomnum; i++){
-    ct_AN = M2G[i];
-    My_TFNAN = My_TFNAN + FNAN[ct_AN];
-    My_TSNAN = My_TSNAN + SNAN[ct_AN];
-  }
 
   /****************************************************
    MPI: 
@@ -2774,6 +2735,14 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
          ncn
          Dis
   ****************************************************/
+
+  My_TFNAN = 0;
+  My_TSNAN = 0;
+  for (i=1; i<=Matomnum; i++){
+    ct_AN = M2G[i];
+    My_TFNAN = My_TFNAN + FNAN[ct_AN];
+    My_TSNAN = My_TSNAN + SNAN[ct_AN];
+  }
 
   MPI_Reduce(&My_TFNAN, &TFNAN, 1, MPI_INT, MPI_SUM, Host_ID, mpi_comm_level1);
   MPI_Bcast(&TFNAN, 1, MPI_INT, Host_ID, mpi_comm_level1);
@@ -2789,7 +2758,6 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
     ID = G2ID[ct_AN];
     MPI_Bcast(&FNAN[ct_AN], 1, MPI_INT, ID, mpi_comm_level1);
     MPI_Bcast(&SNAN[ct_AN], 1, MPI_INT, ID, mpi_comm_level1);
-    MPI_Bcast(&True_SNAN[ct_AN], 1, MPI_INT, ID, mpi_comm_level1);
 
     MPI_Bcast(&natn[ct_AN][0], FNAN[ct_AN]+SNAN[ct_AN]+1,
               MPI_INT, ID, mpi_comm_level1);
@@ -2801,45 +2769,22 @@ void Trn_System(int MD_iter, int CpyCell, int TCpyCell, int flag_GDC, int flag_G
 
   if (myid==Host_ID && 0<level_stdout){
     for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
-      printf("<logical truncation> myid=%4d CpyCell=%2d ct_AN=%4d FNAN SNAN %3d %3d\n",
-              myid,CpyCell,ct_AN,FNAN[ct_AN],SNAN[ct_AN]);fflush(stdout);
-    }
-  }
-
-  /****************************************************
-                     Set_R_index
-  ****************************************************/
-
-  for (i=0; i<=asize1; i++){
-    R_index1[i] = 0;
-    R_index2[i] = 0;
-  }
-
-#pragma omp parallel shared(atomnum,FNAN,SNAN,natn,ncn) private(i,k,j,Rn,OMPID,Nthrds,Nprocs)
-  {
-
-    /* get info. on OpenMP */ 
-  
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    for (i=(OMPID+1); i<=atomnum; i+=Nthrds){
-      for (k=0; k<=(FNAN[i]+SNAN[i]); k++){
-	j = natn[i][k];
-	Rn = ncn[i][k];
-	if (k<=FNAN[i]) Set_R_index(1,i,j,Rn);
-	Set_R_index(2,i,j,Rn);
+      if (ct_AN<=20 && level_stdout<=1){
+        printf("<truncation> CpyCell=%2d ct_AN=%4d FNAN SNAN %3d %3d\n",
+                 CpyCell,ct_AN,FNAN[ct_AN],SNAN[ct_AN]);fflush(stdout);
       }
     }
 
-  } /* #pragma omp parallel */
-
+    if (20<atomnum && level_stdout<=1){
+      printf("     ..........\n");
+      printf("     ......\n\n");
+    }
+  }
 }
 
 
 
-void Estimate_Trn_System(int CpyCell, int TCpyCell, int flag_GDC)
+void Estimate_Trn_System(int CpyCell, int TCpyCell)
 {
   /****************************************************
      FNAN, SNAN, Max_FNAN, Max_FSNAN are determined
@@ -2848,7 +2793,7 @@ void Estimate_Trn_System(int CpyCell, int TCpyCell, int flag_GDC)
 
   int i,j,ct_AN,Rn,wanA,wanB;
   double r,rcutA,rcutB,rcut;
-  double dx,dy,dz;
+  double dx,dy,dz,rcut_max;
   int numprocs,myid,tag=999,ID;
   int MFNAN,MFSNAN;
   int abnormal_bond,my_abnormal_bond;
@@ -2867,10 +2812,9 @@ void Estimate_Trn_System(int CpyCell, int TCpyCell, int flag_GDC)
   abnormal_bond = 0;
   my_abnormal_bond = 0;
 
-#pragma omp parallel shared(SNAN_GDC,flag_GDC,CpyCell,level_stdout,BCR,CellDis,Spe_WhatAtom,atv,Gxyz,TCpyCell,SNAN,FNAN,Spe_Atom_Cut1,WhatSpecies,M2G,Matomnum,atomnum) private(i,ct_AN,wanA,rcutA,j,wanB,rcutB,rcut,Rn,dx,dy,dz,r,spe1,spe2,OMPID,Nthrds,Nprocs)
+#pragma omp parallel shared(CpyCell,level_stdout,BCR,Spe_WhatAtom,atv,Gxyz,TCpyCell,SNAN,FNAN,Spe_Atom_Cut1,WhatSpecies,M2G,Matomnum,atomnum) private(i,ct_AN,wanA,rcutA,j,wanB,rcutB,rcut,Rn,dx,dy,dz,r,spe1,spe2,OMPID,Nthrds,Nprocs,rcut_max)
 
   {
-
     /* get info. on OpenMP */ 
   
     OMPID = omp_get_thread_num();
@@ -2890,7 +2834,10 @@ void Estimate_Trn_System(int CpyCell, int TCpyCell, int flag_GDC)
 
 	wanB = WhatSpecies[j];
 	rcutB = Spe_Atom_Cut1[wanB];
-	rcut = rcutA + rcutB + rcut_buffer;
+	rcut = rcutA + rcutB;
+
+        if (rcut<BCR) rcut_max = BCR;
+        else          rcut_max = rcut; 
 
 	for (Rn=0; Rn<=TCpyCell; Rn++){
 
@@ -2900,50 +2847,26 @@ void Estimate_Trn_System(int CpyCell, int TCpyCell, int flag_GDC)
  
 	  else{
 
-	    if (((Rn==0)&&(ct_AN!=j)) || Rn!=0){
-	      dx = fabs(Gxyz[ct_AN][1] - Gxyz[j][1] - atv[Rn][1]);
-	      dy = fabs(Gxyz[ct_AN][2] - Gxyz[j][2] - atv[Rn][2]);
-	      dz = fabs(Gxyz[ct_AN][3] - Gxyz[j][3] - atv[Rn][3]);
+	    dx = fabs(Gxyz[ct_AN][1] - Gxyz[j][1] - atv[Rn][1]);
+	    dy = fabs(Gxyz[ct_AN][2] - Gxyz[j][2] - atv[Rn][2]);
+	    dz = fabs(Gxyz[ct_AN][3] - Gxyz[j][3] - atv[Rn][3]);
+
+            if (dx<=rcut_max && dy<=rcut_max && dz<=rcut_max){
+
 	      r = sqrt(dx*dx + dy*dy + dz*dz);
 
-	      /* check unphysical structure */
-
-	      spe1 = Spe_WhatAtom[wanA];
-	      spe2 = Spe_WhatAtom[wanB];
-
-	      /*
-		if (r<0.5 && spe1!=0 && spe2!=0){
-		my_abnormal_bond = 1;
-		}
-	      */
-
+	      if (r<=rcut)     FNAN[ct_AN]++;
+	      else if (r<=BCR) SNAN[ct_AN]++;
 	    }
-
-	    if (ct_AN==j && ct_AN==1){
-	      CellDis[Rn][0] = r;
-	      CellDis[Rn][1] = dx;
-	      CellDis[Rn][2] = dy;
-	      CellDis[Rn][3] = dz;
-	    }
-
-	    /*
-	      if (Min_Bond_Length<r && r<=rcut)     FNAN[ct_AN] += 1;
-	      else if (Min_Bond_Length<r && r<=BCR) SNAN[ct_AN] += 1;
-	    */
-
-	    if (r<=rcut)     FNAN[ct_AN]++;
-	    else if (r<=BCR) SNAN[ct_AN]++;
 
 	  }
 	}
       }
 
       if (2<=level_stdout){
-	printf("<physical truncation> CpyCell=%2d ct_AN=%2d FNAN SNAN %2d %2d\n",
+	printf("<truncation> CpyCell=%2d ct_AN=%2d FNAN SNAN %2d %2d\n",
 	       CpyCell,i,FNAN[ct_AN],SNAN[ct_AN]);
       }
-
-      if (flag_GDC==1) SNAN[ct_AN] += SNAN_GDC[ct_AN];
   
     } /* i */
 
@@ -3169,41 +3092,27 @@ void Set_RMI()
 
 	    /* FNAN */
 
-	    i_rlt = Get_R_index(1,ig,jg,Rn);
-
-	    if (i_rlt==1){
-	      k = -1;
-	      po = 0;
-	      while(po==0){
-		k++;
-		if (natn[ig][k]==jg && ncn[ig][k]==Rn){
-		  RMI1[Mc_AN][i][j] = k;
-		  po = 1;
-		}
+	    k = 0; po = 0;
+            RMI1[Mc_AN][i][j] = -1;
+	    do {
+	      if (natn[ig][k]==jg && ncn[ig][k]==Rn){
+		RMI1[Mc_AN][i][j] = k;
+		po = 1;
 	      }
-	    }
-	    else{
-	      RMI1[Mc_AN][i][j] = -1;
-	    }
+	      k++;
+	    } while (po==0 && k<=FNAN[ig]);
 
 	    /* FNAN + SNAN */
 
-	    i_rlt = Get_R_index(2,ig,jg,Rn);
-
-	    if (i_rlt==1){
-	      k = -1;
-	      po = 0;
-	      while(po==0){
-		k++;
-		if (natn[ig][k]==jg && ncn[ig][k]==Rn){
-		  RMI2[Mc_AN][i][j] = k;
-		  po = 1;
-		}
+	    k = 0; po = 0;
+            RMI2[Mc_AN][i][j] = -1;
+	    do {
+	      if (natn[ig][k]==jg && ncn[ig][k]==Rn){
+		RMI2[Mc_AN][i][j] = k;
+		po = 1;
 	      }
-	    }
-	    else{
-	      RMI2[Mc_AN][i][j] = -1;
-	    }
+	      k++;
+	    } while(po==0 && k<=(FNAN[ig]+SNAN[ig]));
 
 	  }
 	  else{
@@ -3218,8 +3127,6 @@ void Set_RMI()
 
     } /* Mc_AN */
   } /* #pragma omp parallel */
-
-
 }
 
 
@@ -3261,162 +3168,19 @@ void Fixed_FNAN_SNAN()
 
 
 
-void LT(int CorL)
-{
-  int i,Gc_AN;
-  int hops;
-  int numprocs,myid;
-  double Stime_atom, Etime_atom;
-  /* for OpenMP */
-  int OMPID,Nthrds,Nprocs;
-
-  MPI_Comm_size(mpi_comm_level1,&numprocs);
-  MPI_Comm_rank(mpi_comm_level1,&myid);
-
-  for (i=0; i<=asize1; i++){
-    R_index2[i] = 0;
-  }
-
-#pragma omp parallel shared(atomnum) private(i,OMPID,Nthrds,Nprocs)
- {
-  /* get info. on OpenMP */ 
-  
-  OMPID = omp_get_thread_num();
-  Nthrds = omp_get_num_threads();
-  Nprocs = omp_get_num_procs();
-
-  for (i=(OMPID+1); i<=atomnum; i+=Nthrds) Set_R_index(2,i,i,0);
-
- } /* #pragma omp parallel */
-
-#pragma omp parallel shared(time_per_atom,NOHS_L,CorL,M2G,Matomnum) private(i,OMPID,Nthrds,Nprocs,Stime_atom,Etime_atom,Gc_AN,hops)
-  {
-    /* get info. on OpenMP */ 
-  
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
-
-    for (i=(OMPID+1); i<=Matomnum; i+=Nthrds){
-
-      dtime(&Stime_atom);
-
-      Gc_AN = M2G[i];
-      if (CorL==1) hops = NOHS_L;
-      if (CorL==2) hops = NOHS_C;
-
-      Reflexive(Gc_AN,Gc_AN,0,0,0,1,hops);
-
-      dtime(&Etime_atom);
-      time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-    }
-
-  } /* #pragma omp parallel */
-
-}
 
 
 
 
 
-void Reflexive(int Iatom,int Catom,int a,int b,int c,int Chops,int Fhops)
-{
-  int i,gi,l1,l2,l3;
-  int m1,m2,m3,wanA,wanB;
-  int Rn,IRn,GH_AN;
-  double r,rcut,rcutA,rcutB;
-
-  wanA = WhatSpecies[Catom];
-  rcutA = Spe_Atom_Cut1[wanA];
-  for (i=1; i<=FNAN[Catom]; i++){
-    r = Dis[Catom][i];
-    GH_AN = natn[Catom][i];
-    wanB = WhatSpecies[GH_AN];
-    rcutB = Spe_Atom_Cut1[wanB];
-    rcut = rcutA + rcutB;
-
-    if (0.1<r && r<rcut){
-      gi = natn[Catom][i];
-      Rn = ncn[Catom][i];
-      l1 = atv_ijk[Rn][1] + a;
-      l2 = atv_ijk[Rn][2] + b;
-      l3 = atv_ijk[Rn][3] + c;
-      if (l1<0) m1=-l1; else m1 = l1;
-      if (l2<0) m2=-l2; else m2 = l2;
-      if (l3<0) m3=-l3; else m3 = l3;
-      if (m1<=CpyCell && m2<=CpyCell && m3<=CpyCell){
-	IRn = ratv[l1+CpyCell][l2+CpyCell][l3+CpyCell];
-	if (gi!=Iatom || IRn!=0){
-	  if (Get_R_index(2,Iatom,gi,IRn)==0) Set_R_index(2,Iatom,gi,IRn);
-	  if ((Chops+1)<=Fhops) Reflexive(Iatom,gi,l1,l2,l3,Chops+1,Fhops);
-	}
-      }
-    }
-  }
-}
 
 
 
 
 
-void Set_R_index(int R_switch,int i,int j,int Rn)
-{
-  int odn,odni,odnj;
-
-  /* Warning for mixing int and long types */
-  odn = (i-1)*atomnum*(TCpyCell+1) + (j-1)*(TCpyCell+1) + Rn;
-  odnj = odn % 32;
-  odni = (odn-odnj)/32;
-  if (R_switch==1) R_index1[odni] = R_index1[odni]+(1<<odnj);
-  if (R_switch==2) R_index2[odni] = R_index2[odni]+(1<<odnj);
-}
 
 
 
-
-int Get_R_index(int R_switch,int i,int j,int Rn)
-{
-  long ltmp;
-  int odn,odni,odnj,itmp;
-  int result,b;
-
-  /* Warning for mixing int and long types */
-  odn = (i-1)*atomnum*(TCpyCell+1) + (j-1)*(TCpyCell+1) + Rn;
-  odnj = odn % 32;
-  odni = (odn-odnj)/32;
-
-  if (R_switch==1){
-
-    if (sizeof(long)==8){
-      itmp = R_index1[odni];
-      b = itmp<<(31-odnj)&1<<BYTESIZE*sizeof(int)-1;
-    }  
-    else {
-      b = R_index1[odni]<<(31-odnj)&1<<BYTESIZE*sizeof(int)-1;
-    }
-
-    if (b==0)
-      result = 0;
-    else 
-      result = 1;
-  }
-  else if (R_switch==2){
-
-    if (sizeof(long)==8){
-      itmp = R_index2[odni];
-      b = itmp<<(31-odnj)&1<<BYTESIZE*sizeof(int)-1;
-    }
-    else{
-      b = R_index2[odni]<<(31-odnj)&1<<BYTESIZE*sizeof(int)-1;
-    }
-
-    if (b==0)
-      result = 0;
-    else 
-      result = 1;
-  }
-  return result;
-}
 
 
 
@@ -3505,24 +3269,32 @@ void Output_Connectivity(FILE *fp)
 void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 {
   static int firsttime=1;
-  int size_GListTAtoms0;
-  int po,N3[4],i,j;
+  int size_GListTAtoms1;
+  int po,N3[4],i,j,k;
   int size_GridListAtom,size_MGridListAtom;
   int NOC[4],nn1,nn2,nn3,l1,l2,l3,lmax;
-  int ct_AN,N,p,n1,n2,n3,Cwan,Rn,Rn1;
+  int ct_AN,N,n1,n2,n3,Cwan,Rn,Rn1,Ng1,Ng2,Ng3;
+  int p,q,r,s,pmax,qmax,rmax,smax,popt,qopt,ropt,sopt;
   int Nct,MinN,Scale,ScaleA,ScaleB,ScaleC,Nm[4];
   int Mc_AN,Mc_AN0,Gc_AN,h_AN,h_AN0,Mh_AN,Gh_AN,Nh,Rh,Nog,GNh,GRh;
   int ll1,ll2,ll3,Nnb,My_Max_NumOLG;
   int lll1,lll2,lll3,GRh1,Nc,GNc,GRc,size_array;
   int *TAtoms0,*TCells0,*TAtoms1,*TAtoms2;
   int **Tmp_GridListAtom,**Tmp_CellListAtom;
-  double MinR,CutR2,r2,rws,tmp0;
+  int nmin[4],nmax[4],Np;
+  double LgTN,LgN,Lg2,Lg3,Lg5,Lg7,DouN[4],A1,A2,A3;
+  double MinD,MinR,CutR2,r2,coef;
   double sa,sa_cri,tmp[4],Cxyz[4];
+  double b[4],c[4],v[4],rcut;
   double xc,yc,zc,xm,ym,zm;
-  double dx,dy,dz,r,sn1,sn2,sn3;
-  double A2,B2,C2,CellV;
+  double dx,dy,dz,sn1,sn2,sn3;
+  double B2,C2,CellV;
   double S_Lng,L_Lng,LngA,LngB,LngC,x,y,z;
   double GVolume,buffer_scale,GridV;
+  double stime,etime;
+  double time0,time1,time2,time3,time4,time5,time6,time7;
+  double time8,time9,time10,time11,time12,time13,time14;
+
   int *TempGrid,*TempCell;
   int numprocs,myid,ID,IDS,IDR,tag=999;
   double Stime_atom, Etime_atom;
@@ -3538,9 +3310,14 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
   MPI_Comm_size(mpi_comm_level1,&numprocs);
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
+  time0 = 0.0; time1 = 0.0; time2 = 0.0; time3 = 0.0; time4 = 0.0;
+  time5 = 0.0; time6 = 0.0; time7 = 0.0; time8 = 0.0; time9 = 0.0;
+
   /****************************************************
                 Reciprocal lattice vectors
   ****************************************************/
+
+  if (measure_time) dtime(&stime); 
 
   if (estimate_switch<=1){
   
@@ -3574,224 +3351,126 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
       printf("RA = %15.12f, %15.12f, %15.12f\n",rtv[1][1],rtv[1][2],rtv[1][3]);
       printf("RB = %15.12f, %15.12f, %15.12f\n",rtv[2][1],rtv[2][2],rtv[2][3]);
       printf("RB = %15.12f, %15.12f, %15.12f\n",rtv[3][1],rtv[3][2],rtv[3][3]);
-
     }  
 
     if (Ngrid_fixed_flag==0){
 
-      /****************************************************
-                        set real space grids
-      ****************************************************/
-  
-      LngA = sqrt( Dot_Product(tv[1],tv[1]) );
-      LngB = sqrt( Dot_Product(tv[2],tv[2]) );
-      LngC = sqrt( Dot_Product(tv[3],tv[3]) );
-  
-      S_Lng = smallest(LngA, LngB);
-      S_Lng = smallest(S_Lng, LngC);
-      L_Lng = largest(LngA, LngB);
-      L_Lng = largest(L_Lng, LngC);
+      /* find proper N1, N2, and N3 */ 
 
-      if      ((L_Lng/S_Lng)<1.1) Scale =16;
-      else if ((L_Lng/S_Lng)<1.3) Scale = 8;
-      else if ((L_Lng/S_Lng)<2.0) Scale = 4;
-      else if ((L_Lng/S_Lng)<3.0) Scale = 2;
-      else                        Scale = 1;
-
-      ScaleA = (int)(Scale*LngA/S_Lng + 0.4999);
-      ScaleB = (int)(Scale*LngB/S_Lng + 0.4999);
-      ScaleC = (int)(Scale*LngC/S_Lng + 0.4999);
-
-      l1 = 0;
-      po = 0;
-  
-      do {
-	l1++;
+      Cross_Product(tv[2],tv[3],tmp);
+      A1 = PI*PI*Dot_Product(tmp,tmp)/Cell_Volume/Cell_Volume; 
       
-	gtv[1][1] = tv[1][1]/((double)(ScaleA*l1));
-	gtv[1][2] = tv[1][2]/((double)(ScaleA*l1));
-	gtv[1][3] = tv[1][3]/((double)(ScaleA*l1));
-    
-	gtv[2][1] = tv[2][1]/((double)(ScaleB*l1));
-	gtv[2][2] = tv[2][2]/((double)(ScaleB*l1));
-	gtv[2][3] = tv[2][3]/((double)(ScaleB*l1));
-    
-	gtv[3][1] = tv[3][1]/((double)(ScaleC*l1));
-	gtv[3][2] = tv[3][2]/((double)(ScaleC*l1));
-	gtv[3][3] = tv[3][3]/((double)(ScaleC*l1));
-    
-	Cross_Product(gtv[2],gtv[3],tmp);
+      Cross_Product(tv[3],tv[1],tmp);
+      A2 = PI*PI*Dot_Product(tmp,tmp)/Cell_Volume/Cell_Volume; 
 
-	GridV = Dot_Product(gtv[1],tmp); 
-	GVolume = fabs( GridV );
+      Cross_Product(tv[1],tv[2],tmp);
+      A3 = PI*PI*Dot_Product(tmp,tmp)/Cell_Volume/Cell_Volume; 
 
-	Cross_Product(gtv[2],gtv[3],tmp);
-	rgtv[1][1] = 2.0*PI*tmp[1]/GridV;
-	rgtv[1][2] = 2.0*PI*tmp[2]/GridV;
-	rgtv[1][3] = 2.0*PI*tmp[3]/GridV;
+      DouN[1] = sqrt(Grid_Ecut/A1);
+      DouN[2] = sqrt(Grid_Ecut/A2);
+      DouN[3] = sqrt(Grid_Ecut/A3);
 
-	Cross_Product(gtv[3],gtv[1],tmp);
-	rgtv[2][1] = 2.0*PI*tmp[1]/GridV;
-	rgtv[2][2] = 2.0*PI*tmp[2]/GridV;
-	rgtv[2][3] = 2.0*PI*tmp[3]/GridV;
-    
-	Cross_Product(gtv[1],gtv[2],tmp);
-	rgtv[3][1] = 2.0*PI*tmp[1]/GridV;
-	rgtv[3][2] = 2.0*PI*tmp[2]/GridV;
-	rgtv[3][3] = 2.0*PI*tmp[3]/GridV;
+      Lg2 = log(2);
+      Lg3 = log(3);
+      Lg5 = log(5);
+      Lg7 = log(7);
 
-	A2 = rgtv[1][1]*rgtv[1][1] + rgtv[1][2]*rgtv[1][2] + rgtv[1][3]*rgtv[1][3];
-	B2 = rgtv[2][1]*rgtv[2][1] + rgtv[2][2]*rgtv[2][2] + rgtv[2][3]*rgtv[2][3];
-	C2 = rgtv[3][1]*rgtv[3][1] + rgtv[3][2]*rgtv[3][2] + rgtv[3][3]*rgtv[3][3];
+      for (i=1; i<=3; i++){
 
-	A2 = A2/4.0;
-	B2 = B2/4.0;
-	C2 = C2/4.0;
-
-	if (estimate_switch==0 || 2<=level_stdout){ 
-	  if (myid==Host_ID && 0<level_stdout){ 
-	    printf("Trial cutoff energies (a,b,c) = %7.3f (%i), %7.3f (%i), %7.3f (%i)\n",
-		   A2,l1*ScaleA,B2,l1*ScaleB,C2,l1*ScaleC);
+        LgN = log(DouN[i]);
+        MinD = 10e+10;
+        
+        pmax = ceil(LgN/Lg2); 
+        for (p=0; p<=pmax; p++){
+          qmax = ceil((LgN-p*Lg2)/Lg3); 
+          for (q=0; q<=qmax; q++){
+            rmax = ceil((LgN-p*Lg2-q*Lg3)/Lg5); 
+            for (r=0; r<=rmax; r++){
+              smax = ceil((LgN-p*Lg2-q*Lg3-r*Lg5)/Lg7); 
+              for (s=0; s<=smax; s++){
+                
+                LgTN = p*Lg2+q*Lg3+r*Lg5+s*Lg7;
+                
+                if (fabs(LgTN-LgN)<MinD){
+                  MinD = fabs(LgTN-LgN);
+                  popt = p;
+                  qopt = q;
+                  ropt = r;
+                  sopt = s;
+                }
+	      }
+	    }
 	  }
-	}
+        }
+        
+        k = 1;
+        for (p=0; p<popt; p++) k *= 2;
+        for (q=0; q<qopt; q++) k *= 3;
+        for (r=0; r<ropt; r++) k *= 5;
+        for (s=0; s<sopt; s++) k *= 7;
 
-	if (Grid_Ecut<=A2 && Grid_Ecut<=B2 && Grid_Ecut<=C2){
-	  po = 1;
-	  lmax = l1;
-	}
-
-      }while (po==0);
-   
-      Ngrid1 = lmax*ScaleA;
-      Ngrid2 = lmax*ScaleB;
-      Ngrid3 = lmax*ScaleC;
-
-      if (myid==Host_ID && 0<level_stdout){    
-	printf("UCell_Box: Cutoff=%lf(%i) %lf(%i) %lf(%i)\n",
-	       A2,Ngrid1,B2,Ngrid2,C2,Ngrid3);
+        if      (i==1) Ngrid1 = k;
+        else if (i==2) Ngrid2 = k;
+        else if (i==3) Ngrid3 = k;
       }
 
-
-      /* min. and max. is found.  max=Ngrid?, min=Ngrid/2 */
-
-      Find_ApproxFactN(tv,&Grid_Ecut,&Ngrid1,&Ngrid2,&Ngrid3,&A2,&B2,&C2);
+      /* adjust Ngrid for NEGF  */
 
       if (Solver==4) {
         TRAN_adjust_Ngrid(mpi_comm_level1, &Ngrid1, &Ngrid2, &Ngrid3);
       }
 
-      /* recalculate gtv, rgtv, A2, B2, C2 */
-
-      gtv[1][1] = tv[1][1]/(double)Ngrid1;
-      gtv[1][2] = tv[1][2]/(double)Ngrid1;
-      gtv[1][3] = tv[1][3]/(double)Ngrid1;
-    
-      gtv[2][1] = tv[2][1]/(double)Ngrid2;
-      gtv[2][2] = tv[2][2]/(double)Ngrid2;
-      gtv[2][3] = tv[2][3]/(double)Ngrid2;
-    
-      gtv[3][1] = tv[3][1]/(double)Ngrid3;
-      gtv[3][2] = tv[3][2]/(double)Ngrid3;
-      gtv[3][3] = tv[3][3]/(double)Ngrid3;
-
-      Cross_Product(gtv[2],gtv[3],tmp);
-
-      GridV = Dot_Product(gtv[1],tmp); 
-      GVolume = fabs( GridV );
-
-      Cross_Product(gtv[2],gtv[3],tmp);
-      rgtv[1][1] = 2.0*PI*tmp[1]/GridV;
-      rgtv[1][2] = 2.0*PI*tmp[2]/GridV;
-      rgtv[1][3] = 2.0*PI*tmp[3]/GridV;
-
-      Cross_Product(gtv[3],gtv[1],tmp);
-      rgtv[2][1] = 2.0*PI*tmp[1]/GridV;
-      rgtv[2][2] = 2.0*PI*tmp[2]/GridV;
-      rgtv[2][3] = 2.0*PI*tmp[3]/GridV;
-    
-      Cross_Product(gtv[1],gtv[2],tmp);
-      rgtv[3][1] = 2.0*PI*tmp[1]/GridV;
-      rgtv[3][2] = 2.0*PI*tmp[2]/GridV;
-      rgtv[3][3] = 2.0*PI*tmp[3]/GridV;
-
-      A2 = rgtv[1][1]*rgtv[1][1] + rgtv[1][2]*rgtv[1][2] + rgtv[1][3]*rgtv[1][3];
-      B2 = rgtv[2][1]*rgtv[2][1] + rgtv[2][2]*rgtv[2][2] + rgtv[2][3]*rgtv[2][3];
-      C2 = rgtv[3][1]*rgtv[3][1] + rgtv[3][2]*rgtv[3][2] + rgtv[3][3]*rgtv[3][3];
-
-      A2 = A2/4.0;
-      B2 = B2/4.0;
-      C2 = C2/4.0;
-
-      if (myid==Host_ID && 0<level_stdout){    
-        printf("UCell_Box: (tuned) Cutoff=%lf(%i) %lf(%i) %lf(%i)\n",
-                  A2,Ngrid1,B2,Ngrid2,C2,Ngrid3);
-      }   
-
-      /* for mixed basis set */
-
-      if (Mixed_Basis_flag==1){
-        
-        if ( ((Ngrid1/Ngrid1_FE)!=NG_Mixed_Basis)
-          || ((Ngrid2/Ngrid2_FE)!=NG_Mixed_Basis)
-	  || ((Ngrid3/Ngrid3_FE)!=NG_Mixed_Basis)
-          || ((Ngrid1%Ngrid1_FE)!=0)    
-          || ((Ngrid1%Ngrid2_FE)!=0)    
-          || ((Ngrid1%Ngrid3_FE)!=0) ){
-
-          if (myid==Host_ID && 0<level_stdout){
-            printf("Failed setting up grids for the mixed basis scheme.\n");
-          }
-          MPI_Finalize();
-          exit(0);
-        }    
-      } 
-
     } /* if (Ngrid_fixed_flag==0) */
 
-    else{
+    /* calculate gtv, rgtv, A2, B2, C2, and used cutoff energies */
 
-      gtv[1][1] = tv[1][1]/(double)Ngrid1;
-      gtv[1][2] = tv[1][2]/(double)Ngrid1;
-      gtv[1][3] = tv[1][3]/(double)Ngrid1;
+    gtv[1][1] = tv[1][1]/(double)Ngrid1;
+    gtv[1][2] = tv[1][2]/(double)Ngrid1;
+    gtv[1][3] = tv[1][3]/(double)Ngrid1;
     
-      gtv[2][1] = tv[2][1]/(double)Ngrid2;
-      gtv[2][2] = tv[2][2]/(double)Ngrid2;
-      gtv[2][3] = tv[2][3]/(double)Ngrid2;
+    gtv[2][1] = tv[2][1]/(double)Ngrid2;
+    gtv[2][2] = tv[2][2]/(double)Ngrid2;
+    gtv[2][3] = tv[2][3]/(double)Ngrid2;
     
-      gtv[3][1] = tv[3][1]/(double)Ngrid3;
-      gtv[3][2] = tv[3][2]/(double)Ngrid3;
-      gtv[3][3] = tv[3][3]/(double)Ngrid3;
-       
-      Cross_Product(gtv[2],gtv[3],tmp);
+    gtv[3][1] = tv[3][1]/(double)Ngrid3;
+    gtv[3][2] = tv[3][2]/(double)Ngrid3;
+    gtv[3][3] = tv[3][3]/(double)Ngrid3;
 
-      GridV = Dot_Product(gtv[1],tmp); 
-      GVolume = fabs( GridV );
+    Cross_Product(gtv[2],gtv[3],tmp);
 
-      Cross_Product(gtv[2],gtv[3],tmp);
-      rgtv[1][1] = 2.0*PI*tmp[1]/GridV;
-      rgtv[1][2] = 2.0*PI*tmp[2]/GridV;
-      rgtv[1][3] = 2.0*PI*tmp[3]/GridV;
+    GridV = Dot_Product(gtv[1],tmp); 
+    GVolume = fabs( GridV );
 
-      Cross_Product(gtv[3],gtv[1],tmp);
-      rgtv[2][1] = 2.0*PI*tmp[1]/GridV;
-      rgtv[2][2] = 2.0*PI*tmp[2]/GridV;
-      rgtv[2][3] = 2.0*PI*tmp[3]/GridV;
+    Cross_Product(gtv[2],gtv[3],tmp);
+    rgtv[1][1] = 2.0*PI*tmp[1]/GridV;
+    rgtv[1][2] = 2.0*PI*tmp[2]/GridV;
+    rgtv[1][3] = 2.0*PI*tmp[3]/GridV;
+
+    Cross_Product(gtv[3],gtv[1],tmp);
+    rgtv[2][1] = 2.0*PI*tmp[1]/GridV;
+    rgtv[2][2] = 2.0*PI*tmp[2]/GridV;
+    rgtv[2][3] = 2.0*PI*tmp[3]/GridV;
     
-      Cross_Product(gtv[1],gtv[2],tmp);
-      rgtv[3][1] = 2.0*PI*tmp[1]/GridV;
-      rgtv[3][2] = 2.0*PI*tmp[2]/GridV;
-      rgtv[3][3] = 2.0*PI*tmp[3]/GridV;
+    Cross_Product(gtv[1],gtv[2],tmp);
+    rgtv[3][1] = 2.0*PI*tmp[1]/GridV;
+    rgtv[3][2] = 2.0*PI*tmp[2]/GridV;
+    rgtv[3][3] = 2.0*PI*tmp[3]/GridV;
 
-      A2 = rgtv[1][1]*rgtv[1][1] + rgtv[1][2]*rgtv[1][2] + rgtv[1][3]*rgtv[1][3];
-      B2 = rgtv[2][1]*rgtv[2][1] + rgtv[2][2]*rgtv[2][2] + rgtv[2][3]*rgtv[2][3];
-      C2 = rgtv[3][1]*rgtv[3][1] + rgtv[3][2]*rgtv[3][2] + rgtv[3][3]*rgtv[3][3];
+    A2 = rgtv[1][1]*rgtv[1][1] + rgtv[1][2]*rgtv[1][2] + rgtv[1][3]*rgtv[1][3];
+    B2 = rgtv[2][1]*rgtv[2][1] + rgtv[2][2]*rgtv[2][2] + rgtv[2][3]*rgtv[2][3];
+    C2 = rgtv[3][1]*rgtv[3][1] + rgtv[3][2]*rgtv[3][2] + rgtv[3][3]*rgtv[3][3];
 
-      A2 = A2/4.0;
-      B2 = B2/4.0;
-      C2 = C2/4.0;
+    A2 = A2/4.0;  /* note: change the unit from Hatree to Rydberg by multiplying 1/2 */
+    B2 = B2/4.0;
+    C2 = C2/4.0;
 
-      Grid_Ecut = (A2 + B2 + C2)/3.0;
-    }
+    if (Ngrid_fixed_flag==1)  Grid_Ecut = (A2 + B2 + C2)/3.0;
+
+    /* for calculation of the delta-factor */
+
+    if (MD_switch==16) Ngrid_fixed_flag = 1;
+
+    /* print information to std output */
 
     if (estimate_switch==0 || 2<=level_stdout){
       if (myid==Host_ID && 0<level_stdout) {
@@ -3837,9 +3516,16 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
   } /* if (estimate_switch<=1) */
 
+  if (measure_time){
+    dtime(&etime); 
+    time0 += etime - stime;
+  }
+
   /****************************************************
-      Setting of the center of unit cell and grids
+       Setting the center of unit cell and grids
   ****************************************************/
+
+  if (measure_time) dtime(&stime); 
 
   /* the center of the system */
 
@@ -3868,13 +3554,6 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
       printf("<ESM> length_gtv[1],xc/length_gtv[1] = %12.9f,%12.9f \n",length_gtv[1],xc/length_gtv[1]);
     }
   } /* added by T.Ohwaki */
-
-  dx = xc - LastBoxCenterX;
-  dy = yc - LastBoxCenterY;
-  dz = zc - LastBoxCenterZ;
-  r = sqrt(dx*dx + dy*dy + dz*dz);
-  tmp0 = 3.0*Cell_Volume/(4.0*PI);
-  rws = pow(tmp0,0.3333333333333333333);
 
   if (MD_iter==1 || Last_TNumGrid<Ngrid1*Ngrid2*Ngrid3){
 
@@ -4086,6 +3765,11 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
     }
   }
 
+  if (measure_time){
+    dtime(&etime); 
+    time1 += etime - stime;
+  }
+
   /**********************************
     allocation of arrays: 
 
@@ -4096,7 +3780,7 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
  
   Tmp_GridListAtom = (int**)malloc(sizeof(int*)*(Matomnum+MatomnumF+1));
   Tmp_CellListAtom = (int**)malloc(sizeof(int*)*(Matomnum+MatomnumF+1));
-  MGridListAtom = (int**)malloc(sizeof(int*)*(Matomnum+MatomnumF+1));
+  MGridListAtom = (int**)malloc(sizeof(int*)*(Matomnum+1));
   Tmp_GridListAtom[0] = (int*)malloc(sizeof(int)*1);
   Tmp_CellListAtom[0] = (int*)malloc(sizeof(int)*1);
   MGridListAtom[0] = (int*)malloc(sizeof(int)*1);
@@ -4108,188 +3792,179 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
    3) determine whether overlap exists or not
   ****************************************************/
 
-  Mc_AN0 = 1;
+  if (measure_time) dtime(&stime); 
 
-#pragma omp parallel shared(myid,ScaleSize,Max_GridN_Atom,time_per_atom,MGridListAtom,Tmp_CellListAtom,Tmp_GridListAtom,GridN_Atom,estimate_switch,Ngrid2,Ngrid3,gtv,Spe_Atom_Cut1,S_Lng,TNumGrid,Gxyz,WhatSpecies,M2G,Mc_AN0,Matomnum) private(OMPID,Nthrds,Nprocs,size_array,TempGrid,TempCell,Mc_AN,Stime_atom,Gc_AN,Cwan,sa_cri,po,MinR,MinN,N,Cxyz,dx,dy,dz,sa,buffer_scale,CutR2,p,r2,Nm,N3,nn1,nn2,nn3,Nc,Nct,n1,n2,n3,NOC,Rn,l1,l2,l3,i,j,Etime_atom)
-  {
+  /* for allocation of arrays */
 
-    /* get info. on OpenMP */ 
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+    Gc_AN = M2G[Mc_AN];
+    Cwan = WhatSpecies[Gc_AN];
+    rcut = Spe_Atom_Cut1[Cwan] + 0.5;
+
+    for (k=1; k<=3; k++){
+
+      if      (k==1){ i = 2; j = 3; }
+      else if (k==2){ i = 3; j = 1; }
+      else if (k==3){ i = 1; j = 2; }
+
+      b[1] = tv[i][1];
+      b[2] = tv[i][2];
+      b[3] = tv[i][3];
+
+      c[1] = tv[j][1];
+      c[2] = tv[j][2];
+      c[3] = tv[j][3];
+
+      Cross_Product(b,c,v);
+      coef = 1.0/sqrt(fabs( Dot_Product(v,v) ));
+
+      v[1] = coef*v[1];
+      v[2] = coef*v[2];
+      v[3] = coef*v[3];
+
+      Cxyz[1] = Gxyz[Gc_AN][1] + rcut*v[1] - Grid_Origin[1];
+      Cxyz[2] = Gxyz[Gc_AN][2] + rcut*v[2] - Grid_Origin[2];
+      Cxyz[3] = Gxyz[Gc_AN][3] + rcut*v[3] - Grid_Origin[3];
+
+      /* find the maximum range of grids */
+      nmax[k] = Dot_Product(Cxyz,rgtv[k])*0.5/PI;
+
+      Cxyz[1] = Gxyz[Gc_AN][1] - rcut*v[1] - Grid_Origin[1];
+      Cxyz[2] = Gxyz[Gc_AN][2] - rcut*v[2] - Grid_Origin[2];
+      Cxyz[3] = Gxyz[Gc_AN][3] - rcut*v[3] - Grid_Origin[3];
+
+      /* find the mimum range of grids */
+      nmin[k] = Dot_Product(Cxyz,rgtv[k])*0.5/PI;
+
+      if (nmax[k]<nmin[k]){
+        i = nmin[k];
+        j = nmax[k];
+        nmin[k] = j;
+        nmax[k] = i;
+      } 
   
-    OMPID = omp_get_thread_num();
-    Nthrds = omp_get_num_threads();
-    Nprocs = omp_get_num_procs();
+    } /* k */  
 
-    /* allocation of arrays */
+    /* allocation of arrays */ 
 
-    size_array = (int)(Max_GridN_Atom*ScaleSize);
-    TempGrid = (int*)malloc(sizeof(int)*size_array); 
-    TempCell = (int*)malloc(sizeof(int)*size_array); 
-
-    do {
-
-#pragma omp barrier
-      Mc_AN = Mc_AN0 + OMPID;
-
-      if (Mc_AN<=Matomnum){ 
-
-	dtime(&Stime_atom);
-	Gc_AN = M2G[Mc_AN];
-	Cwan = WhatSpecies[Gc_AN];
-
-	/* find a neighbouring point of the atom Gc_AN */
-
-	sa_cri = 1.0;
-	po = 0;
-
-	do {  
-
-	  MinR = 10000000.0;
-	  N = -1;
-
-	  do {
-
-	    N++;
-
-	    Get_Grid_XYZ(N,Cxyz);
-	    dx = fabs(Gxyz[Gc_AN][1] - Cxyz[1]);
-	    dy = fabs(Gxyz[Gc_AN][2] - Cxyz[2]);
-	    dz = fabs(Gxyz[Gc_AN][3] - Cxyz[3]);
-	    sa = dx + dy + dz;
-
-	    if (sa<MinR){
-	      MinR = sa;
-	      MinN = N;
-	      if (sa<sa_cri) po = 1;
-	    }
-	  } while(po==0 && N<TNumGrid);
- 
-	  if (po==0) sa_cri = 2.0*sa_cri; 
-
-	} while(po==0);
-
-	/* the ranges which determine a box on the atom ct_AN  */
-
-	Get_Grid_XYZ(MinN,Cxyz);
-	Cxyz[1] = Cxyz[1] - Gxyz[Gc_AN][1];
-	Cxyz[2] = Cxyz[2] - Gxyz[Gc_AN][2];
-	Cxyz[3] = Cxyz[3] - Gxyz[Gc_AN][3];
-
-	if      (S_Lng<2.0*Spe_Atom_Cut1[Cwan]) buffer_scale = 16.0;
-	else if (S_Lng<4.0*Spe_Atom_Cut1[Cwan]) buffer_scale = 12.0;
-	else                                    buffer_scale =  4.0;
-
-	CutR2 = Spe_Atom_Cut1[Cwan]*Spe_Atom_Cut1[Cwan];
-
-	for (p=1; p<=3; p++){
-
-	  po = 0;
-	  N = -1;
-
-	  do {
-	    N++;
-	    dx = (double)N*gtv[p][1] + Cxyz[1];
-	    dy = (double)N*gtv[p][2] + Cxyz[2];
-	    dz = (double)N*gtv[p][3] + Cxyz[3];
-	    r2 = dx*dx + dy*dy + dz*dz; 
-	    if ( (buffer_scale*CutR2)<=r2){
-	      Nm[p] = N;
-	      po = 1;
-	    }
-	  } while(po==0);
-	}
-
-	/* determine whether overlap exists or not  */
-
-	GN2N(MinN,N3);
-	nn1 = N3[1];
-	nn2 = N3[2];
-	nn3 = N3[3];
-
-	Nct = -1;
-	for (n1=-Nm[1]+nn1; n1<=(Nm[1]+nn1); n1++){
-	  for (n2=-Nm[2]+nn2; n2<=(Nm[2]+nn2); n2++){
-	    for (n3=-Nm[3]+nn3; n3<=(Nm[3]+nn3); n3++){
+    Np = (nmax[1]-nmin[1]+1)*(nmax[2]-nmin[2]+1)*(nmax[3]-nmin[3]+1)*3/2;
     
-	      Find_CGrids(1,n1,n2,n3,Cxyz,NOC);
-	      Rn = NOC[0];
-	      l1 = NOC[1];
-	      l2 = NOC[2];
-	      l3 = NOC[3];
-	      N = l1*Ngrid2*Ngrid3 + l2*Ngrid3 + l3;
-                          
-	      dx = Cxyz[1] - Gxyz[Gc_AN][1];
-	      dy = Cxyz[2] - Gxyz[Gc_AN][2];
-	      dz = Cxyz[3] - Gxyz[Gc_AN][3];
+    Tmp_GridListAtom[Mc_AN] = (int*)malloc(sizeof(int)*Np);
+    Tmp_CellListAtom[Mc_AN] = (int*)malloc(sizeof(int)*Np);
+    MGridListAtom[Mc_AN] = (int*)malloc(sizeof(int)*Np);
 
-	      r2 = dx*dx + dy*dy + dz*dz;
-	      if (r2<=CutR2){
-		Nct++;
-		if (estimate_switch!=1){
-		  TempGrid[Nct+1] = N;
-		  TempCell[Nct+1] = Rn;
-		}             
-	      }
+  } /* Mc_AN */
 
-	    }    
-	  }    
-	}    
+  /* store Tmp_GridListAtom and Tmp_CellListAtom */
 
-        GridN_Atom[Gc_AN] = Nct + 1;
+  size_array = (int)(Max_GridN_Atom*ScaleSize);
+  TempGrid = (int*)malloc(sizeof(int)*size_array); 
+  TempCell = (int*)malloc(sizeof(int)*size_array); 
 
-      } /* if (Mc_AN<=Matomnum) */
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
 
-#pragma omp barrier
-#pragma omp flush(GridN_Atom)
+    Gc_AN = M2G[Mc_AN];
+    Cwan = WhatSpecies[Gc_AN];
+    rcut = Spe_Atom_Cut1[Cwan] + 0.5;
 
-      /* allocation of arrays */
+    for (k=1; k<=3; k++){
 
-      if (OMPID==0){
-        for (i=Mc_AN0; i<(Mc_AN0+Nthrds); i++){
+      if      (k==1){ i = 2; j = 3; }
+      else if (k==2){ i = 3; j = 1; }
+      else if (k==3){ i = 1; j = 2; }
 
-          if (i<=Matomnum){
-     	    j = M2G[i];
-            Tmp_GridListAtom[i] = (int*)malloc(sizeof(int)*GridN_Atom[j]);
-            Tmp_CellListAtom[i] = (int*)malloc(sizeof(int)*GridN_Atom[j]);
-            MGridListAtom[i] = (int*)malloc(sizeof(int)*GridN_Atom[j]);
+      b[1] = tv[i][1];
+      b[2] = tv[i][2];
+      b[3] = tv[i][3];
+
+      c[1] = tv[j][1];
+      c[2] = tv[j][2];
+      c[3] = tv[j][3];
+
+      Cross_Product(b,c,v);
+      coef = 1.0/sqrt(fabs( Dot_Product(v,v) ));
+
+      v[1] = coef*v[1];
+      v[2] = coef*v[2];
+      v[3] = coef*v[3];
+
+      Cxyz[1] = Gxyz[Gc_AN][1] + rcut*v[1] - Grid_Origin[1];
+      Cxyz[2] = Gxyz[Gc_AN][2] + rcut*v[2] - Grid_Origin[2];
+      Cxyz[3] = Gxyz[Gc_AN][3] + rcut*v[3] - Grid_Origin[3];
+
+      /* find the maximum range of grids */
+      nmax[k] = Dot_Product(Cxyz,rgtv[k])*0.5/PI;
+
+      Cxyz[1] = Gxyz[Gc_AN][1] - rcut*v[1] - Grid_Origin[1];
+      Cxyz[2] = Gxyz[Gc_AN][2] - rcut*v[2] - Grid_Origin[2];
+      Cxyz[3] = Gxyz[Gc_AN][3] - rcut*v[3] - Grid_Origin[3];
+
+      /* find the mimum range of grids */
+      nmin[k] = Dot_Product(Cxyz,rgtv[k])*0.5/PI;
+  
+      if (nmax[k]<nmin[k]){
+        i = nmin[k];
+        j = nmax[k];
+        nmin[k] = j;
+        nmax[k] = i;
+      } 
+
+    } /* k */  
+
+    CutR2 = Spe_Atom_Cut1[Cwan]*Spe_Atom_Cut1[Cwan];
+
+    Nct = 0;
+    for (n1=nmin[1]; n1<=nmax[1]; n1++){
+      for (n2=nmin[2]; n2<=nmax[2]; n2++){
+	for (n3=nmin[3]; n3<=nmax[3]; n3++){
+
+	  Find_CGrids(1,n1,n2,n3,Cxyz,NOC);
+	  Rn = NOC[0];
+	  l1 = NOC[1];
+	  l2 = NOC[2];
+	  l3 = NOC[3];
+	  N = l1*Ngrid2*Ngrid3 + l2*Ngrid3 + l3;
+
+	  dx = Cxyz[1] - Gxyz[Gc_AN][1];
+	  dy = Cxyz[2] - Gxyz[Gc_AN][2];
+	  dz = Cxyz[3] - Gxyz[Gc_AN][3];
+
+	  r2 = dx*dx + dy*dy + dz*dz;
+	  if (r2<=CutR2){
+	    if (estimate_switch!=1){
+	      TempGrid[Nct+1] = N;
+	      TempCell[Nct+1] = Rn;
+	    }             
+	    Nct++;
 	  }
-
 	}
       }
+    }
 
-#pragma omp barrier
-#pragma omp flush(Tmp_GridListAtom,Tmp_CellListAtom,MGridListAtom)
+    Np = (nmax[1]-nmin[1]+1)*(nmax[2]-nmin[2]+1)*(nmax[3]-nmin[3]+1)*3/2;
+    if (Np<Nct){
+      printf("Invalid access in truncation.c\n"); 
+      MPI_Finalize();
+      exit(0); 
+    }
 
-      if (estimate_switch!=1 && Mc_AN<=Matomnum){
+    GridN_Atom[Gc_AN] = Nct;
 
-	/* sorting */
+    if (estimate_switch!=1){
 
-	qsort_int((long)(Nct+1),TempGrid,TempCell);
+      /* sorting */
+      qsort_int((long)Nct,TempGrid,TempCell);
 
-	for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
-	  Tmp_GridListAtom[Mc_AN][Nc] = TempGrid[Nc+1];
-	  Tmp_CellListAtom[Mc_AN][Nc] = TempCell[Nc+1];
-	}
+      for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
+	Tmp_GridListAtom[Mc_AN][Nc] = TempGrid[Nc+1];
+	Tmp_CellListAtom[Mc_AN][Nc] = TempCell[Nc+1];
       }
+    }
+  }
 
-      if (Mc_AN<=Matomnum){
-        dtime(&Etime_atom);
-        time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-      }
-
-      /* increament of Mc_AN0 */
-
-      if (OMPID==0) Mc_AN0 += Nthrds;
-#pragma omp barrier
-#pragma omp flush(Mc_AN0)
-
-    } while (Mc_AN0<=Matomnum);
-
-    /* freeing of arrays */
-
-    free(TempCell);
-    free(TempGrid);
-
-  } /* #pragma omp parallel */
+  free(TempCell);
+  free(TempGrid);
 
   /* calculate size_GridListAtom */
 
@@ -4300,27 +3975,43 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
     if (Max_GridN_Atom<GridN_Atom[Gc_AN]) Max_GridN_Atom = GridN_Atom[Gc_AN];
   }
 
+  if (measure_time){
+    dtime(&etime); 
+    time2 += etime - stime;
+  }
+
   /****************************************************
    MPI: 
 
        GridN_Atom
   ****************************************************/
 
+  if (measure_time) dtime(&stime); 
+
   for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
     ID = G2ID[ct_AN];
     MPI_Bcast(&GridN_Atom[ct_AN], 1, MPI_INT, ID, mpi_comm_level1);
+  }
 
-    if (myid==Host_ID && estimate_switch==0 && 0<level_stdout){
-      printf("Num. of grids overlapping with atom %4d = %4d\n",
-             ct_AN, GridN_Atom[ct_AN]);
+  if (myid==Host_ID && estimate_switch==0 && 0<level_stdout){
+    for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
+      if (ct_AN<=20 && level_stdout<=1){
+         printf("Num. of grids overlapping with atom %4d = %4d\n",
+                 ct_AN, GridN_Atom[ct_AN]);
+      }
+    }
+
+    if (20<atomnum && level_stdout<=1){
+      printf("     ..........\n");
+      printf("     ......\n\n");
     }
   }
 
   /****************************************************
     allocation of arrays:
 
-       Tmp_GridListAtom
-       Tmp_CellListAtom
+    Tmp_GridListAtom
+    Tmp_CellListAtom
   ****************************************************/
   
   size_MGridListAtom = size_GridListAtom;
@@ -4329,14 +4020,18 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
     Gc_AN = F_M2G[Mc_AN];
     Tmp_GridListAtom[Mc_AN] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
     Tmp_CellListAtom[Mc_AN] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
-    MGridListAtom[Mc_AN] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
     size_MGridListAtom += GridN_Atom[Gc_AN];
   }
+
   /* PrintMemory */
   if (firsttime){
-  PrintMemory("truncation: GridListAtom", sizeof(int)*size_GridListAtom, NULL);
-  PrintMemory("truncation: CellListAtom", sizeof(int)*size_MGridListAtom, NULL);
-  PrintMemory("truncation: MGridListAtom", sizeof(int)*size_MGridListAtom, NULL);
+  PrintMemory("truncation: Tmp_GridListAtom", sizeof(int)*size_MGridListAtom, NULL);
+  PrintMemory("truncation: Tmp_CellListAtom", sizeof(int)*size_MGridListAtom, NULL);
+  }
+
+  if (measure_time){
+    dtime(&etime); 
+    time3 += etime - stime;
   }
 
   /****************************************************
@@ -4345,6 +4040,8 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
        Tmp_GridListAtom
        Tmp_CellListAtom
   ****************************************************/
+
+  if (measure_time) dtime(&stime); 
 
   /* MPI_Barrier */
   MPI_Barrier(mpi_comm_level1);
@@ -4383,7 +4080,7 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
     }     
   }
 
-  /* CellListAtom */
+  /* Tmp_CellListAtom */
 
   for (ID=0; ID<numprocs; ID++){
 
@@ -4420,6 +4117,13 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
   /* MPI_Barrier */
   MPI_Barrier(mpi_comm_level1);
 
+  if (measure_time){
+    dtime(&etime); 
+    time4 += etime - stime;
+  }
+
+  if (measure_time) dtime(&stime); 
+
   if (estimate_switch!=1){
 
     /****************************************************
@@ -4427,13 +4131,7 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
     ****************************************************/
     
     if (estimate_switch==0){
-      size_GListTAtoms0 = 0;
-
-      if (Allocate_TAtoms0==1){
-        GListTAtoms0 = (int***)malloc(sizeof(int**)*(Matomnum+1));
-        GListTAtoms3 = (int***)malloc(sizeof(int**)*(Matomnum+1));
-        GListTCells0 = (int***)malloc(sizeof(int**)*(Matomnum+1));
-      }
+      size_GListTAtoms1 = 0;
 
       GListTAtoms1 = (int***)malloc(sizeof(int**)*(Matomnum+1));
       GListTAtoms2 = (int***)malloc(sizeof(int**)*(Matomnum+1));
@@ -4453,20 +4151,8 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
         if (estimate_switch==0){
 
-          if (Allocate_TAtoms0==1){
-            GListTAtoms0[0] = (int**)malloc(sizeof(int*)*1);
-            GListTAtoms3[0] = (int**)malloc(sizeof(int*)*1);
-            GListTCells0[0] = (int**)malloc(sizeof(int*)*1);
-	  }
-
           GListTAtoms1[0] = (int**)malloc(sizeof(int*)*1);
           GListTAtoms2[0] = (int**)malloc(sizeof(int*)*1);
-
-          if (Allocate_TAtoms0==1){
-            GListTAtoms0[0][0] = (int*)malloc(sizeof(int)*1);
-            GListTAtoms3[0][0] = (int*)malloc(sizeof(int)*1);
-            GListTCells0[0][0] = (int*)malloc(sizeof(int)*1);
-	  }
 
           GListTAtoms1[0][0] = (int*)malloc(sizeof(int)*1);
           GListTAtoms2[0][0] = (int*)malloc(sizeof(int)*1);
@@ -4477,19 +4163,13 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
         if (estimate_switch==0){
 
-          if (Allocate_TAtoms0==1){
-            GListTAtoms0[Mc_AN] = (int**)malloc(sizeof(int*)*(FNAN[Gc_AN]+1));
-            GListTAtoms3[Mc_AN] = (int**)malloc(sizeof(int*)*(FNAN[Gc_AN]+1));
-            GListTCells0[Mc_AN] = (int**)malloc(sizeof(int*)*(FNAN[Gc_AN]+1));
-	  }
-
           GListTAtoms1[Mc_AN] = (int**)malloc(sizeof(int*)*(FNAN[Gc_AN]+1));
           GListTAtoms2[Mc_AN] = (int**)malloc(sizeof(int*)*(FNAN[Gc_AN]+1));
         }
 
         h_AN0 = 0;
 
-#pragma omp parallel shared(List_YOUSO,GListTAtoms0,GListTAtoms3,GListTCells0,GListTAtoms1,GListTAtoms2,ScaleSize,Max_NumOLG,size_GListTAtoms0,level_stdout,NumOLG,estimate_switch,CpyCell,Mc_AN,Tmp_CellListAtom,Tmp_GridListAtom,GridN_Atom,atv_ijk,ncn,F_G2M,natn,h_AN0,FNAN,Gc_AN) private(OMPID,Nthrds,Nprocs,h_AN,Gh_AN,Mh_AN,Rh,l1,l2,l3,Nog,Nc,Nh,GNh,GRh,ll1,ll2,ll3,lll1,lll2,lll3,GRh1,po,GNc,GRc,TAtoms0,TCells0,TAtoms1,TAtoms2,size_array,i)
+#pragma omp parallel shared(List_YOUSO,GListTAtoms1,GListTAtoms2,ScaleSize,Max_NumOLG,size_GListTAtoms1,level_stdout,NumOLG,estimate_switch,CpyCell,Mc_AN,Tmp_CellListAtom,Tmp_GridListAtom,GridN_Atom,atv_ijk,ncn,F_G2M,natn,h_AN0,FNAN,Gc_AN) private(OMPID,Nthrds,Nprocs,h_AN,Gh_AN,Mh_AN,Rh,l1,l2,l3,Nog,Nc,Nh,GNh,GRh,ll1,ll2,ll3,lll1,lll2,lll3,GRh1,po,GNc,GRc,TAtoms0,TCells0,TAtoms1,TAtoms2,size_array,i)
 	{        
 
 	  /*******************************************************
@@ -4586,14 +4266,14 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
 		      Nc++;
 
-		    } /* while (...)                      */
+		    } /* while (...) */
 
 		    /* for Nc==GridN_Atom[Gc_AN] */
 
 		    Nc--;
 		    if (Nc<0) Nc = 0;
 
-		  } /* if (abs.... )                    */
+		  } /* if (abs.... ) */
 		} /* if (Tmp_GridListAtom[Mc_AN][0]<=GNh) */
 	      } /* Nh */
 
@@ -4615,7 +4295,6 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 #pragma omp barrier
 #pragma omp flush(NumOLG)
 
-
 	    if (estimate_switch==0){
 
               /* allocation of arrays */
@@ -4626,13 +4305,7 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
                   if (i<=FNAN[Gc_AN]){
 
-		    size_GListTAtoms0 += NumOLG[Mc_AN][i];
-
-		    if (Allocate_TAtoms0==1){
-		      GListTAtoms0[Mc_AN][i] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][i]);
-		      GListTAtoms3[Mc_AN][i] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][i]);
-		      GListTCells0[Mc_AN][i] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][i]);
-		    }
+		    size_GListTAtoms1 += NumOLG[Mc_AN][i];
 
 		    GListTAtoms1[Mc_AN][i] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][i]);
 		    GListTAtoms2[Mc_AN][i] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][i]);
@@ -4643,22 +4316,13 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
 #pragma omp barrier
 #pragma omp flush(GListTAtoms1,GListTAtoms2)
- 	      if (Allocate_TAtoms0==1){
-#pragma omp flush(GListTAtoms0,GListTAtoms3,GListTCells0)
-	      }
 
               if (h_AN<=FNAN[Gc_AN]){
 
 		for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
 
-		  if (Allocate_TAtoms0==1){
-		    GListTAtoms0[Mc_AN][h_AN][Nog] = TAtoms0[Nog];
-		    GListTCells0[Mc_AN][h_AN][Nog] = TCells0[Nog];
-		  }
-
 		  GListTAtoms1[Mc_AN][h_AN][Nog] = TAtoms1[Nog];
 		  GListTAtoms2[Mc_AN][h_AN][Nog] = TAtoms2[Nog];
-
 		}
 	      }
 	    }
@@ -4688,18 +4352,9 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
     if (estimate_switch==0){
 
-      if (Allocate_TAtoms0==1){
-
-        if (firsttime){
-  	PrintMemory("truncation: GListTAtoms0", sizeof(int)*size_GListTAtoms0, NULL);
-	PrintMemory("truncation: GListTAtoms3", sizeof(int)*size_GListTAtoms0, NULL);
-	PrintMemory("truncation: GListTCells0", sizeof(int)*size_GListTAtoms0, NULL);
-	}
-      }
-
       if (firsttime){
-      PrintMemory("truncation: GListTAtoms1", sizeof(int)*size_GListTAtoms0, NULL);
-      PrintMemory("truncation: GListTAtoms2", sizeof(int)*size_GListTAtoms0, NULL);
+      PrintMemory("truncation: GListTAtoms1", sizeof(int)*size_GListTAtoms1, NULL);
+      PrintMemory("truncation: GListTAtoms2", sizeof(int)*size_GListTAtoms1, NULL);
       }
     }
 
@@ -4720,22 +4375,35 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
   /* MPI_Barrier */
   MPI_Barrier(mpi_comm_level1);
 
+  if (measure_time){
+    dtime(&etime); 
+    time5 += etime - stime;
+  }
+
   /****************************************************
        Tmp_GridListAtom -> GridListAtom
        Tmp_CellListAtom -> CellListAtom                     
   ****************************************************/
 
+  if (measure_time) dtime(&stime); 
+
+  size_GridListAtom = 0;
+
   GridListAtom = (int**)malloc(sizeof(int*)*(Matomnum+1));
+  GridListAtom[0] = (int*)malloc(sizeof(int)*1);
+  size_GridListAtom++;
   for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
     Gc_AN = M2G[Mc_AN];
     GridListAtom[Mc_AN] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
+    size_GridListAtom += GridN_Atom[Gc_AN];
     for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
       GridListAtom[Mc_AN][Nc] = Tmp_GridListAtom[Mc_AN][Nc];
     }
   }
 
-  CellListAtom = (int**)malloc(sizeof(int*)*(Matomnum+MatomnumF+1));
-  for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+  CellListAtom = (int**)malloc(sizeof(int*)*(Matomnum+1));
+  CellListAtom[0] = (int*)malloc(sizeof(int)*1);
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
     Gc_AN = F_M2G[Mc_AN];
     CellListAtom[Mc_AN] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
     for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
@@ -4743,57 +4411,33 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
     }
   }
 
+  /* PrintMemory */
+  if (firsttime){
+  PrintMemory("truncation: GridListAtom", sizeof(int)*size_GridListAtom, NULL);
+  PrintMemory("truncation: CellListAtom", sizeof(int)*size_GridListAtom, NULL);
+  PrintMemory("truncation: MGridListAtom", sizeof(int)*size_GridListAtom, NULL);
+  }
+
   /****************************************************
-      find grids that each processor has to know
-       and 
-      setting of grids (intermediate) 
+   construct the data structure for MPI communications
+   for grid data
   ****************************************************/
 
   if (estimate_switch==0){
 
-    allocate_grids2atoms(MD_iter);
+    Construct_MPI_Data_Structure_Grid();
 
-    if (Allocate_TAtoms0==1){
+    Ng1 = Max_Grid_Index[1] - Min_Grid_Index[1] + 1;
+    Ng2 = Max_Grid_Index[2] - Min_Grid_Index[2] + 1;
+    Ng3 = Max_Grid_Index[3] - Min_Grid_Index[3] + 1;
 
-      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
-
-	dtime(&Stime_atom);
-
-	Gc_AN = M2G[Mc_AN];
-
-	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
-	  for (Nog=0; Nog<NumOLG[Mc_AN][h_AN]; Nog++){
-	    GNc = GListTAtoms0[Mc_AN][h_AN][Nog];
-
-	    GN2N(GNc,N3);
-	    n1 = N3[1];  
-	    n2 = N3[2];  
-	    n3 = N3[3];  
-	    nn1 = My_Cell0[n1];
-
-	    if (nn1==-1){
-	      printf("myid=%i error in truncation.c  n1=%i\n",myid,n1);fflush(stdout);
-	      MPI_Finalize();
-	      exit(1);
-	    }
-
-	    N = nn1*Ngrid2*Ngrid3 + n2*Ngrid3 + n3;
-	    GListTAtoms3[Mc_AN][h_AN][Nog] = N;  /* medium grid number in myid */
-	  }
-	}
-
-	dtime(&Etime_atom);
-	time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-      }
-    }
-
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
 
       dtime(&Stime_atom);
 
       Gc_AN = F_M2G[Mc_AN];
 
-#pragma omp parallel shared(Ngrid2,Ngrid3,MGridListAtom,My_Cell0,Mc_AN,Tmp_GridListAtom,GridN_Atom,Gc_AN) private(Nc,GNc,N3,n1,n2,n3,nn1,N,OMPID,Nthrds,Nprocs)
+#pragma omp parallel shared(Min_Grid_Index,atv_ijk,Ng1,Ng2,Ng3,Ngrid1,Ngrid2,Ngrid3,MGridListAtom,Mc_AN,Tmp_GridListAtom,Tmp_CellListAtom,GridN_Atom,Gc_AN) private(Nc,GNc,GRc,N3,n1,n2,n3,N,OMPID,Nthrds,Nprocs)
       {
 
 	/* get info. on OpenMP */ 
@@ -4805,18 +4449,15 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 	for (Nc=OMPID; Nc<GridN_Atom[Gc_AN]; Nc+=Nthrds){
 
 	  GNc = Tmp_GridListAtom[Mc_AN][Nc];
+          GRc = Tmp_CellListAtom[Mc_AN][Nc];
+
 	  GN2N(GNc,N3);
-	  n1 = N3[1];  
-	  n2 = N3[2];  
-	  n3 = N3[3];  
-	  nn1 = My_Cell0[n1];
-	  if (nn1==-1){
-	    MGridListAtom[Mc_AN][Nc] = -1;
-	  }
-	  else{
-	    N = nn1*Ngrid2*Ngrid3 + n2*Ngrid3 + n3;
-	    MGridListAtom[Mc_AN][Nc] = N;
-	  }
+
+	  n1 = N3[1] + Ngrid1*atv_ijk[GRc][1] - Min_Grid_Index[1];  
+	  n2 = N3[2] + Ngrid2*atv_ijk[GRc][2] - Min_Grid_Index[2];  
+	  n3 = N3[3] + Ngrid3*atv_ijk[GRc][3] - Min_Grid_Index[3];  
+
+	  MGridListAtom[Mc_AN][Nc] = n1*Ng2*Ng3 + n2*Ng3 + n3;
 	}
 
       } /* #pragma omp parallel */
@@ -4824,6 +4465,12 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
       dtime(&Etime_atom); 
       time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
     }
+
+  }
+
+  if (measure_time){
+    dtime(&etime); 
+    time6 += etime - stime;
   }
 
   /* for PrintMemory */
@@ -4832,6 +4479,8 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
   /****************************************************
                           Free
   ****************************************************/
+
+  if (measure_time) dtime(&stime); 
 
   /* MPI_Barrier */
   MPI_Barrier(mpi_comm_level1);
@@ -4845,22 +4494,31 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 
   if (alloc_first[2]==0 && estimate_switch!=0){
 
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(MGridListAtom[Mc_AN]);
     }
     free(MGridListAtom);
 
-    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(GridListAtom[Mc_AN]);
     }
     free(GridListAtom);
 
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(CellListAtom[Mc_AN]);
     }
     free(CellListAtom);
   }
 
+  if (measure_time){
+    dtime(&etime); 
+    time7 += etime - stime;
+  }
+
+  if (measure_time){
+    printf("UCell_Box myid=%5d time0=%6.3f time1=%6.3f time2=%6.3f time3=%6.3f time4=%6.3f time5=%6.3f time6=%6.3f time7=%6.3f\n",
+            myid,time0,time1,time2,time3,time4,time5,time6,time7);
+  }
 }
 
 
@@ -4907,21 +4565,6 @@ int Set_Periodic(int CpyN, int Allocate_switch)
 
     alloc_first[7] = 0;
 
-    /* local */
-    n2 = atomnum + 2;
-    n3 = ((long)n2*((long)TN+1))/32 + 1;
-    asize1 = n3*(long)n2 + 10;
-    R_index1 = (long*)malloc(sizeof(long)*(asize1+2));
-    for (i=0; i<(asize1+2); i++)  R_index1[i] = 0;
-    R_index2 = (long*)malloc(sizeof(long)*(asize1+2));
-    for (i=0; i<(asize1+2); i++)  R_index2[i] = 0;
-
-    CellDis = (double**)malloc(sizeof(double*)*(TN+3));
-    for (i=0; i<(TN+3); i++){
-      CellDis[i] = (double*)malloc(sizeof(double)*4);
-      for (j=0; j<4; j++)  CellDis[i][j] = 0.0;
-    }
-
     /* for PrintMemory */
     firsttime=0;
 
@@ -4930,20 +4573,6 @@ int Set_Periodic(int CpyN, int Allocate_switch)
     ****************************************************/
 
     Generation_ATV(CpyN);
-  }
-
-  else if (Allocate_switch==1){
-    /* local */
-    n2 = atomnum + 2;
-    n3 = ((long)n2*((long)TN+1))/32 + 1;
-    asize1 = n3*(long)n2 + 10;
-    R_index1 = (long*)malloc(sizeof(long)*(asize1+2));
-    R_index2 = (long*)malloc(sizeof(long)*(asize1+2));
-
-    CellDis = (double**)malloc(sizeof(double*)*(TN+3));
-    for (i=0; i<(TN+3); i++){
-      CellDis[i] = (double*)malloc(sizeof(double)*4);
-    }
   }
 
   /* return */
@@ -4963,7 +4592,7 @@ int Set_Periodic(int CpyN, int Allocate_switch)
 
 void Free_truncation(int CpyN, int TN, int Free_switch)
 {
-  int i,j,n;
+  int i,j,n,Nc;
 
   if (Free_switch==0){
 
@@ -4989,29 +4618,6 @@ void Free_truncation(int CpyN, int TN, int Free_switch)
       }
       free(atv_ijk);
     }
-
-    /* local arrays */
-
-    free(R_index1);
-    free(R_index2);
-
-    for (i=0; i<(TN+3); i++){
-      free(CellDis[i]);
-    }
-    free(CellDis);
-
-  }
-
-  else if (Free_switch==1){
-
-    free(R_index1);
-    free(R_index2);
-
-    for (i=0; i<(TN+3); i++){
-      free(CellDis[i]);
-    }
-    free(CellDis);
-
   }
 } 
 
@@ -5026,7 +4632,8 @@ void free_arrays_truncation0()
 {
   int i,j,k,m,ct_AN,h_AN,Gh_AN,Hwan;
   int tno0,tno1,tno,Cwan,so,s1,s2;
-  int num,wan,n2,wanA,Gi,Mc_AN_GDC;
+  int num,wan,n2,wanA,Gi;
+  int NO1,Rnh,Mh_AN,Nc;
   int Gc_AN,Mc_AN,nc,ns,spin,fan;
   int Anum,p,vsize,l,NUM,MAnum;
   int numprocs,myid;
@@ -5052,7 +4659,6 @@ void free_arrays_truncation0()
       ResidualDM
       EDM
       PDM
-      IOLP
       CntCoes
       HVNA
       DS_VNA
@@ -5371,6 +4977,11 @@ void free_arrays_truncation0()
 	  tno0 = 1;
           FNAN[0] = 0;
 	}
+        else if ( (Hub_U_switch==0 || Hub_U_occupation!=1) && 0<k && Matomnum<Mc_AN){
+          Gc_AN = S_M2G[Mc_AN];
+          Cwan = WhatSpecies[Gc_AN];
+          tno0 = 1;
+        }    
 	else{
           Gc_AN = S_M2G[Mc_AN];
 	  Cwan = WhatSpecies[Gc_AN];
@@ -5504,22 +5115,31 @@ void free_arrays_truncation0()
     for (so=0; so<(SO_switch+1); so++){
       for (k=0; k<4; k++){
 	FNAN[0] = 0;
-	for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	for (Mc_AN=0; Mc_AN<(Matomnum+2); Mc_AN++){
 
 	  if (Mc_AN==0){
 	    Gc_AN = 0;
 	    tno0 = 1;
+	    fan = FNAN[Gc_AN];
+	  }
+	  else if ( (Matomnum+1)<=Mc_AN ){
+	    fan = List_YOUSO[8];
+	    tno0 = List_YOUSO[7];
 	  }
 	  else{
 	    Gc_AN = F_M2G[Mc_AN];
 	    Cwan = WhatSpecies[Gc_AN];
 	    tno0 = Spe_Total_NO[Cwan];  
+	    fan = FNAN[Gc_AN];
 	  }    
 
-	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	  for (h_AN=0; h_AN<(fan+1); h_AN++){
 
 	    if (Mc_AN==0){
 	      tno1 = 1;  
+	    }
+	    else if ( (Matomnum+1)<=Mc_AN ){
+	      tno1 = List_YOUSO[20];  
 	    }
 	    else{
 	      Gh_AN = natn[Gc_AN][h_AN];
@@ -5547,23 +5167,31 @@ void free_arrays_truncation0()
       for (so=0; so<(SO_switch+1); so++){
 	for (k=0; k<4; k++){
 	  FNAN[0] = 0;
-	  for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	  for (Mc_AN=0; Mc_AN<(Matomnum+2); Mc_AN++){
 
 	    if (Mc_AN==0){
 	      Gc_AN = 0;
 	      tno0 = 1;
-	      FNAN[0] = 0;
+	      fan = FNAN[Gc_AN];
+	    }
+	    else if ( (Matomnum+1)<=Mc_AN ){
+	      fan = List_YOUSO[8];
+	      tno0 = List_YOUSO[7];
 	    }
 	    else{
 	      Gc_AN = F_M2G[Mc_AN];
 	      Cwan = WhatSpecies[Gc_AN];
 	      tno0 = Spe_Total_CNO[Cwan];  
+	      fan = FNAN[Gc_AN];
 	    }    
 
-	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+	    for (h_AN=0; h_AN<(fan+1); h_AN++){
 
 	      if (Mc_AN==0){
 		tno1 = 1;  
+	      }
+	      else if ( (Matomnum+1)<=Mc_AN ){
+		tno1 = List_YOUSO[20];  
 	      }
 	      else{
 		Gh_AN = natn[Gc_AN][h_AN];
@@ -6025,44 +5653,6 @@ void free_arrays_truncation0()
     }
     free(iDM);
 
-    /* IOLP */  
-
-    if (Solver==1 || Solver==7){
-      FNAN[0] = 0;
-      SNAN[0] = 0;
-      for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF+MatomnumS); Mc_AN++){
-
-	if (Mc_AN==0){
-	  Gc_AN = 0;
-	  tno0 = 1;
-	}
-	else{
-	  Gc_AN = S_M2G[Mc_AN];
-	  Cwan = WhatSpecies[Gc_AN];
-	  tno0 = Spe_Total_NO[Cwan];  
-	}    
-
-	for (h_AN=0; h_AN<=(FNAN[Gc_AN]+SNAN[Gc_AN]); h_AN++){
-
-	  if (Mc_AN==0){
-	    tno1 = 1;  
-	  }
-	  else{
-	    Gh_AN = natn[Gc_AN][h_AN];
-	    Hwan = WhatSpecies[Gh_AN];
-	    tno1 = Spe_Total_NO[Hwan];
-	  } 
-
-	  for (i=0; i<tno0; i++){
-	    free(IOLP[Mc_AN][h_AN][i]);
-	  }
-	  free(IOLP[Mc_AN][h_AN]);
-	}
-	free(IOLP[Mc_AN]);
-      }
-      free(IOLP);
-    }
-
     /* S12 for DC or recursion */  
 
     if (Solver==1 || Solver==5){
@@ -6089,111 +5679,6 @@ void free_arrays_truncation0()
         free(S12[Mc_AN]);
       }
       free(S12);
-    }
-
-    else if (Solver==6){ /* for GDC */
-
-      for (Mc_AN_GDC=0; Mc_AN_GDC<=Matomnum_GDC; Mc_AN_GDC++){
-
-	if (Mc_AN_GDC==0) n2 = 1;
-	else{
-
-	  Mc_AN = Mnatn_GDC[Mc_AN_GDC][0];
-	  Gc_AN = M2G[Mc_AN];
-	  wan = WhatSpecies[Gc_AN];
-
-	  num = 1;
-	  for (i=0; i<=(FNAN[Gc_AN]+SNAN[Gc_AN]); i++){
-	    Gi = natn[Gc_AN][i];
-	    wanA = WhatSpecies[Gi];
-	    num += Spe_Total_CNO[wanA];
-	  }
-	  n2 = num + 2;
-	}
-
-	for (i=0; i<n2; i++){
-	  free(S12[Mc_AN_GDC][i]);
-	}
-        free(S12[Mc_AN_GDC]);
-      }
-      free(S12);
-    }
-
-    if (Solver==1) { /* for recursion */
-
-      /* Left_U0 */
-
-      for (i=0; i<=SpinP_switch; i++){
-	for (j=0; j<=Matomnum; j++){
-
-	  if (j==0){
-	    tno1 = 1;
-	    vsize = 1;
-	  }
-	  else{
-	    Gc_AN = M2G[j];
-	    wanA = WhatSpecies[Gc_AN];
-	    tno1 = Spe_Total_CNO[wanA];
-
-	    Anum = 1;
-	    for (p=0; p<=(FNAN[Gc_AN]+SNAN[Gc_AN]); p++){
-	      Gi = natn[Gc_AN][p];
-	      wanA = WhatSpecies[Gi];
-	      Anum += Spe_Total_CNO[wanA];
-	    }
-
-	    NUM = Anum - 1;
-	    vsize = NUM + 2;
-	  }
-
-	  for (k=0; k<List_YOUSO[3]; k++){
-	    for (l=0; l<tno1; l++){
-	      free(Left_U0[i][j][k][l]);
-	    }
-            free(Left_U0[i][j][k]);
-	  }
-          free(Left_U0[i][j]);
-	}
-        free(Left_U0[i]);
-      }
-      free(Left_U0);
-
-      /* Right_U0 */
-
-      for (i=0; i<=SpinP_switch; i++){
-	for (j=0; j<=Matomnum; j++){
-
-	  if (j==0){
-	    tno1 = 1;
-	    vsize = 1;
-	  }
-	  else{
-	    Gc_AN = M2G[j];
-	    wanA = WhatSpecies[Gc_AN];
-	    tno1 = Spe_Total_CNO[wanA];
-
-	    Anum = 1;
-	    for (p=0; p<=(FNAN[Gc_AN]+SNAN[Gc_AN]); p++){
-	      Gi = natn[Gc_AN][p];
-	      wanA = WhatSpecies[Gi];
-	      Anum += Spe_Total_CNO[wanA];
-	    }
-
-	    NUM = Anum - 1;
-	    vsize = NUM + 2;
-	  }
-
-	  for (k=0; k<List_YOUSO[3]; k++){
-	    for (l=0; l<tno1; l++){
-	      free(Right_U0[i][j][k][l]);
-	    }
-            free(Right_U0[i][j][k]);
-	  }
-          free(Right_U0[i][j]);
-	}
-        free(Right_U0[i]);
-      }
-      free(Right_U0);
     }
 
     /* CntCoes */
@@ -6346,7 +5831,7 @@ void free_arrays_truncation0()
 
       for (k=0; k<4; k++){
 	FNAN[0] = 0;
-	for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
 	  if (Mc_AN==0){
 	    Gc_AN = 0;
@@ -6370,13 +5855,44 @@ void free_arrays_truncation0()
       }
       free(HVNA2);
 
+      /* HVNA3 */
+
+      for (k=0; k<4; k++){
+	FNAN[0] = 0;
+	for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	  if (Mc_AN==0)  Gc_AN = 0;
+	  else           Gc_AN = F_M2G[Mc_AN];
+
+	  for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	    if (Mc_AN==0){
+	      tno0 = 1;
+	    }
+	    else{
+	      Gh_AN = natn[Gc_AN][h_AN];        
+	      Hwan = WhatSpecies[Gh_AN];
+	      tno0 = Spe_Total_NO[Hwan];  
+	    }    
+
+	    for (i=0; i<tno0; i++){
+	      free(HVNA3[k][Mc_AN][h_AN][i]);
+	    }
+	    free(HVNA3[k][Mc_AN][h_AN]);
+	  }
+	  free(HVNA3[k][Mc_AN]);
+	}
+	free(HVNA3[k]);
+      }
+      free(HVNA3);
+
       /* CntHVNA2 */
 
       if (Cnt_switch==1){
 
 	for (k=0; k<4; k++){
 	  FNAN[0] = 0;
-	  for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
 	    if (Mc_AN==0){
 	      Gc_AN = 0;
@@ -6401,28 +5917,45 @@ void free_arrays_truncation0()
 	free(CntHVNA2);
       }
 
-    }
+      /* CntHVNA3 */
+
+      if (Cnt_switch==1){
+
+	for (k=0; k<4; k++){
+	  FNAN[0] = 0;
+	  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+	    if (Mc_AN==0) Gc_AN = 0;
+	    else          Gc_AN = F_M2G[Mc_AN];
+
+	    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	      if (Mc_AN==0){
+		tno0 = 1;
+	      }
+	      else{
+		Gh_AN = natn[Gc_AN][h_AN];        
+		Hwan = WhatSpecies[Gh_AN];
+		tno0 = Spe_Total_CNO[Hwan];  
+	      }    
+
+	      for (i=0; i<tno0; i++){
+		free(CntHVNA3[k][Mc_AN][h_AN][i]);
+	      }
+	      free(CntHVNA3[k][Mc_AN][h_AN]);
+	    }
+	    free(CntHVNA3[k][Mc_AN]);
+	  }
+	  free(CntHVNA3[k]);
+	}
+	free(CntHVNA3);
+      }
+    }  
 
     if (Solver==8) { /* Krylov subspace method */
 
       for (i=0; i<=SpinP_switch; i++){
 	for (j=0; j<=Matomnum; j++){
-
-	  if (j==0){
-	    tno0 = 1;
-	  }
-	  else{
-	    Gc_AN = M2G[j];
-	    Cwan = WhatSpecies[Gc_AN];
-	    tno0 = Spe_Total_NO[Cwan];  
-	  }    
-
-          for (k=0; k<rlmax_EC[j]; k++){
-	    for (l=0; l<EKC_core_size[j]; l++){
-	      free(Krylov_U[i][j][k][l]);
-	    }
-            free(Krylov_U[i][j][k]);
-	  }
           free(Krylov_U[i][j]);
 	}
         free(Krylov_U[i]);
@@ -6431,16 +5964,6 @@ void free_arrays_truncation0()
 
       for (i=0; i<=SpinP_switch; i++){
 	for (j=0; j<=Matomnum; j++){
-
-	  if (j==0){
-	    tno0 = 1;
-	  }
-	  else{
-	    Gc_AN = M2G[j];
-	    Cwan = WhatSpecies[Gc_AN];
-	    tno0 = Spe_Total_NO[Cwan];  
-	  }    
-
 	  for (k=0; k<(rlmax_EC[j]*EKC_core_size[j]+1); k++){
 	    free(EC_matrix[i][j][k]);
 	  }
@@ -6473,24 +5996,6 @@ void free_arrays_truncation0()
 
   /****************************************************
     freeing of arrays:
-
-      GListTAtoms0;
-      GListTCells0;
-      GListTAtoms1;
-      GListTAtoms2;
-      GListTAtoms3;
-
-      Density_Grid
-      ADensity_Grid
-      PCCDensity_Grid
-      Vxc_Grid
-      RefVxc_Grid
-      VNA_Grid
-      dVHart_Grid
-      Vpot_Grid
-      Orbs_Grid
-      COrbs_Grid
-      VEF_Grid
   ****************************************************/
 
   if (alloc_first[0]==0){
@@ -6504,30 +6009,12 @@ void free_arrays_truncation0()
       for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
         free(GListTAtoms2[Mc_AN][h_AN]);
         free(GListTAtoms1[Mc_AN][h_AN]);
-
-        if (Allocate_TAtoms0==1){
-          free(GListTCells0[Mc_AN][h_AN]);
-          free(GListTAtoms3[Mc_AN][h_AN]);
-          free(GListTAtoms0[Mc_AN][h_AN]);
-	}
       }
       free(GListTAtoms2[Mc_AN]);
       free(GListTAtoms1[Mc_AN]);
-
-      if (Allocate_TAtoms0==1){
-        free(GListTCells0[Mc_AN]);
-        free(GListTAtoms3[Mc_AN]);
-        free(GListTAtoms0[Mc_AN]);
-      }
     }
     free(GListTAtoms2);
     free(GListTAtoms1);
-
-    if (Allocate_TAtoms0==1){
-      free(GListTCells0);
-      free(GListTAtoms3);
-      free(GListTAtoms0);
-    }
   }
 
   if (alloc_first[3]==0){
@@ -6545,9 +6032,6 @@ void free_arrays_truncation0()
       free(Density_Grid);
     }
 
-    free(ADensity_Grid);
-    free(PCCDensity_Grid);
-
     if (SpinP_switch==3){ /* spin non-collinear */
       for (k=0; k<=3; k++){
         free(Vxc_Grid[k]);
@@ -6562,10 +6046,8 @@ void free_arrays_truncation0()
     }
 
     free(RefVxc_Grid);
-
-    free(VNA_Grid);
-
     free(dVHart_Grid);
+    free(RefVxc_Grid_B);
 
     if (SpinP_switch==3){ /* spin non-collinear */
       for (k=0; k<=3; k++){
@@ -6580,24 +6062,107 @@ void free_arrays_truncation0()
       free(Vpot_Grid);
     }
 
-    /* external electric field */
-    free(VEF_Grid);
+    /* arrays for the partitions B and C */
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Density_Grid_B[k]);
+      }
+      free(Density_Grid_B);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Density_Grid_B[k]);
+      }
+      free(Density_Grid_B);
+    }
+
+    free(ADensity_Grid_B);
+    free(PCCDensity_Grid_B);
+    free(dVHart_Grid_B);
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Vxc_Grid_B[k]);
+      }
+      free(Vxc_Grid_B);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Vxc_Grid_B[k]);
+      }
+      free(Vxc_Grid_B);
+    }
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Vpot_Grid_B[k]);
+      }
+      free(Vpot_Grid_B);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Vpot_Grid_B[k]);
+      }
+      free(Vpot_Grid_B);
+    }
+
+    /* if (ProExpn_VNA==off) */
+    if (ProExpn_VNA==0){
+      free(VNA_Grid);
+      free(VNA_Grid_B);
+    }
+
+    /* electric energy by electric field */
+    if (E_Field_switch==1){
+      free(VEF_Grid);
+      free(VEF_Grid_B);
+    }
+
+    /* arrays for the partition D */
+
+    free(PCCDensity_Grid_D);
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Density_Grid_D[k]);
+      }
+      free(Density_Grid_D);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Density_Grid_D[k]);
+      }
+      free(Density_Grid_D);
+    }
+
+    if (SpinP_switch==3){ /* spin non-collinear */
+      for (k=0; k<=3; k++){
+        free(Vxc_Grid_D[k]);
+      }
+      free(Vxc_Grid_D);
+    }
+    else{
+      for (k=0; k<=1; k++){
+        free(Vxc_Grid_D[k]);
+      }
+      free(Vxc_Grid_D);
+    }
 
     /* Orbs_Grid */
 
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       if (Mc_AN==0){
-        tno = 1;
         Gc_AN = 0;
+        num = 1;
       }
       else{
         Gc_AN = F_M2G[Mc_AN];
-        Cwan = WhatSpecies[Gc_AN];
-        tno = Spe_Total_NO[Cwan];
+        num = GridN_Atom[Gc_AN];
       }
 
-      for (i=0; i<tno; i++){
-        free(Orbs_Grid[Mc_AN][i]); 
+      for (Nc=0; Nc<num; Nc++){
+        free(Orbs_Grid[Mc_AN][Nc]);
       }
       free(Orbs_Grid[Mc_AN]); 
     }
@@ -6624,6 +6189,47 @@ void free_arrays_truncation0()
       }
       free(COrbs_Grid);
     }
+
+    /* Orbs_Grid_FNAN */
+
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+
+      if (Mc_AN==0){
+        free(Orbs_Grid_FNAN[0][0][0]);
+        free(Orbs_Grid_FNAN[0][0]);
+      }
+      else{
+
+	Gc_AN = M2G[Mc_AN];    
+
+	for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+
+	  Gh_AN = natn[Gc_AN][h_AN];
+
+	  if (G2ID[Gh_AN]!=myid){
+
+	    Mh_AN = F_G2M[Gh_AN];
+	    Hwan = WhatSpecies[Gh_AN];
+	    NO1 = Spe_Total_NO[Hwan];
+            num = NumOLG[Mc_AN][h_AN];  
+	  }
+	  else {
+            num = 1;
+	  }
+
+          if (0<NumOLG[Mc_AN][h_AN]){
+            for (Nc=0; Nc<num; Nc++){
+              free(Orbs_Grid_FNAN[Mc_AN][h_AN][Nc]);
+            }
+            free(Orbs_Grid_FNAN[Mc_AN][h_AN]);
+	  }
+
+	} /* h_AN */
+      } /* else */
+
+      free(Orbs_Grid_FNAN[Mc_AN]);
+    }
+    free(Orbs_Grid_FNAN);
 
   }
 
@@ -6716,17 +6322,17 @@ void free_arrays_truncation0()
 
   if (alloc_first[2]==0){
 
-    for (Mc_AN=0; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(MGridListAtom[Mc_AN]);
     }
     free(MGridListAtom);
 
-    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(GridListAtom[Mc_AN]);
     }
     free(GridListAtom);
 
-    for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
+    for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
       free(CellListAtom[Mc_AN]);
     }
     free(CellListAtom);
@@ -6751,7 +6357,7 @@ void Set_Inf_SndRcv()
 { 
   int i,ID,IDS,IDR,Mc_AN,Gc_AN,Num,ID1,Lh_AN,Gh_AN;
   int myid,numprocs,tag=999;
-  int **po_ID;
+  int *flag_DoubleCounting;
   int **Rcv_FGAN,**Rcv_SGAN;
   int **Snd_FGAN,**Snd_SGAN;
   int *Num_Pro_Snd;
@@ -6766,13 +6372,10 @@ void Set_Inf_SndRcv()
   /*********************************
    allocation of arrays:
 
-   int po_ID[atomnum+1][numprocs]
+   int flag_DoubleCounting[atomnum+1]
   *********************************/
 
-  po_ID = (int**)malloc(sizeof(int*)*(atomnum+1));
-  for (Gc_AN=0; Gc_AN<(atomnum+1); Gc_AN++){
-    po_ID[Gc_AN] = (int*)malloc(sizeof(int)*numprocs);
-  }
+  flag_DoubleCounting = (int*)malloc(sizeof(int)*(atomnum+1));
 
   /*********************************
    initialize
@@ -6794,12 +6397,10 @@ void Set_Inf_SndRcv()
       find F_Rcv_Num and S_Rcv_Num
   *************************************************/
 
-  /* initialize po_ID */
+  /* initialize flag_DoubleCounting */
 
   for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-    for (ID=0; ID<numprocs; ID++){
-      po_ID[Gc_AN][ID] = 0;
-    }
+    flag_DoubleCounting[Gc_AN] = 0;
   }
 
   /* find F_Rcv_Num */
@@ -6809,9 +6410,9 @@ void Set_Inf_SndRcv()
     for (Lh_AN=0; Lh_AN<=FNAN[Gc_AN]; Lh_AN++){
       Gh_AN = natn[Gc_AN][Lh_AN];
       ID1 = G2ID[Gh_AN];
-      if (po_ID[Gh_AN][ID1]==0 && ID1!=myid){
+      if (flag_DoubleCounting[Gh_AN]==0 && ID1!=myid){
         F_Rcv_Num[ID1]++;
-        po_ID[Gh_AN][ID1] = 1;
+        flag_DoubleCounting[Gh_AN] = 1;
       }
     }
   }
@@ -6823,9 +6424,9 @@ void Set_Inf_SndRcv()
     for (Lh_AN=(FNAN[Gc_AN]+1); Lh_AN<=(FNAN[Gc_AN]+SNAN[Gc_AN]); Lh_AN++){
       Gh_AN = natn[Gc_AN][Lh_AN];
       ID1 = G2ID[Gh_AN];
-      if (po_ID[Gh_AN][ID1]==0 && ID1!=myid){
+      if (flag_DoubleCounting[Gh_AN]==0 && ID1!=myid){
         S_Rcv_Num[ID1]++;
-        po_ID[Gh_AN][ID1] = 1;
+        flag_DoubleCounting[Gh_AN] = 1;
       }
     }
   }
@@ -6872,12 +6473,10 @@ void Set_Inf_SndRcv()
     S_Rcv_Num[ID] = 0;
   }
 
-  /* initialized po_ID */
+  /* initialized flag_DoubleCounting */
 
   for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-    for (ID=0; ID<numprocs; ID++){
-      po_ID[Gc_AN][ID] = 0;
-    }
+    flag_DoubleCounting[Gc_AN] = 0;
   }
 
   /* set Rcv_FGAN */
@@ -6887,11 +6486,11 @@ void Set_Inf_SndRcv()
     for (Lh_AN=0; Lh_AN<=FNAN[Gc_AN]; Lh_AN++){
       Gh_AN = natn[Gc_AN][Lh_AN];
       ID1 = G2ID[Gh_AN];
-      if (po_ID[Gh_AN][ID1]==0 && ID1!=myid){
+      if (flag_DoubleCounting[Gh_AN]==0 && ID1!=myid){
 
         Rcv_FGAN[ID1][F_Rcv_Num[ID1]] = Gh_AN;
         F_Rcv_Num[ID1]++;
-        po_ID[Gh_AN][ID1] = 1;
+        flag_DoubleCounting[Gh_AN] = 1;
       }
     }
   }
@@ -6903,11 +6502,11 @@ void Set_Inf_SndRcv()
     for (Lh_AN=(FNAN[Gc_AN]+1); Lh_AN<=(FNAN[Gc_AN]+SNAN[Gc_AN]); Lh_AN++){
       Gh_AN = natn[Gc_AN][Lh_AN];
       ID1 = G2ID[Gh_AN];
-      if (po_ID[Gh_AN][ID1]==0 && ID1!=myid){
+      if (flag_DoubleCounting[Gh_AN]==0 && ID1!=myid){
 
         Rcv_SGAN[ID1][S_Rcv_Num[ID1]] = Gh_AN;
         S_Rcv_Num[ID1]++;
-        po_ID[Gh_AN][ID1] = 1;
+        flag_DoubleCounting[Gh_AN] = 1;
       }
     }
   }
@@ -7136,7 +6735,7 @@ void Set_Inf_SndRcv()
            setting of F_G2M and S_G2M
 
     F_G2M and S_G2M give a conversion from the
-    global atom number to the medium atom number
+    global atom number to the intermediate atom number
     for atoms sent from ID in the size of
     F_Rcv_Num[ID] and F_Rcv_Num[ID] + S_Rcv_Num[ID],
     respectively. 
@@ -7343,11 +6942,7 @@ void Set_Inf_SndRcv()
   }
   free(Rcv_FGAN);
 
-  for (Gc_AN=0; Gc_AN<(atomnum+1); Gc_AN++){
-    free(po_ID[Gc_AN]);
-  }
-  free(po_ID);
-
+  free(flag_DoubleCounting);
 } 
 
 
@@ -7357,28 +6952,29 @@ void Set_Inf_SndRcv()
 
 
 
-void allocate_grids2atoms(int MD_iter)
+void Construct_MPI_Data_Structure_Grid()
 {
-  int i,j,po,Mc_AN,Gc_AN,wan;
-  int MinC,MaxC,num,n1,gn[10];
-  int *Cell_IDtmp;
+  static int firsttime=1;
+  int i,j,k,Mc_AN,Gc_AN,wan,n1,n2,n3;
+  int min_n1,max_n1,min_n2,max_n2,N3[4];
+  unsigned long long int AN,BN,CN,DN;
+  unsigned long long int B_AB2,Bs,Be;
+  unsigned long long int BN_AB,BN_CB,BN_CA,GN_B_AB;
+  unsigned long long int GN,GNs,GR,n2D,N2D;
+  unsigned long long int GN_AB,GN_CB,GN_CA;
+  int size_Index_Snd_Grid_A2B;
+  int size_Index_Rcv_Grid_A2B;
+  int size_Index_Snd_Grid_B2C;
+  int size_Index_Rcv_Grid_B2C;
+  int size_Index_Snd_Grid_B2D;
+  int size_Index_Rcv_Grid_B2D;
+  int size_Index_Snd_Grid_B_AB2CA;
+  int size_Index_Rcv_Grid_B_AB2CA;
+  int size_Index_Snd_Grid_B_CA2CB;
+  int size_Index_Rcv_Grid_B_CA2CB;
+  int myid,numprocs,ID,IDS,IDR,tag=999;
+  double Vec0,Vec1,coef,MinV,MaxV,rcut;
   double Cxyz[4],b[4],c[4],v[4];
-  double coef,rcut,Vec0,Vec1;
-  double MinV,MaxV;
-  double avg_Ngrid1,avg_Ngrid2;
-  double atom_pos,a_unit;
-  int cell,FNAN2;
-  int *exist_switch;
-  int *natn2;
-  int *Num_Rcv_FNAN2, *Num_Snd_FNAN2;
-  int **Rcv_FNAN2, **Snd_FNAN2;
-  int *TopMAN2;
-  int **GLAtom;
-  int **GLCell;
-  int **Rcv_FNAN2_At;
-  int **Rcv_FNAN2_Nc;
-  int n2,n3,nn1,N,N3[4],GNc,Nc;
-  int myid,numprocs,ID,IDS,IDR,Geta,tag=999;
 
   MPI_Status stat;
   MPI_Request request;
@@ -7387,888 +6983,1090 @@ void allocate_grids2atoms(int MD_iter)
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
   /******************************************************
-    find the unit vector perpendicular to the bc-plane
+    find the smallest parallelepipedon which contains 
+    atoms allocated to my ID under consideration of 
+    cutoff radii of basis functions. 
   ******************************************************/
+ 
+  for (k=1; k<=3; k++){
 
-  b[1] = tv[2][1];
-  b[2] = tv[2][2];
-  b[3] = tv[2][3];
+    if      (k==1){ i = 2; j = 3; }
+    else if (k==2){ i = 3; j = 1; }
+    else if (k==3){ i = 1; j = 2; }
 
-  c[1] = tv[3][1];
-  c[2] = tv[3][2];
-  c[3] = tv[3][3];
+    b[1] = tv[i][1];
+    b[2] = tv[i][2];
+    b[3] = tv[i][3];
 
-  Cross_Product(b,c,v);
-  coef = 1.0/sqrt(fabs( Dot_Product(v,v) ));
+    c[1] = tv[j][1];
+    c[2] = tv[j][2];
+    c[3] = tv[j][3];
 
-  v[1] = coef*v[1];
-  v[2] = coef*v[2];
-  v[3] = coef*v[3];
+    Cross_Product(b,c,v);
+    coef = 1.0/sqrt(fabs( Dot_Product(v,v) ));
+    
+    v[1] = coef*v[1];
+    v[2] = coef*v[2];
+    v[3] = coef*v[3];
+
+    MinV =  1.0e+10;
+    MaxV = -1.0e+10;
+
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = M2G[Mc_AN];
+      wan  = WhatSpecies[Gc_AN];
+      rcut = Spe_Atom_Cut1[wan];
+
+      Cxyz[1] = Gxyz[Gc_AN][1] + rcut*v[1] - Grid_Origin[1];
+      Cxyz[2] = Gxyz[Gc_AN][2] + rcut*v[2] - Grid_Origin[2];
+      Cxyz[3] = Gxyz[Gc_AN][3] + rcut*v[3] - Grid_Origin[3];
+
+      Vec0 = Dot_Product(Cxyz,rgtv[k])*0.5/PI;
+
+      Cxyz[1] = Gxyz[Gc_AN][1] - rcut*v[1] - Grid_Origin[1];
+      Cxyz[2] = Gxyz[Gc_AN][2] - rcut*v[2] - Grid_Origin[2];
+      Cxyz[3] = Gxyz[Gc_AN][3] - rcut*v[3] - Grid_Origin[3];
+
+      Vec1 = Dot_Product(Cxyz,rgtv[k])*0.5/PI;
+
+      if (Vec0<MinV) MinV = Vec0;
+      if (Vec1<MinV) MinV = Vec1;
+      if (MaxV<Vec0) MaxV = Vec0;   
+      if (MaxV<Vec1) MaxV = Vec1;
+    }
+
+    Min_Grid_Index[k] = (int)MinV;  /* buffer for GGA */
+    Max_Grid_Index[k] = (int)MaxV;  /* buffer for GGA */
+
+  } /* k */
 
   /******************************************************
-    find the minimun and maximum grid numbers of a-axis
+    find the smallest parallelepipedon which contains 
+    grids in the partition B_AB
+    
+    The parallelepipedon defines the partition D.
   ******************************************************/
 
-  MinV =  1.0e+10;
-  MaxV = -1.0e+10;
+  N2D = Ngrid1*Ngrid2;
+  Bs = (myid*N2D+numprocs-1)/numprocs;
+  Be = ((myid+1)*N2D+numprocs-1)/numprocs;
+  
+  min_n1 = 1000000;
+  max_n1 =-1000000;
+  min_n2 = 1000000;
+  max_n2 =-1000000;
+
+  for (B_AB2=Bs; B_AB2<Be; B_AB2++){
+
+    n1 = B_AB2/Ngrid2;
+    n2 = B_AB2 - n1*Ngrid2;
+
+    if (n1<min_n1) min_n1 = n1;
+    if (max_n1<n1) max_n1 = n1;
+    if (n2<min_n2) min_n2 = n2;
+    if (max_n2<n2) max_n2 = n2;
+  }
+
+  Min_Grid_Index_D[1] = min_n1 - 2;
+  Max_Grid_Index_D[1] = max_n1 + 2;
+  Min_Grid_Index_D[2] = min_n2 - 2;
+  Max_Grid_Index_D[2] = max_n2 + 2;
+  Min_Grid_Index_D[3] = -2;
+  Max_Grid_Index_D[3] = (Ngrid3-1) + 2;
+
+  /****************************************************************
+      The partitions A to B
+
+      construct the data structure for transfering rho_i from 
+      the partitions A to B when rho is calculated 
+      in the partition B using rho_i 
+  ****************************************************************/
+
+  /* find Num_Snd_Grid_A2B[ID] */
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_A2B[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
 
   for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
     Gc_AN = M2G[Mc_AN];
     wan  = WhatSpecies[Gc_AN];
-    rcut = Spe_Atom_Cut1[wan] + 0.5;
 
-    Cxyz[1] = Gxyz[Gc_AN][1] + rcut*v[1] - Grid_Origin[1];
-    Cxyz[2] = Gxyz[Gc_AN][2] + rcut*v[2] - Grid_Origin[2];
-    Cxyz[3] = Gxyz[Gc_AN][3] + rcut*v[3] - Grid_Origin[3];
+    for (AN=0; AN<GridN_Atom[Gc_AN]; AN++){
 
-    Vec0 = Dot_Product(Cxyz,rgtv[1])*0.5/PI;
+      GN = GridListAtom[Mc_AN][AN];
 
-    Cxyz[1] = Gxyz[Gc_AN][1] - rcut*v[1] - Grid_Origin[1];
-    Cxyz[2] = Gxyz[Gc_AN][2] - rcut*v[2] - Grid_Origin[2];
-    Cxyz[3] = Gxyz[Gc_AN][3] - rcut*v[3] - Grid_Origin[3];
+      /* get process ID and increment Num_Snd_Grid_A2B */
 
-    Vec1 = Dot_Product(Cxyz,rgtv[1])*0.5/PI;
-
-    if (Vec0<MinV) MinV = Vec0;
-    if (Vec1<MinV) MinV = Vec1;
-    if (MaxV<Vec0) MaxV = Vec0;   
-    if (MaxV<Vec1) MaxV = Vec1;
-  }
-
-  MinC = (int)MinV - 3;  /* buffer for GGA */
-  MaxC = (int)MaxV + 3;  /* buffer for GGA */
-
-
-  /*
-  printf("MinC=%2d MaxC=%2d\n",MinC,MaxC);
-  */
-
-  /******************************************************
-    set cells of a-axis overlapping to atoms in ID
-  ******************************************************/
-
-  if (alloc_first[15]==0){
-    free(My_Cell0);
-    free(Cell_ID0); 
-    free(edge_block);
-  }
-  My_Cell0 = (int*)malloc(sizeof(int)*Ngrid1);
-  Cell_ID0 = (int*)malloc(sizeof(int)*Ngrid1);
-  edge_block = (int*)malloc(sizeof(int)*Ngrid1);
-  alloc_first[15] = 0;
-
-  for (i=0; i<Ngrid1; i++){
-    edge_block[i] =  0;
-    My_Cell0[i]   = -1;
-  }
-
-  num = -1;
-  for (i=MinC; i<=MaxC; i++){
-    if (0<=i) j = i%Ngrid1;
-    else      j = (Ngrid1 + i%Ngrid1)%Ngrid1;
-
-    if (My_Cell0[j]==-1){
-      num++;
-      My_Cell0[j] = num;
+      GN2N(GN,N3);
+      n2D = N3[1]*Ngrid2 + N3[2];
+      ID = n2D*numprocs/N2D;
+      Num_Snd_Grid_A2B[ID]++;
     }
-  }
+  }    
 
-  Num_Cells0 = num + 1;
+  /* MPI: Num_Snd_Grid_A2B */  
 
-  /*
-  for (i=0; i<Ngrid1; i++){
-    printf("i=%3d  My_Cell0=%3d\n",i,My_Cell0[i]);
-  }
-  exit(0);
-  */
-
-  /******************************************************
-                      set edge_block
-  ******************************************************/
-
-  for (i=0; i<Ngrid1; i++){
-
-    gn[0] = i - 2;
-    gn[1] = i - 1;
-    gn[2] = i + 1;
-    gn[3] = i + 2;
- 
-    po = 0;
-    for (j=0; j<=3; j++){
-      if (0<=gn[j]) gn[j] = gn[j]%Ngrid1;
-      else          gn[j] = (Ngrid1 + gn[j]%Ngrid1)%Ngrid1;
-      if (My_Cell0[ gn[j] ]==-1) po = 1; 
-    }
-
-    if ( po==1 ) edge_block[i] = 1;
-  }
-
-  /******************************************************
-       set cells on a-axis overlapping to atoms in ID
-  ******************************************************/
-
-  if (alloc_first[14]==0){
-    free(My_Cell1);
-  }
-  My_Cell1 = (int*)malloc(sizeof(int)*Num_Cells0);
-  alloc_first[14] = 0;
-
-  for (i=0; i<Ngrid1; i++){
-    if (My_Cell0[i]!=-1) My_Cell1[My_Cell0[i]] = i;
-  }
-
-  My_NumGrid1 = Num_Cells0*Ngrid2*Ngrid3;
-
-  /******************************************************
-   ******************************************************
-              set informations of grids for
-               solving Poisson's equation 
-   ******************************************************
-  ******************************************************/
-
-  /* Start_Grid1 and End_Grid1 
-     Start_Grid2 and End_Grid2 */
-
-  avg_Ngrid1 = (double)Ngrid1/(double)numprocs;  
-  avg_Ngrid2 = (double)Ngrid2/(double)numprocs;  
-
-  for (ID=0; ID<numprocs; ID++){
-
-    if (ID==0){
-       Start_Grid1[ID] = 0;
-       Start_Grid2[ID] = 0;
-    }
-    else{ 
-       Start_Grid1[ID] = End_Grid1[ID-1] + 1;
-       Start_Grid2[ID] = End_Grid2[ID-1] + 1;
-    }
-
-    End_Grid1[ID] = (int)floor(avg_Ngrid1*(double)(ID+1)-0.01);
-    End_Grid2[ID] = (int)floor(avg_Ngrid2*(double)(ID+1)-0.01);
-  
-    if (ID==(numprocs-1)){
-      End_Grid1[ID] = Ngrid1 - 1;
-      End_Grid2[ID] = Ngrid2 - 1;
-    }
-  }
-
-  My_NGrid1_Poisson = End_Grid1[myid] - Start_Grid1[myid] + 1;
-  My_NGrid2_Poisson = End_Grid2[myid] - Start_Grid2[myid] + 1;
-
-  /* Cell_ID0 */
- 
-  for (i=0; i<Ngrid1; i++){
-    Cell_ID0[i] = -1;
-  }
-
-  Geta = 1000000;
-  for (i=0; i<Num_Cells0; i++){
-    j = My_Cell1[i];
-    if (edge_block[j]==0){
-      if (Start_Grid1[myid]<=j && j<=End_Grid1[myid])
-        Cell_ID0[j] = myid + Geta;   
-      else         
-        Cell_ID0[j] = myid;   
-    }
-  }
-
-  Cell_IDtmp = (int*)malloc(sizeof(int)*Ngrid1);
-  for (i=0; i<Ngrid1; i++){
-    MPI_Reduce(&Cell_ID0[i], &Cell_IDtmp[i], 1, MPI_INT, MPI_MAX, Host_ID, mpi_comm_level1);
-
-    if (myid==Host_ID){
-      if (Geta<=Cell_IDtmp[i])
-        Cell_ID0[i] = Cell_IDtmp[i] - Geta;  
-      else
-        Cell_ID0[i] = Cell_IDtmp[i];
-    }
-  }
-  free(Cell_IDtmp);
-
-  MPI_Bcast(&Cell_ID0[0], Ngrid1, MPI_INT, Host_ID, mpi_comm_level1);
-
-  /* informations for sending and recieving */
-
-  /************************************
-  allocation of arrays
-
-  Num_Rcv_Grid1[numprocs]
-  Num_Snd_Grid1[numprocs]
-  Rcv_Grid1[numprocs][Num_Rcv_Grid1[ID]]
-  Snd_Grid1[numprocs][Num_Rcv_Grid1[ID]]
-  ************************************/
-
-  if (alloc_first[16]==0){
-
-    free(Num_Rcv_Grid1);
-    free(Num_Snd_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(Rcv_Grid1[ID]);
-    }
-    free(Rcv_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(Snd_Grid1[ID]);
-    }
-    free(Snd_Grid1);
-  }
-
-  Num_Rcv_Grid1 = (int*)malloc(sizeof(int)*numprocs);
-  Num_Snd_Grid1 = (int*)malloc(sizeof(int)*numprocs);
-
-  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid1[ID] = 0;
-  for (i=Start_Grid1[myid]; i<=End_Grid1[myid]; i++){
-    if (Cell_ID0[i]!=myid && Cell_ID0[i]!=-1){
-      ID = Cell_ID0[i];
-      Num_Rcv_Grid1[ID]++;
-    }
-  }
-  
-  /* allocation of Rcv_Grid1 */
-  Rcv_Grid1 = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    Rcv_Grid1[ID] = (int*)malloc(sizeof(int)*Num_Rcv_Grid1[ID]);
-  }
-
-  /* Rcv_Grid1 */   
-  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid1[ID] = 0;
-  for (i=Start_Grid1[myid]; i<=End_Grid1[myid]; i++){
-    if (Cell_ID0[i]!=myid && Cell_ID0[i]!=-1){
-      ID = Cell_ID0[i];
-      Rcv_Grid1[ID][Num_Rcv_Grid1[ID]] = i;
-      Num_Rcv_Grid1[ID]++;
-    }    
-  }
-
-  /* MPI, Num_Rcv_Grid1 */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Num_Rcv_Grid1[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Num_Snd_Grid1[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-    else{
-      Num_Snd_Grid1[IDR] = 0;
-    }     
-  }
-
-  /* allocation of Snd_Grid1 */
-  Snd_Grid1 = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    Snd_Grid1[ID] = (int*)malloc(sizeof(int)*Num_Snd_Grid1[ID]);
-  }
-  alloc_first[16] = 0;
-
-  /* MPI, Rcv_Grid1 */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Rcv_Grid1[IDS][0], Num_Rcv_Grid1[IDS], MPI_INT, IDS, tag,
-                mpi_comm_level1, &request);
-      MPI_Recv(&Snd_Grid1[IDR][0], Num_Snd_Grid1[IDR], MPI_INT, IDR, tag,
-               mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-  }
-
-  /******************************************************
-   ******************************************************
-             set informations for converting
-           from Poisson's grid to atom's grid
-   ******************************************************
-  ******************************************************/
-
-  /*******************************************
-   allocation of arrays
-
-   Num_IRcv_Grid1[numprocs]
-   Num_ISnd_Grid1[numprocs]
-   IRcv_Grid1[numprocs][Num_IRcv_Grid1[ID]]
-   ISnd_Grid1[numprocs][Num_IRcv_Grid1[ID]]
-  ********************************************/
-
-  if (alloc_first[17]==0){
-    free(Num_IRcv_Grid1);
-    free(Num_ISnd_Grid1);
-    for (ID=0; ID<numprocs; ID++){
-      free(IRcv_Grid1[ID]);
-    }
-    free(IRcv_Grid1);
-
-    for (ID=0; ID<numprocs; ID++){
-      free(ISnd_Grid1[ID]);
-    }
-    free(ISnd_Grid1);
-  }
-
-  /* allocation of Num_IRcv_Grid1 and Num_ISnd_Grid1 */ 
-  Num_IRcv_Grid1 = (int*)malloc(sizeof(int)*numprocs);
-  Num_ISnd_Grid1 = (int*)malloc(sizeof(int)*numprocs);
-
-  /* Cell_IDtmp */
-  Cell_IDtmp = (int*)malloc(sizeof(int)*Ngrid1);
-  for (ID=0; ID<numprocs; ID++){
-    for (n1=Start_Grid1[ID]; n1<=End_Grid1[ID]; n1++){
-      Cell_IDtmp[n1] = ID;
-    }  
-  }
-
-  /* Num_IRcv_Grid1 */
-  for (ID=0; ID<numprocs; ID++) Num_IRcv_Grid1[ID] = 0;
-  for (i=0; i<Num_Cells0; i++){
-    n1 = My_Cell1[i];
-    ID = Cell_IDtmp[n1];
-    if (ID!=myid) Num_IRcv_Grid1[ID]++;
-  }
-
-  /* allocation of IRcv_Grid1 */
-  IRcv_Grid1 = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    IRcv_Grid1[ID] = (int*)malloc(sizeof(int)*Num_IRcv_Grid1[ID]);
-  }
-
-  /* IRcv_Grid1 */   
-  for (ID=0; ID<numprocs; ID++) Num_IRcv_Grid1[ID] = 0;
-  for (i=0; i<Num_Cells0; i++){
-    n1 = My_Cell1[i];
-    ID = Cell_IDtmp[n1];
-    if (ID!=myid){
-      IRcv_Grid1[ID][Num_IRcv_Grid1[ID]] = n1;
-      Num_IRcv_Grid1[ID]++;
-    }
-  }
-
-  /* MPI, Num_IRcv_Grid1 */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Num_IRcv_Grid1[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Num_ISnd_Grid1[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-    else{
-      Num_ISnd_Grid1[IDR] = 0;
-    }
-  }
-
-  /* allocation of ISnd_Grid1 */
-  ISnd_Grid1 = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    ISnd_Grid1[ID] = (int*)malloc(sizeof(int)*Num_ISnd_Grid1[ID]);
-  }
-  alloc_first[17] = 0;
-
-  /* MPI, IRcv_Grid1 */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&IRcv_Grid1[IDS][0], Num_IRcv_Grid1[IDS], MPI_INT, IDS, tag,
-                mpi_comm_level1, &request);
-      MPI_Recv(&ISnd_Grid1[IDR][0], Num_ISnd_Grid1[IDR], MPI_INT, IDR, tag,
-               mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-  }
-
-  /* free */
-  free(Cell_IDtmp);
-
-  /******************************************************
-              search FNAN2 atoms (not FNAN)
-      which are used to calculate electron densities 
-  ******************************************************/
-
-  exist_switch = (int*)malloc(sizeof(int)*(atomnum+1));
-
-  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-    exist_switch[Gc_AN] = 0;
-  }
-
-  for (Mc_AN=1; Mc_AN<=(Matomnum+MatomnumF); Mc_AN++){
-    Gc_AN = F_M2G[Mc_AN];
-    exist_switch[Gc_AN] = 1;
-  }
-
-  a_unit = sqrt(Dot_Product( gtv[1], gtv[1] ));
-
-  num = 0;
-  for (cell=-CpyCell; cell<=CpyCell; cell++){
-    for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-
-      if (exist_switch[Gc_AN]==0){
-        wan = WhatSpecies[Gc_AN];
-        rcut = Spe_Atom_Cut1[wan]/a_unit;
-        atom_pos = (double)Ngrid1*(Cell_Gxyz[Gc_AN][1] + (double)cell);
-
-        if (   (MinC<=atom_pos && atom_pos<=MaxC)
-            ||
-               (atom_pos<MinC && MinC<=(atom_pos+rcut))
-            ||
-               ((atom_pos-rcut)<=MaxC && MaxC<atom_pos)
-           ){
-            num++; 
-            exist_switch[Gc_AN] = -1;
-        }
-
-      }
-    }
-  } 
-
-  FNAN2 = num;
-
-  natn2 = (int*)malloc(sizeof(int)*FNAN2);
-  num = -1;  
-  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
-    if (exist_switch[Gc_AN]<0){
-      num++;
-      natn2[num] = Gc_AN;
-    } 
-  }  
-
-  free(exist_switch);
-
-  /****************************************************
-             data for sending and receiving
-  ****************************************************/
-
-  /* allocation of Num_Rcv_FNAN2 and  Num_Snd_FNAN2 */
-  Num_Rcv_FNAN2 = (int*)malloc(sizeof(int)*numprocs);
-  Num_Snd_FNAN2 = (int*)malloc(sizeof(int)*numprocs);
-
-  /* count Num_Rcv_FNAN2 */
-  for (ID=0; ID<numprocs; ID++) Num_Rcv_FNAN2[ID] = 0;
-  for (i=0; i<FNAN2; i++){
-    Gc_AN = natn2[i];
-    ID = G2ID[Gc_AN];
-    Num_Rcv_FNAN2[ID]++; 
-  }
-
-  /* allocation of Rcv_FNAN2 */
-  Rcv_FNAN2 = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    Rcv_FNAN2[ID] = (int*)malloc(sizeof(int)*Num_Rcv_FNAN2[ID]);
-  }  
-
-  /* set Rcv_FNAN2 */
-  for (ID=0; ID<numprocs; ID++) Num_Rcv_FNAN2[ID] = 0;
-  for (i=0; i<FNAN2; i++){
-    Gc_AN = natn2[i];
-    ID = G2ID[Gc_AN];
-    Rcv_FNAN2[ID][Num_Rcv_FNAN2[ID]] = Gc_AN;
-    Num_Rcv_FNAN2[ID]++; 
-  }
-
-  /* reset natn2 */
-  num = 0;
-  for (ID=0; ID<numprocs; ID++){
-    if (Num_Rcv_FNAN2[ID]!=0){
-      for (i=0; i<Num_Rcv_FNAN2[ID]; i++){
-        natn2[num] = Rcv_FNAN2[ID][i];
-        num++;
-      }
-    }
-  }
-
-  /* set TopMAN2 */
-  TopMAN2 = (int*)malloc(sizeof(int)*numprocs);
-  num = 0;
-  for (ID=0; ID<numprocs; ID++){
-    if (Num_Rcv_FNAN2[ID]!=0){
-      TopMAN2[ID] = num;
-      num += Num_Rcv_FNAN2[ID];
-    }
-  }
-
-  /* MPI, Num_Rcv_FNAN2 */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Num_Rcv_FNAN2[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Num_Snd_FNAN2[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-    else{
-      Num_Snd_FNAN2[IDR] = 0;
-    }     
-  }
-
-  /* allocation of Snd_FNAN2 */
-  Snd_FNAN2 = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    Snd_FNAN2[ID] = (int*)malloc(sizeof(int)*Num_Snd_FNAN2[ID]);
-  }  
-
-  /* MPI, Rcv_FNAN2 to Snd_FNAN2 */
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Rcv_FNAN2[IDS][0], Num_Rcv_FNAN2[IDS], MPI_INT,
-                IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Snd_FNAN2[IDR][0], Num_Snd_FNAN2[IDR], MPI_INT,
-                IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-  }
-
-  /**********************************
-    allocation of arrays: 
-
-    GLAtom
-    GLCell
-  **********************************/
-
-  GLAtom = (int**)malloc(sizeof(int*)*FNAN2);
-  for (i=0; i<FNAN2; i++){
-    Gc_AN = natn2[i];
-    GLAtom[i] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
-  }
-
-  GLCell = (int**)malloc(sizeof(int*)*FNAN2);
-  for (i=0; i<FNAN2; i++){
-    Gc_AN = natn2[i];
-    GLCell[i] = (int*)malloc(sizeof(int)*GridN_Atom[Gc_AN]);
-  }
-
-  /* MPI, GLAtom and GLCell */
-
-  for (ID=0; ID<numprocs; ID++){
-
-    IDS = (myid + ID) % numprocs;
-    IDR = (myid - ID + numprocs) % numprocs;
-
-    if (ID!=0){
-      tag = 999;
-
-      /****************************
-                 GLAtom
-      ****************************/
-
-      /* Sending of data to IDS */
-      if (Num_Snd_FNAN2[IDS]!=0){
-
-        for (i=0; i<Num_Snd_FNAN2[IDS]; i++){
-          Gc_AN = Snd_FNAN2[IDS][i];
-          Mc_AN = F_G2M[Gc_AN];
-          MPI_Isend(&GridListAtom[Mc_AN][0], GridN_Atom[Gc_AN], MPI_INT,
-                    IDS, tag, mpi_comm_level1, &request);
-	}
-      }
-
-      /* Receiving of data from IDR */
-      if (Num_Rcv_FNAN2[IDR]!=0){
-
-        for (i=0; i<Num_Rcv_FNAN2[IDR]; i++){
-          Gc_AN = Rcv_FNAN2[IDR][i];
-          Mc_AN = TopMAN2[IDR] + i;
-          MPI_Recv(&GLAtom[Mc_AN][0], GridN_Atom[Gc_AN], MPI_INT,
-                   IDR, tag, mpi_comm_level1, &stat);
-	} 
-      }
-
-      if (Num_Snd_FNAN2[IDS]!=0) MPI_Wait(&request,&stat);
-
-      /****************************
-                 GLCell
-      ****************************/
-
-      /* Sending of data to IDS */
-      if (Num_Snd_FNAN2[IDS]!=0){
-
-        for (i=0; i<Num_Snd_FNAN2[IDS]; i++){
-          Gc_AN = Snd_FNAN2[IDS][i];
-          Mc_AN = F_G2M[Gc_AN];
-          MPI_Isend(&CellListAtom[Mc_AN][0], GridN_Atom[Gc_AN], MPI_INT,
-                    IDS, tag, mpi_comm_level1, &request);
-	}
-      }
-
-      /* Receiving of data from IDR */
-      if (Num_Rcv_FNAN2[IDR]!=0){
-
-        for (i=0; i<Num_Rcv_FNAN2[IDR]; i++){
-          Gc_AN = Rcv_FNAN2[IDR][i];
-          Mc_AN = TopMAN2[IDR] + i;
-          MPI_Recv(&GLCell[Mc_AN][0], GridN_Atom[Gc_AN], MPI_INT,
-                   IDR, tag, mpi_comm_level1, &stat);
-	} 
-      }
-
-      if (Num_Snd_FNAN2[IDS]!=0) MPI_Wait(&request,&stat);
-
-    } 
-  }
-
-  /*****************************************************************
-   use the following variables when data comunicatios
-   in terms of FNAN2
-
-   Num_Rcv_FNAN2_Grid
-   Num_Snd_FNAN2_Grid
-   Snd_FNAN2_At
-   Snd_FNAN2_Nc
-   Rcv_FNAN2_GA
-   Rcv_FNAN2_MN
-   Rcv_FNAN2_GRc
-   FNAN2_Grid
-   TopMAN2_Grid
-  *****************************************************************/
-
-  if (alloc_first[18]==0){
-    free(Num_Rcv_FNAN2_Grid);
-    free(Num_Snd_FNAN2_Grid);
-  }
-
-  Num_Rcv_FNAN2_Grid = (int*)malloc(sizeof(int)*numprocs);
-  Num_Snd_FNAN2_Grid = (int*)malloc(sizeof(int)*numprocs);
-
-  for (ID=0; ID<numprocs; ID++) Num_Rcv_FNAN2_Grid[ID] = 0;
-
-  FNAN2_Grid = 0;
-  for (ID=0; ID<numprocs; ID++){
-    if (ID!=myid){
-      if (Num_Rcv_FNAN2[ID]!=0){
-        for (i=0; i<Num_Rcv_FNAN2[ID]; i++){
-          Gc_AN = Rcv_FNAN2[ID][i];
-          Mc_AN = TopMAN2[ID] + i;
-          for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
-            GNc = GLAtom[Mc_AN][Nc];
-            GN2N(GNc,N3);
-            n1 = N3[1];  
-            n2 = N3[2];  
-            n3 = N3[3];  
-            nn1 = My_Cell0[n1];
-            if (nn1!=-1){
-              Num_Rcv_FNAN2_Grid[ID]++; 
-              FNAN2_Grid++;
-	    }
-	  }
-	}
-      }
-    }
-  }
-
-  /**********************************************
-   allocation of local arrays
-
-   Rcv_FNAN2_At, Rcv_FNAN2_Nc, and Rcv_FNAN2_MN
-  **********************************************/
-
-  if (alloc_first[18]==0){
-    free(TopMAN2_Grid);
-    free(Rcv_FNAN2_MN);
-    free(Rcv_FNAN2_GA);
-    free(Rcv_FNAN2_GRc);
-  }
-
-  Rcv_FNAN2_MN = (int*)malloc(sizeof(int)*FNAN2_Grid);
-  Rcv_FNAN2_GA = (int*)malloc(sizeof(int)*FNAN2_Grid);
-  Rcv_FNAN2_GRc = (int*)malloc(sizeof(int)*FNAN2_Grid);
-
-  Rcv_FNAN2_At = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    Rcv_FNAN2_At[ID] = (int*)malloc(sizeof(int)*Num_Rcv_FNAN2_Grid[ID]);
-  }
-  Rcv_FNAN2_Nc = (int**)malloc(sizeof(int*)*numprocs);
-  for (ID=0; ID<numprocs; ID++){
-    Rcv_FNAN2_Nc[ID] = (int*)malloc(sizeof(int)*Num_Rcv_FNAN2_Grid[ID]);
-  }
-
-  /* set TopMAN2_Grid */
-  TopMAN2_Grid = (int*)malloc(sizeof(int)*numprocs);
-  num = 0;
-  for (ID=0; ID<numprocs; ID++){
-    if (Num_Rcv_FNAN2_Grid[ID]!=0){
-      TopMAN2_Grid[ID] = num;
-      num += Num_Rcv_FNAN2_Grid[ID];
-    }
-  }
-
-  for (ID=0; ID<numprocs; ID++) Num_Rcv_FNAN2_Grid[ID] = 0;
-  FNAN2_Grid = 0;
-
-  for (ID=0; ID<numprocs; ID++){
-
-    if (ID!=myid){
-      if (Num_Rcv_FNAN2[ID]!=0){
-
-        for (i=0; i<Num_Rcv_FNAN2[ID]; i++){
-
-          Gc_AN = Rcv_FNAN2[ID][i];
-          Mc_AN = TopMAN2[ID] + i;
-
-          for (Nc=0; Nc<GridN_Atom[Gc_AN]; Nc++){
-
-            GNc = GLAtom[Mc_AN][Nc];
-            GN2N(GNc,N3);
-            n1 = N3[1];  
-            n2 = N3[2];  
-            n3 = N3[3];  
-            nn1 = My_Cell0[n1];
-
-            if (nn1!=-1){
-
-              N = nn1*Ngrid2*Ngrid3 + n2*Ngrid3 + n3;
-
-              Rcv_FNAN2_At[ID][Num_Rcv_FNAN2_Grid[ID]] = Gc_AN;
-              Rcv_FNAN2_Nc[ID][Num_Rcv_FNAN2_Grid[ID]] = Nc;
-              Rcv_FNAN2_MN[FNAN2_Grid] = N;
-              Rcv_FNAN2_GA[FNAN2_Grid] = Gc_AN;
-
-              /* for NEGF */
-              Rcv_FNAN2_GRc[FNAN2_Grid] = GLCell[Mc_AN][Nc];
-
-              Num_Rcv_FNAN2_Grid[ID]++; 
-              FNAN2_Grid++;
-	    }
-	  }
-	}
-      }
-    }
-  }
-
-  /* MPI, Num_Rcv_FNAN2_Grid */
   for (ID=0; ID<numprocs; ID++){
 
     IDS = (myid + ID) % numprocs;
     IDR = (myid - ID + numprocs) % numprocs;
 
     tag = 999;
-    if (ID!=0){
-      MPI_Isend(&Num_Rcv_FNAN2_Grid[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Num_Snd_FNAN2_Grid[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
-    }
-    else{
-      Num_Snd_FNAN2_Grid[IDR] = 0;
-    }     
+    MPI_Isend(&Num_Snd_Grid_A2B[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    MPI_Recv(&Num_Rcv_Grid_A2B[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    MPI_Wait(&request,&stat);
   }
 
-  /* allocation of Snd_FNAN2_At */
+  /* allocation of arrays */  
 
-  if (alloc_first[18]==0){
+  if (alloc_first[26]==0){
+
     for (ID=0; ID<numprocs; ID++){
-      free(Snd_FNAN2_At[ID]);
+      free(Index_Snd_Grid_A2B[ID]);
     }  
-    free(Snd_FNAN2_At);
+    free(Index_Snd_Grid_A2B);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_A2B[ID]);
+    }  
+    free(Index_Rcv_Grid_A2B);
   }
 
-  Snd_FNAN2_At = (int**)malloc(sizeof(int*)*numprocs);
+  size_Index_Snd_Grid_A2B = 0;
+  Index_Snd_Grid_A2B = (int**)malloc(sizeof(int*)*numprocs);
   for (ID=0; ID<numprocs; ID++){
-    Snd_FNAN2_At[ID] = (int*)malloc(sizeof(int)*Num_Snd_FNAN2_Grid[ID]);
+    Index_Snd_Grid_A2B[ID] = (int*)malloc(sizeof(int)*3*Num_Snd_Grid_A2B[ID]);
+    size_Index_Snd_Grid_A2B += 3*Num_Snd_Grid_A2B[ID];
+  }  
+  
+  size_Index_Rcv_Grid_A2B = 0; 
+  Index_Rcv_Grid_A2B = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Rcv_Grid_A2B[ID] = (int*)malloc(sizeof(int)*3*Num_Rcv_Grid_A2B[ID]);
+    size_Index_Rcv_Grid_A2B += 3*Num_Rcv_Grid_A2B[ID]; 
   }  
 
-  /* allocation of Snd_FNAN2_Nc */
+  alloc_first[26] = 0;
 
-  if (alloc_first[18]==0){
+  /* construct Index_Snd_Grid_A2B */  
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_A2B[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+
+    Gc_AN = M2G[Mc_AN];
+    wan  = WhatSpecies[Gc_AN];
+
+    for (AN=0; AN<GridN_Atom[Gc_AN]; AN++){
+
+      GN = GridListAtom[Mc_AN][AN];
+      GR = CellListAtom[Mc_AN][AN];
+
+      /* get process ID and grid index (BN) for the partition B */
+
+      GN2N(GN,N3);
+      n2D = N3[1]*Ngrid2 + N3[2];
+      ID = n2D*numprocs/N2D;
+      GN_B_AB = N3[1]*Ngrid2*Ngrid3 + N3[2]*Ngrid3 + N3[3];
+      BN = GN_B_AB - ((ID*N2D+numprocs-1)/numprocs)*Ngrid3;
+
+      /*
+      printf("ABC1 myid=%2d ID=%2d\n",myid,ID);
+      */
+
+      Index_Snd_Grid_A2B[ID][3*Num_Snd_Grid_A2B[ID]+0] = BN; 
+      Index_Snd_Grid_A2B[ID][3*Num_Snd_Grid_A2B[ID]+1] = Gc_AN; 
+      Index_Snd_Grid_A2B[ID][3*Num_Snd_Grid_A2B[ID]+2] = GR; 
+
+      Num_Snd_Grid_A2B[ID]++;
+    }
+  }    
+
+  /* MPI: Index_Snd_Grid_A2B */
+      
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+   
+    if (Num_Snd_Grid_A2B[IDS]!=0){
+      MPI_Isend( &Index_Snd_Grid_A2B[IDS][0], 3*Num_Snd_Grid_A2B[IDS], 
+                 MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Rcv_Grid_A2B[IDR]!=0){
+      MPI_Recv( &Index_Rcv_Grid_A2B[IDR][0], 3*Num_Rcv_Grid_A2B[IDR], 
+                MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    }
+
+    if (Num_Snd_Grid_A2B[IDS]!=0)  MPI_Wait(&request,&stat);
+  }
+
+  /* count NN_A2B_S and NN_A2B_R */
+  
+  NN_A2B_S = 0;
+  NN_A2B_R = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+    if (Num_Snd_Grid_A2B[ID]!=0) NN_A2B_S++;
+    if (Num_Rcv_Grid_A2B[ID]!=0) NN_A2B_R++;
+  }
+
+  /****************************************************************
+      The partitions B to C
+
+      construct the data structure for transfering rho from 
+      the partitions B to C when rho is constructed in the 
+      partition C using rho stored in the partition B.
+  ****************************************************************/
+
+  /* find Num_Rcv_Grid_B2C[ID] */
+
+  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid_B2C[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
+
+  for (n1=Min_Grid_Index[1]; n1<=Max_Grid_Index[1]; n1++){
+    for (n2=Min_Grid_Index[2]; n2<=Max_Grid_Index[2]; n2++){
+      for (n3=Min_Grid_Index[3]; n3<=Max_Grid_Index[3]; n3++){
+
+         Find_CGrids(0,n1,n2,n3,Cxyz,N3);
+         n2D = N3[1]*Ngrid2 + N3[2];
+         ID = n2D*numprocs/N2D;
+         Num_Rcv_Grid_B2C[ID]++;
+      }
+    }
+  }
+
+  /* MPI: Num_Rcv_Grid_B2C */  
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+    MPI_Isend(&Num_Rcv_Grid_B2C[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    MPI_Recv(&Num_Snd_Grid_B2C[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    MPI_Wait(&request,&stat);
+  }
+
+  /* find Max_Num_Snd_Grid_B2C and Max_Num_Rcv_Grid_B2C */
+
+  Max_Num_Snd_Grid_B2C = 0;
+  Max_Num_Rcv_Grid_B2C = 0;
+  for (ID=0; ID<numprocs; ID++){
+    if ( Max_Num_Snd_Grid_B2C<Num_Snd_Grid_B2C[ID] ) Max_Num_Snd_Grid_B2C = Num_Snd_Grid_B2C[ID];
+    if ( Max_Num_Rcv_Grid_B2C<Num_Rcv_Grid_B2C[ID] ) Max_Num_Rcv_Grid_B2C = Num_Rcv_Grid_B2C[ID];
+  }
+
+  /* allocation of arrays */  
+
+  if (alloc_first[27]==0){
     for (ID=0; ID<numprocs; ID++){
-      free(Snd_FNAN2_Nc[ID]);
+      free(Index_Snd_Grid_B2C[ID]);
     }  
-    free(Snd_FNAN2_Nc);
+    free(Index_Snd_Grid_B2C);
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B2C[ID]);
+    }  
+    free(Index_Rcv_Grid_B2C);
+
+    free(ID_NN_B2C_S);
+    free(ID_NN_B2C_R);
+    free(GP_B2C_S);
+    free(GP_B2C_R);
   }
 
-  Snd_FNAN2_Nc = (int**)malloc(sizeof(int*)*numprocs);
+  size_Index_Snd_Grid_B2C = 0;
+  Index_Snd_Grid_B2C = (int**)malloc(sizeof(int*)*numprocs);
   for (ID=0; ID<numprocs; ID++){
-    Snd_FNAN2_Nc[ID] = (int*)malloc(sizeof(int)*Num_Snd_FNAN2_Grid[ID]);
+    Index_Snd_Grid_B2C[ID] = (int*)malloc(sizeof(int)*Num_Snd_Grid_B2C[ID]);
+    size_Index_Snd_Grid_B2C += Num_Snd_Grid_B2C[ID];
+  }  
+
+  size_Index_Rcv_Grid_B2C = 0;  
+  Index_Rcv_Grid_B2C = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Rcv_Grid_B2C[ID] = (int*)malloc(sizeof(int)*Num_Rcv_Grid_B2C[ID]);
+    size_Index_Rcv_Grid_B2C += Num_Rcv_Grid_B2C[ID];
+  }  
+    
+  alloc_first[27] = 0;
+
+  /* construct Index_Rcv_Grid_B2C
+     first BN is stored to Index_Rcv_Grid_B2C.  
+     and after MPI communication, CN is stored 
+     to Index_Rcv_Grid_B2C.  
+     Also note that Index_Snd_Grid_B2C stores BN
+  */
+
+  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid_B2C[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
+
+  for (n1=Min_Grid_Index[1]; n1<=Max_Grid_Index[1]; n1++){
+    for (n2=Min_Grid_Index[2]; n2<=Max_Grid_Index[2]; n2++){
+      for (n3=Min_Grid_Index[3]; n3<=Max_Grid_Index[3]; n3++){
+
+         Find_CGrids(0,n1,n2,n3,Cxyz,N3);
+         n2D = N3[1]*Ngrid2 + N3[2];
+         ID = n2D*numprocs/N2D;
+         GN = N3[1]*Ngrid2*Ngrid3 + N3[2]*Ngrid3 + N3[3];
+         BN = GN - ((ID*N2D+numprocs-1)/numprocs)*Ngrid3;
+         Index_Rcv_Grid_B2C[ID][Num_Rcv_Grid_B2C[ID]] = BN; 
+         Num_Rcv_Grid_B2C[ID]++;
+      }
+    }
   }
 
-  /* MPI, Rcv_FNAN2_At to Snd_FNAN2_At */
+  /* MPI: Index_Rcv_Grid_B2C */
+
   for (ID=0; ID<numprocs; ID++){
 
     IDS = (myid + ID) % numprocs;
     IDR = (myid - ID + numprocs) % numprocs;
 
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Rcv_FNAN2_At[IDS][0], Num_Rcv_FNAN2_Grid[IDS], MPI_INT,
-                IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Snd_FNAN2_At[IDR][0], Num_Snd_FNAN2_Grid[IDR], MPI_INT,
-                IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
+    tag = 999;
+
+    if (Num_Rcv_Grid_B2C[IDS]!=0){
+      MPI_Isend( &Index_Rcv_Grid_B2C[IDS][0], Num_Rcv_Grid_B2C[IDS],
+                 MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Snd_Grid_B2C[IDR]!=0){ 
+      MPI_Recv( &Index_Snd_Grid_B2C[IDR][0], Num_Snd_Grid_B2C[IDR], 
+                MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    }
+
+    if (Num_Rcv_Grid_B2C[IDS]!=0)  MPI_Wait(&request,&stat);
+  }
+
+  /* reconstruct Index_Rcv_Grid_B2C
+     Index_Rcv_Grid_B2C stores CN.
+  */
+
+  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid_B2C[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
+  CN = 0;
+  for (n1=Min_Grid_Index[1]; n1<=Max_Grid_Index[1]; n1++){
+    for (n2=Min_Grid_Index[2]; n2<=Max_Grid_Index[2]; n2++){
+      for (n3=Min_Grid_Index[3]; n3<=Max_Grid_Index[3]; n3++){
+
+         Find_CGrids(0,n1,n2,n3,Cxyz,N3);
+         n2D = N3[1]*Ngrid2 + N3[2];
+         ID = n2D*numprocs/N2D;
+         Index_Rcv_Grid_B2C[ID][Num_Rcv_Grid_B2C[ID]] = CN; 
+         Num_Rcv_Grid_B2C[ID]++;
+
+         CN++;
+      }
     }
   }
 
-  /* MPI, Rcv_FNAN2_Nc to Snd_FNAN2_Nc */
+  /* find NN_B2C_S and NN_B2C_R
+     and set ID_NN_B2C_S
+             ID_NN_B2C_R
+             GP_B2C_S
+             GP_B2C_R 
+  */ 
+
+  NN_B2C_S = 0;
+  NN_B2C_R = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+    if (Num_Snd_Grid_B2C[IDS]!=0) NN_B2C_S++;
+    if (Num_Rcv_Grid_B2C[IDR]!=0) NN_B2C_R++;
+  }
+
+  ID_NN_B2C_S = (int*)malloc(sizeof(int)*NN_B2C_S);
+  ID_NN_B2C_R = (int*)malloc(sizeof(int)*NN_B2C_R);
+  GP_B2C_S = (int*)malloc(sizeof(int)*(NN_B2C_S+1));
+  GP_B2C_R = (int*)malloc(sizeof(int)*(NN_B2C_R+1));
+
+  NN_B2C_S = 0;
+  NN_B2C_R = 0;
+  GP_B2C_S[0] = 0;
+  GP_B2C_R[0] = 0;
+
   for (ID=0; ID<numprocs; ID++){
 
     IDS = (myid + ID) % numprocs;
     IDR = (myid - ID + numprocs) % numprocs;
 
-    if (ID!=0){
-      tag = 999;
-      MPI_Isend(&Rcv_FNAN2_Nc[IDS][0], Num_Rcv_FNAN2_Grid[IDS], MPI_INT,
-                IDS, tag, mpi_comm_level1, &request);
-      MPI_Recv( &Snd_FNAN2_Nc[IDR][0], Num_Snd_FNAN2_Grid[IDR], MPI_INT,
-                IDR, tag, mpi_comm_level1, &stat);
-      MPI_Wait(&request,&stat);
+    if (Num_Snd_Grid_B2C[IDS]!=0){
+      ID_NN_B2C_S[NN_B2C_S] = IDS;
+      NN_B2C_S++;
+      GP_B2C_S[NN_B2C_S] = GP_B2C_S[NN_B2C_S-1] + Num_Snd_Grid_B2C[IDS];
+    }
+
+    if (Num_Rcv_Grid_B2C[IDR]!=0){
+      ID_NN_B2C_R[NN_B2C_R] = IDR;
+      NN_B2C_R++;
+      GP_B2C_R[NN_B2C_R] = GP_B2C_R[NN_B2C_R-1] + Num_Rcv_Grid_B2C[IDR];
     }
   }
 
-  /* alloc_first[18] = 0; */
-  alloc_first[18] = 0;
+  /* set the number of grids allocated to the partitions B and C for myid */
 
-  /* free */
+  N2D = Ngrid1*Ngrid2;
+  My_NumGridB_AB =  (((myid+1)*N2D+numprocs-1)/numprocs)*Ngrid3
+                  - ((myid*N2D+numprocs-1)/numprocs)*Ngrid3;
+  My_NumGridC = CN;
 
-  free(natn2);
+  /****************************************************************
+      The partitions B to D
+
+      construct the data structure for transfering rho from 
+      the partitions B to D for the case that rho is constructed
+      in the partition D using rho stored in the partition B.
+  ****************************************************************/
+
+  /* find Num_Rcv_Grid_B2D[ID] */
+
+  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid_B2D[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
+
+  for (n1=Min_Grid_Index_D[1]; n1<=Max_Grid_Index_D[1]; n1++){
+    for (n2=Min_Grid_Index_D[2]; n2<=Max_Grid_Index_D[2]; n2++){
+      for (n3=Min_Grid_Index_D[3]; n3<=Max_Grid_Index_D[3]; n3++){
+
+         Find_CGrids(0,n1,n2,n3,Cxyz,N3);
+         n2D = N3[1]*Ngrid2 + N3[2];
+         ID = n2D*numprocs/N2D;
+         Num_Rcv_Grid_B2D[ID]++;
+      }
+    }
+  }
+
+  /* MPI: Num_Rcv_Grid_B2D */  
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+    MPI_Isend(&Num_Rcv_Grid_B2D[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    MPI_Recv(&Num_Snd_Grid_B2D[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    MPI_Wait(&request,&stat);
+  }
+
+  /* find Max_Num_Snd_Grid_B2D and Max_Num_Rcv_Grid_B2D */
+
+  Max_Num_Snd_Grid_B2D = 0;
+  Max_Num_Rcv_Grid_B2D = 0;
+  for (ID=0; ID<numprocs; ID++){
+    if ( Max_Num_Snd_Grid_B2D<Num_Snd_Grid_B2D[ID] ) Max_Num_Snd_Grid_B2D = Num_Snd_Grid_B2D[ID];
+    if ( Max_Num_Rcv_Grid_B2D<Num_Rcv_Grid_B2D[ID] ) Max_Num_Rcv_Grid_B2D = Num_Rcv_Grid_B2D[ID];
+  }
+
+  /* allocation of arrays */  
+
+  if (alloc_first[30]==0){
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B2D[ID]);
+    }  
+    free(Index_Snd_Grid_B2D);
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B2D[ID]);
+    }  
+    free(Index_Rcv_Grid_B2D);
+
+    free(ID_NN_B2D_S);
+    free(ID_NN_B2D_R);
+    free(GP_B2D_S);
+    free(GP_B2D_R);
+  }
+
+  size_Index_Snd_Grid_B2D = 0;
+  Index_Snd_Grid_B2D = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Snd_Grid_B2D[ID] = (int*)malloc(sizeof(int)*Num_Snd_Grid_B2D[ID]);
+    size_Index_Snd_Grid_B2D += Num_Snd_Grid_B2D[ID];
+  }  
+
+  size_Index_Rcv_Grid_B2D = 0;  
+  Index_Rcv_Grid_B2D = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Rcv_Grid_B2D[ID] = (int*)malloc(sizeof(int)*Num_Rcv_Grid_B2D[ID]);
+    size_Index_Rcv_Grid_B2D += Num_Rcv_Grid_B2D[ID];
+  }  
+    
+  alloc_first[30] = 0;
+
+  /* construct Index_Rcv_Grid_B2D
+     first BN is stored to Index_Rcv_Grid_B2D.  
+     and after MPI communication, DN is stored 
+     to Index_Rcv_Grid_B2D.  
+     Also note that Index_Snd_Grid_B2D stores BN
+  */
+
+  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid_B2D[ID] = 0;
+  
+  N2D = Ngrid1*Ngrid2;
+  
+  for (n1=Min_Grid_Index_D[1]; n1<=Max_Grid_Index_D[1]; n1++){
+    for (n2=Min_Grid_Index_D[2]; n2<=Max_Grid_Index_D[2]; n2++){
+      for (n3=Min_Grid_Index_D[3]; n3<=Max_Grid_Index_D[3]; n3++){
+  
+         Find_CGrids(0,n1,n2,n3,Cxyz,N3);
+         n2D = N3[1]*Ngrid2 + N3[2];
+         ID = n2D*numprocs/N2D;
+         GN = N3[1]*Ngrid2*Ngrid3 + N3[2]*Ngrid3 + N3[3];
+         BN = GN - ((ID*N2D+numprocs-1)/numprocs)*Ngrid3;
+         Index_Rcv_Grid_B2D[ID][Num_Rcv_Grid_B2D[ID]] = BN; 
+         Num_Rcv_Grid_B2D[ID]++;
+      }
+    }
+  }
+
+  /* MPI: Index_Rcv_Grid_B2D */
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+
+    if (Num_Rcv_Grid_B2D[IDS]!=0){
+      MPI_Isend( &Index_Rcv_Grid_B2D[IDS][0], Num_Rcv_Grid_B2D[IDS],
+                 MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Snd_Grid_B2D[IDR]!=0){ 
+      MPI_Recv( &Index_Snd_Grid_B2D[IDR][0], Num_Snd_Grid_B2D[IDR], 
+                MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    }
+
+    if (Num_Rcv_Grid_B2D[IDS]!=0)  MPI_Wait(&request,&stat);
+  }
+
+  /* reconstruct Index_Rcv_Grid_B2D
+     Index_Rcv_Grid_B2D stores DN.
+  */
+
+  for (ID=0; ID<numprocs; ID++) Num_Rcv_Grid_B2D[ID] = 0;
+
+  N2D = Ngrid1*Ngrid2;
+  DN = 0;
+  for (n1=Min_Grid_Index_D[1]; n1<=Max_Grid_Index_D[1]; n1++){
+    for (n2=Min_Grid_Index_D[2]; n2<=Max_Grid_Index_D[2]; n2++){
+      for (n3=Min_Grid_Index_D[3]; n3<=Max_Grid_Index_D[3]; n3++){
+
+         Find_CGrids(0,n1,n2,n3,Cxyz,N3);
+         n2D = N3[1]*Ngrid2 + N3[2];
+         ID = n2D*numprocs/N2D;
+         Index_Rcv_Grid_B2D[ID][Num_Rcv_Grid_B2D[ID]] = DN; 
+         Num_Rcv_Grid_B2D[ID]++;
+
+         DN++;
+      }
+    }
+  }
+
+  /* find NN_B2C_S and NN_B2C_R
+     and set ID_NN_B2C_S
+             ID_NN_B2C_R
+             GP_B2C_S
+             GP_B2C_R 
+  */ 
+
+  NN_B2D_S = 0;
+  NN_B2D_R = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+    if (Num_Snd_Grid_B2D[IDS]!=0) NN_B2D_S++;
+    if (Num_Rcv_Grid_B2D[IDR]!=0) NN_B2D_R++;
+  }
+
+  ID_NN_B2D_S = (int*)malloc(sizeof(int)*NN_B2D_S);
+  ID_NN_B2D_R = (int*)malloc(sizeof(int)*NN_B2D_R);
+  GP_B2D_S = (int*)malloc(sizeof(int)*(NN_B2D_S+1));
+  GP_B2D_R = (int*)malloc(sizeof(int)*(NN_B2D_R+1));
+
+  NN_B2D_S = 0;
+  NN_B2D_R = 0;
+  GP_B2D_S[0] = 0;
+  GP_B2D_R[0] = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (Num_Snd_Grid_B2D[IDS]!=0){
+      ID_NN_B2D_S[NN_B2D_S] = IDS;
+      NN_B2D_S++;
+      GP_B2D_S[NN_B2D_S] = GP_B2D_S[NN_B2D_S-1] + Num_Snd_Grid_B2D[IDS];
+    }
+
+    if (Num_Rcv_Grid_B2D[IDR]!=0){
+      ID_NN_B2D_R[NN_B2D_R] = IDR;
+      NN_B2D_R++;
+      GP_B2D_R[NN_B2D_R] = GP_B2D_R[NN_B2D_R-1] + Num_Rcv_Grid_B2D[IDR];
+    }
+  }
+
+  /* set the number of grids allocated to the D for myid */
+
+  My_NumGridD = DN;
+
+  /****************************************************************
+      AB to CA in the partition B for MPI communication in FFT 
+  ****************************************************************/
+
+  /* set GNs */
+
+  N2D = Ngrid1*Ngrid2;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid3;
+
+  /* find Num_Snd_Grid_B_AB2CA */
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_B_AB2CA[ID] = 0;
+
+  N2D = Ngrid3*Ngrid1; /* for CA */
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+
+    GN_AB = BN_AB + GNs;
+
+    n1 = GN_AB/(Ngrid2*Ngrid3);
+    n2 = (GN_AB - n1*(Ngrid2*Ngrid3))/Ngrid3;
+    n3 = GN_AB - n1*(Ngrid2*Ngrid3) - n2*Ngrid3;
+    n2D = n3*Ngrid1 + n1;
+    ID = n2D*numprocs/N2D;
+    Num_Snd_Grid_B_AB2CA[ID]++;
+  }
+
+  /* MPI: Num_Snd_Grid_B_AB2CA */  
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+    MPI_Isend(&Num_Snd_Grid_B_AB2CA[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    MPI_Recv(&Num_Rcv_Grid_B_AB2CA[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    MPI_Wait(&request,&stat);
+  }
+
+  /* allocation of arrays */  
+
+  if (alloc_first[28]==0){
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B_AB2CA[ID]);
+    }  
+    free(Index_Snd_Grid_B_AB2CA);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B_AB2CA[ID]);
+    }  
+    free(Index_Rcv_Grid_B_AB2CA);
+
+    free(ID_NN_B_AB2CA_S);
+    free(ID_NN_B_AB2CA_R);
+    free(GP_B_AB2CA_S);
+    free(GP_B_AB2CA_R);
+  }
+
+  size_Index_Snd_Grid_B_AB2CA = 0;
+  Index_Snd_Grid_B_AB2CA = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Snd_Grid_B_AB2CA[ID] = (int*)malloc(sizeof(int)*Num_Snd_Grid_B_AB2CA[ID]);
+    size_Index_Snd_Grid_B_AB2CA += Num_Snd_Grid_B_AB2CA[ID];
+  }  
+  
+  size_Index_Rcv_Grid_B_AB2CA = 0; 
+  Index_Rcv_Grid_B_AB2CA = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Rcv_Grid_B_AB2CA[ID] = (int*)malloc(sizeof(int)*Num_Rcv_Grid_B_AB2CA[ID]);
+    size_Index_Rcv_Grid_B_AB2CA += Num_Rcv_Grid_B_AB2CA[ID]; 
+  }  
+
+  alloc_first[28] = 0;
+
+  /* construct Index_Snd_Grid_B_AB2CA */  
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_B_AB2CA[ID] = 0;
+
+  N2D = Ngrid3*Ngrid1;  /* for CA */
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+
+    GN_AB = BN_AB + GNs;
+
+    n1 = GN_AB/(Ngrid2*Ngrid3);
+    n2 = (GN_AB - n1*(Ngrid2*Ngrid3))/Ngrid3;
+    n3 = GN_AB - n1*(Ngrid2*Ngrid3) - n2*Ngrid3;
+    n2D = n3*Ngrid1 + n1;
+    ID = n2D*numprocs/N2D;
+    GN_CA = n3*Ngrid1*Ngrid2 + n1*Ngrid2 + n2;
+    BN_CA = GN_CA - ((ID*N2D+numprocs-1)/numprocs)*Ngrid2;
+    Index_Snd_Grid_B_AB2CA[ID][Num_Snd_Grid_B_AB2CA[ID]] = BN_CA;
+    Num_Snd_Grid_B_AB2CA[ID]++;
+  }
+
+  /* MPI: Index_Snd_Grid_B_AB2CA */
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+   
+    if (Num_Snd_Grid_B_AB2CA[IDS]!=0){
+      MPI_Isend( &Index_Snd_Grid_B_AB2CA[IDS][0], Num_Snd_Grid_B_AB2CA[IDS], 
+		 MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Rcv_Grid_B_AB2CA[IDR]!=0){
+      MPI_Recv( &Index_Rcv_Grid_B_AB2CA[IDR][0], Num_Rcv_Grid_B_AB2CA[IDR], 
+		MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    }
+
+    if (Num_Snd_Grid_B_AB2CA[IDS]!=0)  MPI_Wait(&request,&stat);
+  }
+
+  /* reset: Index_Snd_Grid_B_AB2CA
+
+  Index_Snd_Grid_B_AB2CA:  BN_AB
+  Index_Rcv_Grid_B_AB2CA:  BN_CA
+  */
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_B_AB2CA[ID] = 0;
+
+  N2D = Ngrid3*Ngrid1; /* for CA */
+
+  for (BN_AB=0; BN_AB<My_NumGridB_AB; BN_AB++){
+
+    GN_AB = BN_AB + GNs;
+    n1 = GN_AB/(Ngrid2*Ngrid3);
+    n2 = (GN_AB - n1*(Ngrid2*Ngrid3))/Ngrid3;
+    n3 = GN_AB - n1*(Ngrid2*Ngrid3) - n2*Ngrid3;
+    n2D = n3*Ngrid1 + n1;
+    ID = n2D*numprocs/N2D;
+    Index_Snd_Grid_B_AB2CA[ID][Num_Snd_Grid_B_AB2CA[ID]] = BN_AB;
+    Num_Snd_Grid_B_AB2CA[ID]++;
+  }
+
+  /* find the maximum Num_Snd_Grid_B_AB2CA and Num_Rcv_Grid_B_AB2CA */
+
+  Max_Num_Snd_Grid_B_AB2CA = 0;
+  Max_Num_Rcv_Grid_B_AB2CA = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+    if (Max_Num_Snd_Grid_B_AB2CA<Num_Snd_Grid_B_AB2CA[ID]){ 
+      Max_Num_Snd_Grid_B_AB2CA = Num_Snd_Grid_B_AB2CA[ID];
+    }
+
+    if (Max_Num_Rcv_Grid_B_AB2CA<Num_Rcv_Grid_B_AB2CA[ID]){ 
+      Max_Num_Rcv_Grid_B_AB2CA = Num_Rcv_Grid_B_AB2CA[ID];
+    }
+  }
+
+  /* find NN_B_AB2CA_S and NN_B_AB2CA_R 
+     and set ID_NN_B_AB2CA_S, 
+             ID_NN_B_AB2CA_R,
+             GP_B_AB2CA_S,
+             GP_B_AB2CA_R
+  */
+
+  NN_B_AB2CA_S = 0;
+  NN_B_AB2CA_R = 0;
  
-  for (i=0; i<FNAN2; i++){
-    free(GLAtom[i]);
+  for (ID=0; ID<numprocs; ID++){
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+    if (Num_Snd_Grid_B_AB2CA[IDS]!=0) NN_B_AB2CA_S++;
+    if (Num_Rcv_Grid_B_AB2CA[IDR]!=0) NN_B_AB2CA_R++;
   }
-  free(GLAtom);
 
-  for (i=0; i<FNAN2; i++){
-    free(GLCell[i]);
+  ID_NN_B_AB2CA_S = (int*)malloc(sizeof(int)*NN_B_AB2CA_S);
+  ID_NN_B_AB2CA_R = (int*)malloc(sizeof(int)*NN_B_AB2CA_R);
+  GP_B_AB2CA_S = (int*)malloc(sizeof(int)*(NN_B_AB2CA_S+1));
+  GP_B_AB2CA_R = (int*)malloc(sizeof(int)*(NN_B_AB2CA_R+1));
+
+  NN_B_AB2CA_S = 0;
+  NN_B_AB2CA_R = 0;
+  GP_B_AB2CA_S[0] = 0;
+  GP_B_AB2CA_R[0] = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (Num_Snd_Grid_B_AB2CA[IDS]!=0){
+      ID_NN_B_AB2CA_S[NN_B_AB2CA_S] = IDS;
+      NN_B_AB2CA_S++;
+      GP_B_AB2CA_S[NN_B_AB2CA_S] = GP_B_AB2CA_S[NN_B_AB2CA_S-1] + Num_Snd_Grid_B_AB2CA[IDS];
+    }
+
+    if (Num_Rcv_Grid_B_AB2CA[IDR]!=0){
+      ID_NN_B_AB2CA_R[NN_B_AB2CA_R] = IDR;
+      NN_B_AB2CA_R++;
+      GP_B_AB2CA_R[NN_B_AB2CA_R] = GP_B_AB2CA_R[NN_B_AB2CA_R-1] + Num_Rcv_Grid_B_AB2CA[IDR];
+    }
   }
-  free(GLCell);
 
-  free(Num_Rcv_FNAN2);
-  free(Num_Snd_FNAN2);
+  /* set My_NumGridB_CA */
 
-  for (ID=0; ID<numprocs; ID++){
-    free(Rcv_FNAN2[ID]);
-  }  
-  free(Rcv_FNAN2);
+  N2D = Ngrid3*Ngrid1;
+  My_NumGridB_CA = (((myid+1)*N2D+numprocs-1)/numprocs)*Ngrid2
+                  - ((myid*N2D+numprocs-1)/numprocs)*Ngrid2;
 
-  for (ID=0; ID<numprocs; ID++){
-    free(Snd_FNAN2[ID]);
-  }  
-  free(Snd_FNAN2);
+  /****************************************************************
+      CA to CB in the partition B for MPI communication in FFT 
+  ****************************************************************/
 
-  free(TopMAN2);
+  /* set GNs */
 
-  for (ID=0; ID<numprocs; ID++){
-    free(Rcv_FNAN2_Nc[ID]);
+  N2D = Ngrid3*Ngrid1;
+  GNs = ((myid*N2D+numprocs-1)/numprocs)*Ngrid2;
+
+  /* find Num_Snd_Grid_B_CA2CB */
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_B_CA2CB[ID] = 0;
+
+  N2D = Ngrid3*Ngrid2; /* for CB */
+
+  for (BN_CA=0; BN_CA<My_NumGridB_CA; BN_CA++){
+
+    GN_CA = GNs + BN_CA;    
+    n3 = GN_CA/(Ngrid1*Ngrid2);
+    n1 = (GN_CA - n3*(Ngrid1*Ngrid2))/Ngrid2;
+    n2 = GN_CA - n3*(Ngrid1*Ngrid2) - n1*Ngrid2;
+    n2D = n3*Ngrid2 + n2;
+    ID = n2D*numprocs/N2D;
+    Num_Snd_Grid_B_CA2CB[ID]++;
   }
-  free(Rcv_FNAN2_Nc);
+
+  /* MPI: Num_Snd_Grid_B_CA2CB */  
 
   for (ID=0; ID<numprocs; ID++){
-    free(Rcv_FNAN2_At[ID]);
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+    MPI_Isend(&Num_Snd_Grid_B_CA2CB[IDS], 1, MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    MPI_Recv(&Num_Rcv_Grid_B_CA2CB[IDR], 1, MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    MPI_Wait(&request,&stat);
+  }
+
+  /* allocation of arrays */  
+
+  if (alloc_first[29]==0){
+
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Snd_Grid_B_CA2CB[ID]);
+    }  
+    free(Index_Snd_Grid_B_CA2CB);
+  
+    for (ID=0; ID<numprocs; ID++){
+      free(Index_Rcv_Grid_B_CA2CB[ID]);
+    }  
+    free(Index_Rcv_Grid_B_CA2CB);
+
+    free(ID_NN_B_CA2CB_S);
+    free(ID_NN_B_CA2CB_R);
+    free(GP_B_CA2CB_S);
+    free(GP_B_CA2CB_R);
+  }
+
+  size_Index_Snd_Grid_B_CA2CB = 0;
+  Index_Snd_Grid_B_CA2CB = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Snd_Grid_B_CA2CB[ID] = (int*)malloc(sizeof(int)*Num_Snd_Grid_B_CA2CB[ID]);
+    size_Index_Snd_Grid_B_CA2CB += Num_Snd_Grid_B_CA2CB[ID];
   }  
-  free(Rcv_FNAN2_At);
+  
+  size_Index_Rcv_Grid_B_CA2CB = 0; 
+  Index_Rcv_Grid_B_CA2CB = (int**)malloc(sizeof(int*)*numprocs);
+  for (ID=0; ID<numprocs; ID++){
+    Index_Rcv_Grid_B_CA2CB[ID] = (int*)malloc(sizeof(int)*Num_Rcv_Grid_B_CA2CB[ID]);
+    size_Index_Rcv_Grid_B_CA2CB += Num_Rcv_Grid_B_CA2CB[ID]; 
+  }  
+
+  alloc_first[29] = 0;
+
+  /* construct Index_Snd_Grid_B_CA2CB */  
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_B_CA2CB[ID] = 0;
+
+  N2D = Ngrid3*Ngrid2; /* for CB */
+
+  for (BN_CA=0; BN_CA<My_NumGridB_CA; BN_CA++){
+
+    GN_CA = GNs + BN_CA;    
+    n3 = GN_CA/(Ngrid1*Ngrid2);
+    n1 = (GN_CA - n3*(Ngrid1*Ngrid2))/Ngrid2;
+    n2 = GN_CA - n3*(Ngrid1*Ngrid2) - n1*Ngrid2;
+    n2D = n3*Ngrid2 + n2;
+    ID = n2D*numprocs/N2D;
+    GN_CB = n3*Ngrid2*Ngrid1 + n2*Ngrid1 + n1;
+    BN_CB = GN_CB - ((ID*N2D+numprocs-1)/numprocs)*Ngrid1;
+    Index_Snd_Grid_B_CA2CB[ID][Num_Snd_Grid_B_CA2CB[ID]] = BN_CB;
+    Num_Snd_Grid_B_CA2CB[ID]++;
+  }
+
+  /* MPI: Index_Snd_Grid_B_CA2CB */
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    tag = 999;
+   
+    if (Num_Snd_Grid_B_CA2CB[IDS]!=0){
+      MPI_Isend( &Index_Snd_Grid_B_CA2CB[IDS][0], Num_Snd_Grid_B_CA2CB[IDS], 
+                 MPI_INT, IDS, tag, mpi_comm_level1, &request);
+    }
+
+    if (Num_Rcv_Grid_B_CA2CB[IDR]!=0){
+      MPI_Recv( &Index_Rcv_Grid_B_CA2CB[IDR][0], Num_Rcv_Grid_B_CA2CB[IDR], 
+                MPI_INT, IDR, tag, mpi_comm_level1, &stat);
+    }
+
+    if (Num_Snd_Grid_B_CA2CB[IDS]!=0)  MPI_Wait(&request,&stat);
+  }
+
+  /* reset: Index_Snd_Grid_B_CA2CB
+
+     Index_Snd_Grid_B_CB2CA:  BN_CA
+     Index_Rcv_Grid_B_CB2CA:  BN_CB
+  */
+
+  for (ID=0; ID<numprocs; ID++) Num_Snd_Grid_B_CA2CB[ID] = 0;
+
+  N2D = Ngrid3*Ngrid2; /* for CB */
+
+  for (BN_CA=0; BN_CA<My_NumGridB_CA; BN_CA++){
+
+    GN_CA = GNs + BN_CA;    
+    n3 = GN_CA/(Ngrid1*Ngrid2);
+    n1 = (GN_CA - n3*(Ngrid1*Ngrid2))/Ngrid2;
+    n2 = GN_CA - n3*(Ngrid1*Ngrid2) - n1*Ngrid2;
+    n2D = n3*Ngrid2 + n2;
+    ID = n2D*numprocs/N2D;
+    Index_Snd_Grid_B_CA2CB[ID][Num_Snd_Grid_B_CA2CB[ID]] = BN_CA;
+    Num_Snd_Grid_B_CA2CB[ID]++;
+  }
+
+  /* find the maximum Num_Snd_Grid_B_CA2CB and Num_Rcv_Grid_B_CA2CB */
+
+  Max_Num_Snd_Grid_B_CA2CB = 0;
+  Max_Num_Rcv_Grid_B_CA2CB = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+    if (Max_Num_Snd_Grid_B_CA2CB<Num_Snd_Grid_B_CA2CB[ID]){ 
+      Max_Num_Snd_Grid_B_CA2CB = Num_Snd_Grid_B_CA2CB[ID];
+    }
+
+    if (Max_Num_Rcv_Grid_B_CA2CB<Num_Rcv_Grid_B_CA2CB[ID]){ 
+      Max_Num_Rcv_Grid_B_CA2CB = Num_Rcv_Grid_B_CA2CB[ID];
+    }
+  }
+
+  /* find NN_B_CA2CB_S and NN_B_CA2CB_R 
+     and set ID_NN_B_CA2CB_S, 
+             ID_NN_B_CA2CB_R,
+             GP_B_CA2CB_S,
+             GP_B_CA2CB_R
+  */
+
+  NN_B_CA2CB_S = 0;
+  NN_B_CA2CB_R = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+    if (Num_Snd_Grid_B_CA2CB[IDS]!=0) NN_B_CA2CB_S++;
+    if (Num_Rcv_Grid_B_CA2CB[IDR]!=0) NN_B_CA2CB_R++;
+  }
+
+  ID_NN_B_CA2CB_S = (int*)malloc(sizeof(int)*NN_B_CA2CB_S);
+  ID_NN_B_CA2CB_R = (int*)malloc(sizeof(int)*NN_B_CA2CB_R);
+  GP_B_CA2CB_S = (int*)malloc(sizeof(int)*(NN_B_CA2CB_S+1));
+  GP_B_CA2CB_R = (int*)malloc(sizeof(int)*(NN_B_CA2CB_R+1));
+
+  NN_B_CA2CB_S = 0;
+  NN_B_CA2CB_R = 0;
+  GP_B_CA2CB_S[0] = 0;
+  GP_B_CA2CB_R[0] = 0;
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    if (Num_Snd_Grid_B_CA2CB[IDS]!=0){
+      ID_NN_B_CA2CB_S[NN_B_CA2CB_S] = IDS;
+      NN_B_CA2CB_S++;
+      GP_B_CA2CB_S[NN_B_CA2CB_S] = GP_B_CA2CB_S[NN_B_CA2CB_S-1] + Num_Snd_Grid_B_CA2CB[IDS];
+    }
+
+    if (Num_Rcv_Grid_B_CA2CB[IDR]!=0){
+      ID_NN_B_CA2CB_R[NN_B_CA2CB_R] = IDR;
+      NN_B_CA2CB_R++;
+      GP_B_CA2CB_R[NN_B_CA2CB_R] = GP_B_CA2CB_R[NN_B_CA2CB_R-1] + Num_Rcv_Grid_B_CA2CB[IDR];
+    }
+  }
+
+  /* set My_NumGridB_CB */
+
+  N2D = Ngrid3*Ngrid2;
+  My_NumGridB_CB = (((myid+1)*N2D+numprocs-1)/numprocs)*Ngrid1
+                  - ((myid*N2D+numprocs-1)/numprocs)*Ngrid1;
+
+  /* find My_Max_NumGridB */
+
+  My_Max_NumGridB = 0;
+  if (My_Max_NumGridB<My_NumGridB_AB) My_Max_NumGridB = My_NumGridB_AB;
+  if (My_Max_NumGridB<My_NumGridB_CA) My_Max_NumGridB = My_NumGridB_CA;
+  if (My_Max_NumGridB<My_NumGridB_CB) My_Max_NumGridB = My_NumGridB_CB;
+
+  /* PrintMemory */
+  if (firsttime){
+  PrintMemory("truncation: Index_Snd_Grid_A2B",     sizeof(int)*size_Index_Snd_Grid_A2B,  NULL);
+  PrintMemory("truncation: Index_Rcv_Grid_A2B",     sizeof(int)*size_Index_Rcv_Grid_A2B,  NULL);
+  PrintMemory("truncation: Index_Snd_Grid_B2C",     sizeof(int)*size_Index_Snd_Grid_B2C,  NULL);
+  PrintMemory("truncation: Index_Rcv_Grid_B2C",     sizeof(int)*size_Index_Rcv_Grid_B2C,  NULL);
+  PrintMemory("truncation: Index_Snd_Grid_B2D",     sizeof(int)*size_Index_Snd_Grid_B2D,  NULL);
+  PrintMemory("truncation: Index_Rcv_Grid_B2D",     sizeof(int)*size_Index_Rcv_Grid_B2D,  NULL);
+  PrintMemory("truncation: Index_Snd_Grid_B_AB2CA", sizeof(int)*size_Index_Snd_Grid_B_AB2CA, NULL);
+  PrintMemory("truncation: Index_Rcv_Grid_B_AB2CA", sizeof(int)*size_Index_Rcv_Grid_B_AB2CA, NULL);
+  PrintMemory("truncation: Index_Snd_Grid_B_CA2CB", sizeof(int)*size_Index_Snd_Grid_B_CA2CB, NULL);
+  PrintMemory("truncation: Index_Rcv_Grid_B_CA2CB", sizeof(int)*size_Index_Rcv_Grid_B_CA2CB, NULL);
+  PrintMemory("truncation: ID_NN_B_AB2CA_S", sizeof(int)*NN_B_AB2CA_S, NULL);
+  PrintMemory("truncation: ID_NN_B_AB2CA_R", sizeof(int)*NN_B_AB2CA_R, NULL);
+  PrintMemory("truncation: ID_NN_B_CA2CB_S", sizeof(int)*NN_B_CA2CB_S, NULL);
+  PrintMemory("truncation: ID_NN_B_CA2CB_R", sizeof(int)*NN_B_CA2CB_R, NULL);
+  PrintMemory("truncation: GP_B_AB2CA_S", sizeof(int)*(NN_B_AB2CA_S+1), NULL);
+  PrintMemory("truncation: GP_B_AB2CA_R", sizeof(int)*(NN_B_AB2CA_R+1), NULL);
+  PrintMemory("truncation: GP_B_CA2CB_S", sizeof(int)*(NN_B_CA2CB_S+1), NULL);
+  PrintMemory("truncation: GP_B_CA2CB_R", sizeof(int)*(NN_B_CA2CB_R+1), NULL);
+  firsttime = 0;
+  }
 }
 

@@ -63,7 +63,7 @@ double XC_Ceperly_Alder(double den, int P_switch)
     /*
     printf("Ex=%15.12f %15.12f\n",Ex,Ex-0.33333333333333333333*rs*dEx);
     */
-
+  
     if (P_switch==0)
       result = Ex + Ec;
     else if (P_switch==1)

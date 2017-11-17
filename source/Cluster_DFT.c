@@ -15,20 +15,11 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
+#include "mpi.h"
+#include <omp.h>
 
 #define  measure_time   0
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
 
 
 /*---------- added by TOYODA, 08/JAN/2010 */
@@ -155,7 +146,7 @@ static double Cluster_collinear(
   double time0,lumos,av_num;
   double *OneD_Mat1;
   double ***H;
-  double TZ,my_sum,sum,sumE,max_x=50.0;
+  double TZ,my_sum,sum,sumE,max_x=60.0;
   double sum0,sum1,sum2,sum3;
   double My_Eele1[2],tmp1,tmp2;
   double Num_State,x,FermiF,Dnum,Dnum2;
@@ -373,10 +364,34 @@ static double Cluster_collinear(
 
     bcast_flag = 1;
 
-    if (numprocs0<n)
+    /*
+    if(myid0==0){
+      printf("S before\n");
+      for(i=0;i<Size_Total_Matrix+2;i++){
+	for(j=0;j<Size_Total_Matrix+2;j++){
+	  printf("%2.1f ",S[i][j]);
+	  if(j==Size_Total_Matrix+1) printf("\n");
+	}
+      }
+    }
+    */
+
+    if (numprocs0<n && 1<numprocs0)
       Eigen_PReHH(mpi_comm_level1,S,ko[0],n,n,bcast_flag);
     else 
       Eigen_lapack(S,ko[0],n,n);
+
+    /*
+    if(myid0==0){
+      printf("S after\n");
+      for(i=0;i<Size_Total_Matrix+2;i++){
+	for(j=0;j<Size_Total_Matrix+2;j++){
+	  printf("%2.1f ",S[i][j]);
+	  if(j==Size_Total_Matrix+1) printf("\n");
+	}
+      }
+    }
+    */
 
     /* minus eigenvalues to 1.0e-14 */
 
@@ -655,10 +670,47 @@ static double Cluster_collinear(
 
   bcast_flag = 0;
 
-  if (numprocs1<n)
+  /*
+
+  printf("n=%d, MaxN=%d\n",n,MaxN);
+
+    if(myid0==0){
+      printf("C before\n");
+      for(i=0;i<Size_Total_Matrix+2;i++){
+	for(j=0;j<Size_Total_Matrix+2;j++){
+	  printf("%2.1f ",C[spin][i][j]);
+	  if(j==Size_Total_Matrix+1) printf("\n");
+	}
+      }
+    }
+  */
+
+
+  if (numprocs1<n && 1<numprocs1)
     Eigen_PReHH(MPI_CommWD1[myworld1],C[spin],ko[spin],n,MaxN,bcast_flag);
   else 
     Eigen_lapack(C[spin],ko[spin],n,n);
+
+  /*
+    if(myid0==0){
+      printf("C after\n");
+      for(i=0;i<Size_Total_Matrix+2;i++){
+	for(j=0;j<Size_Total_Matrix+2;j++){
+	  printf("%2.1f ",C[spin][i][j]);
+	  if(j==Size_Total_Matrix+1) printf("\n");
+	}
+      }
+    }
+
+
+  if(myid0==0){
+    printf("ko after eigen\n");
+    for(i=1;i<=MaxN;i++){
+      printf("%d %2.1f\n",i,ko[spin][i]);
+      }
+    }
+  */
+
 
   /*  The H matrix is distributed by row */
   for (i1=1; i1<=n; i1++){
@@ -934,7 +986,13 @@ static double Cluster_collinear(
 
       for (spin=0; spin<=SpinP_switch; spin++){
 	for (j=0; j<num_HOMOs; j++){
+
 	  j1 = Cluster_HOMO[spin] - j;
+
+          /* store eigenvalue */
+          HOMOs_Coef[0][spin][j][0][0].r = ko[spin][j1] ;
+
+          /* store eigenvector */
 	  for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
 	    wanA = WhatSpecies[GA_AN];
 	    tnoA = Spe_Total_CNO[wanA];
@@ -950,7 +1008,13 @@ static double Cluster_collinear(
    
       for (spin=0; spin<=SpinP_switch; spin++){
 	for (j=0; j<num_LUMOs; j++){
+
 	  j1 = Cluster_HOMO[spin] + 1 + j;
+
+          /* store eigenvalue */
+	  LUMOs_Coef[0][spin][j][0][0].r = ko[spin][j1];
+
+          /* store eigenvector */
 	  for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
 	    wanA = WhatSpecies[GA_AN];
 	    tnoA = Spe_Total_CNO[wanA];
@@ -1418,7 +1482,7 @@ static double Cluster_non_collinear(
   double sum_r01,sum_i01;
   double sum_r10,sum_i10;
   double sum_r11,sum_i11;
-  double TZ,my_sum,sum,sumE,max_x=50.0;
+  double TZ,my_sum,sum,sumE,max_x=60.0;
   double My_Eele1[2];
   double Num_State,x,FermiF,Dnum,Dnum2;
   double FermiF2,x2,diffF;
@@ -1582,7 +1646,7 @@ static double Cluster_non_collinear(
 
     bcast_flag = 1;
 
-    if (numprocs<n)
+    if (numprocs<n && 1<numprocs)
       Eigen_PReHH(mpi_comm_level1,S,ko,n,n,bcast_flag);
     else 
       Eigen_lapack(S,ko,n,n);
@@ -1868,10 +1932,10 @@ static double Cluster_non_collinear(
 
   bcast_flag = 0;
 
-  if (numprocs<n1)
+  if (numprocs<n1 && 1<numprocs)
     Eigen_PHH(mpi_comm_level1, C, ko, n1, MaxN, bcast_flag);
   else 
-    EigenBand_lapack(C, ko, n1, 1);
+    EigenBand_lapack(C, ko, n1, MaxN, 1);
 
   if (2<=level_stdout){
     for (i1=1; i1<=MaxN; i1++){
@@ -2048,7 +2112,14 @@ static double Cluster_non_collinear(
       /* HOMOs */
 
       for (j=0; j<num_HOMOs; j++){
+
 	j1 = Cluster_HOMO[0] - j;
+
+        /* store eigenvalue */
+        HOMOs_Coef[0][0][j][0][0].r = ko[j1];
+        HOMOs_Coef[0][1][j][0][0].r = ko[j1];
+
+        /* store eigenvector */
 	for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
 	  wanA = WhatSpecies[GA_AN];
 	  tnoA = Spe_Total_CNO[wanA];
@@ -2065,7 +2136,14 @@ static double Cluster_non_collinear(
       /* LUMOs */
 
       for (j=0; j<num_LUMOs; j++){
+
 	j1 = Cluster_HOMO[0] + 1 + j;
+
+        /* store eigenvalue */
+        LUMOs_Coef[0][0][j][0][0].r = ko[j1];
+        LUMOs_Coef[0][1][j][0][0].r = ko[j1];
+
+        /* store eigenvector */
 	for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
 	  wanA = WhatSpecies[GA_AN];
 	  tnoA = Spe_Total_CNO[wanA];
@@ -2177,36 +2255,36 @@ static double Cluster_non_collinear(
               
 		  /* Re11 */
 		  dum = FermiF*(C[k][Anum+i].r*C[k][Bnum+j].r
-				+ C[k][Anum+i].i*C[k][Bnum+j].i);
+			      + C[k][Anum+i].i*C[k][Bnum+j].i);
 		  CDM[0][MA_AN][LB_AN][i][j] += dum;
 		  EDM[0][MA_AN][LB_AN][i][j] += dum*ko[k];
 
 		  /* Re22 */
 		  dum = FermiF*(C[k][Anum+i+n].r*C[k][Bnum+j+n].r
-				+ C[k][Anum+i+n].i*C[k][Bnum+j+n].i);
+			      + C[k][Anum+i+n].i*C[k][Bnum+j+n].i);
 		  CDM[1][MA_AN][LB_AN][i][j] += dum;
 		  EDM[1][MA_AN][LB_AN][i][j] += dum*ko[k];
                
 		  /* Re12 */
 		  dum = FermiF*(C[k][Anum+i].r*C[k][Bnum+j+n].r
-				+ C[k][Anum+i].i*C[k][Bnum+j+n].i);
+			      + C[k][Anum+i].i*C[k][Bnum+j+n].i);
 		  CDM[2][MA_AN][LB_AN][i][j] += dum;
 		  EDM[2][MA_AN][LB_AN][i][j] += dum*ko[k];
               
 		  /* Im12 */
 		  dum = FermiF*(C[k][Anum+i].r*C[k][Bnum+j+n].i
-				-C[k][Anum+i].i*C[k][Bnum+j+n].r);
+			       -C[k][Anum+i].i*C[k][Bnum+j+n].r);
 		  CDM[3][MA_AN][LB_AN][i][j] += dum;
 		  EDM[3][MA_AN][LB_AN][i][j] += dum*ko[k];
 
 		  /* Im11 */
 		  dum = FermiF*(C[k][Anum+i].r*C[k][Bnum+j].i
-				-C[k][Anum+i].i*C[k][Bnum+j].r);
+			       -C[k][Anum+i].i*C[k][Bnum+j].r);
 		  iDM[0][0][MA_AN][LB_AN][i][j] += dum;
 
 		  /* Im22 */
 		  dum = FermiF*(C[k][Anum+i+n].r*C[k][Bnum+j+n].i
-				-C[k][Anum+i+n].i*C[k][Bnum+j+n].r);
+			       -C[k][Anum+i+n].i*C[k][Bnum+j+n].r);
 		  iDM[0][1][MA_AN][LB_AN][i][j] += dum;
 
                   /* partial density matrix for STM simulation */

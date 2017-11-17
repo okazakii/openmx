@@ -1,4 +1,3 @@
-
 /**********************************************************************
   Hamiltonian_Cluster.c:
 
@@ -15,12 +14,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 
 void Hamiltonian_Cluster(double ****RH, double **H, int *MP)

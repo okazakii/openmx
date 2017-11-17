@@ -3,12 +3,7 @@
 #include <math.h>
 #include <time.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 void outputfile1(int f_switch, int MD_iter, int orbitalOpt_iter,
                  int Cnt_Now, int SCF_iter, char fname[YOUSO10], 
@@ -19,7 +14,6 @@ void outputfile1(int f_switch, int MD_iter, int orbitalOpt_iter,
   char buf[fp_bsize];          /* setvbuf */
 
   /* MPI */
-  if (atomnum<=MYID_MPI_COMM_WORLD) return;
   MPI_Comm_rank(mpi_comm_level1,&myid);
 
   if (myid==Host_ID){

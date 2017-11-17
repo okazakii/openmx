@@ -23,12 +23,7 @@
 
 #include "openmx_common.h"
 #include "lapack_prototypes.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
 
 
 static void Eigen_DGGEVX( int n, double **a, double **s, double *eval,

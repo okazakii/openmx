@@ -2,12 +2,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 #define debug   0 /* ??? */ 
 #define debug1  0 /* for general verbose output */

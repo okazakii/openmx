@@ -2,7 +2,7 @@
   Cluster_DFT_ON2.c:
 
      Cluster_DFT_ON2.c is a subroutine to perform cluster calculations
-     with an O(N^2) method.
+     with an O(N^2~) method.
 
   Log of Cluster_DFT_ON2.c:
 
@@ -18,20 +18,11 @@
 #include <complex.h>
 #include "openmx_common.h"
 #include "lapack_prototypes.h"
+#include "mpi.h"
+#include <omp.h>
 
 #define  measure_time       0
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
 
 typedef struct {
    long int a;
@@ -502,7 +493,7 @@ static void Nested_Dissection(int free_flag, int Nmat, int *MP, int *Depth_Level
   } /* n */
 
   /*************************************************************
-   reorder Atom_Index_BC so that the order of the grobal index 
+   reorder Atom_Index_BC so that the order of the global index 
    can be equivalent in all the Atom_Index_BCs 
   *************************************************************/
 
@@ -879,7 +870,8 @@ static void Bisection_System(
 
     /*
     for (i=1; i<=Latomnum; i++){
-      printf("A1 k=%2d i=%2d Cell_Gxyz2=%15.12f OG2G=%2d G2OG=%2d\n",k,i,Cell_Gxyz2[k][i],OG2G[k][i],G2OG[k][i]);
+      printf("A1 k=%2d i=%2d Cell_Gxyz2=%15.12f OG2G=%2d G2OG=%2d\n",
+              k,i,Cell_Gxyz2[k][i],OG2G[k][i],G2OG[k][i]);
     }
     */
 
@@ -889,7 +881,8 @@ static void Bisection_System(
 
     /*
     for (i=1; i<=Latomnum; i++){
-      printf("A2 k=%2d i=%2d Cell_Gxyz2=%15.12f OG2G=%2d G2OG=%2d\n",k,i,Cell_Gxyz2[k][i],OG2G[k][i],G2OG[k][i]);
+      printf("A2 k=%2d i=%2d Cell_Gxyz2=%15.12f OG2G=%2d G2OG=%2d\n",
+              k,i,Cell_Gxyz2[k][i],OG2G[k][i],G2OG[k][i]);
     }
     */
 
@@ -1256,7 +1249,7 @@ static void OND_Solver(
   double stime1,etime1;
   double stime2,etime2;
   double complex alpha,weight;
-  double complex ctmp,ctmp2,ctmp3;
+  double complex ctmp,ctmp3;
   double av_num;
   int io,jo,jo_min,n;
   int m0,m1,m2,m3,m4,m5;
@@ -1266,7 +1259,7 @@ static void OND_Solver(
   int m,i1,i2,j2,i3,j3,nsa,nsc,nsc2,nsb;
   int max_nsc,max_nsb,max_nsa;
   dcomplex dcsum0,dcsum1,dcsum2,dcsum3,dcsum4;
-  double complex csum0,csum1,csum2,csum3,csum4,ctmp1;
+  double complex csum2,csum3,csum4;
   double time1a,time1a2,time1a1,time1a0,time1b,time1c,time1d;
   double time1,time2,time3,time4,time5,time6,time41,time42;
   double time31,time32,time33,time34;
@@ -1866,8 +1859,10 @@ static void OND_Solver(
 	  }
 	}
 
-#pragma omp parallel shared(myid2,is1,ie1,nsc,nsa,m4,n1,m3,Bnum,Bi,SindB,EindB,m,m0,IA,Bx,Vvec) private(OMPID,Nthrds,Nprocs,j,i,csum1,k,k1,k2,ctmp1)
+#pragma omp parallel shared(myid2,is1,ie1,nsc,nsa,m4,n1,m3,Bnum,Bi,SindB,EindB,m,m0,IA,Bx,Vvec) private(OMPID,Nthrds,Nprocs,j,i,k,k1,k2)
 	{
+
+	  double complex ctmp1,csum1;
 
 	  /* get info. on OpenMP */ 
 
@@ -1971,9 +1966,11 @@ static void OND_Solver(
                      calculation of Q 
           ***********************************/
 
-#pragma omp parallel shared(is1,ie1,myid2,nsr,Bnum,n1,n2,m1,mm,SindB,Bi,Bx,Vvec,IS,Q1,Q0,SindC,numop1) private(OMPID,Nthrds,Nprocs,j,i,csum1,k,k1,m5,l,m3,m4,numop0)
+#pragma omp parallel shared(is1,ie1,myid2,nsr,Bnum,n1,n2,m1,mm,SindB,Bi,Bx,Vvec,IS,Q1,Q0,SindC,numop1) private(OMPID,Nthrds,Nprocs,j,i,k,k1,m5,l,m3,m4,numop0)
 
           { 
+
+	    double complex csum1;
 
             numop0 = 0.0;
 
@@ -2054,9 +2051,11 @@ static void OND_Solver(
           dtime(&stime1);
 
 #pragma omp parallel shared(is1,ie1,myid2,EindB,SindB,n2,mm,nsr,Lvec,Q1,Vvec,SindC,numop1) \
- private(OMPID,Nthrds,Nprocs,j,i,i2,csum0,k,i1,numop0)
+ private(OMPID,Nthrds,Nprocs,j,i,i2,k,i1,numop0)
 
           { 
+
+	    double complex csum0;
 
             numop0 = 0.0;
 
@@ -2165,9 +2164,13 @@ static void OND_Solver(
 
       dtime(&stime1);
 
-#pragma omp parallel shared(is1,ie1,myid2,nsc,Bnum,n1,m,SindB,Bi,Bx,Vvec,ISTmp) private(OMPID,Nthrds,Nprocs,j,i,csum1,k,k1)
+#pragma omp parallel shared(is1,ie1,myid2,nsc,Bnum,n1,m,SindB,Bi,Bx,Vvec,ISTmp) private(OMPID,Nthrds,Nprocs,j,i,k,k1)
 
       { 
+
+	double complex csum1;
+
+ 
 	/* get info. on OpenMP */ 
 
 	OMPID = omp_get_thread_num();
@@ -2445,9 +2448,11 @@ static void OND_Solver(
 
 	  m3 = m2*m + m1;
 
-#pragma omp parallel shared(m2,m1,SindB,EindB,n2,m3,Row2ID,myid2,Anum,Ai,n1,m,EindC,SindC,Lvec,Vvec2,IAx) private(OMPID,Nthrds,Nprocs,k2,i,i2,j,j2,csum1,nsc2,k,ctmp2)
+#pragma omp parallel shared(m2,m1,SindB,EindB,n2,m3,Row2ID,myid2,Anum,Ai,n1,m,EindC,SindC,Lvec,Vvec2,IAx) private(OMPID,Nthrds,Nprocs,k2,i,i2,j,j2,nsc2,k)
 	  { 
 
+	    double complex csum1,ctmp2;
+         
   	    /* get info. on OpenMP */ 
 
   	    OMPID = omp_get_thread_num();
@@ -2567,8 +2572,10 @@ static void OND_Solver(
         dtime(&stime1);
 
 #pragma omp parallel shared(m2,n1,m,SindC,EindC,Row2ID,myid2,Bnum,Bi,SindB,Lvec,Vvec2,IBx) \
-                     private(OMPID,Nthrds,Nprocs,mp0,n2,m1,m3,k2,i,i2,j,j2,csum1,nsc2,k,ctmp1)
+                     private(OMPID,Nthrds,Nprocs,mp0,n2,m1,m3,k2,i,i2,j,j2,nsc2,k)
 	{ 
+
+	  double complex ctmp1,csum1;
 
 	  /* get info. on OpenMP */ 
 
@@ -2644,8 +2651,10 @@ static void OND_Solver(
         dtime(&stime1);
 
 #pragma omp parallel shared(m2,n1,m,SindC,EindC,Row2ID,myid2,Cnum,Ci,SindB,Lvec,Vvec2,ICx) \
-                     private(OMPID,Nthrds,Nprocs,mp0,n2,m1,m3,k2,i,i2,j,j2,csum1,nsc2,k,ctmp1)
+                     private(OMPID,Nthrds,Nprocs,mp0,n2,m1,m3,k2,i,i2,j,j2,nsc2,k)
 	{ 
+
+	  double complex ctmp1,csum1;
 
 	  /* get info. on OpenMP */ 
 
@@ -4617,26 +4626,6 @@ static double Find_Trial_ChemP_by_Muller(
       a2 = ((a23*a31-a21*a33)*z0 + (a11*a33-a13*a31)*z1 + (a13*a21-a11*a23)*z2)/det;
       a3 = ((a21*a32-a22*a31)*z0 + (a12*a31-a11*a32)*z1 + (a11*a22-a12*a21)*z2)/det;
 
-      /*
-      printf("PPP4 DeltaN[0] =%18.15f\n",DeltaN[0]);
-      printf("PPP4 DeltaN[1] =%18.15f\n",DeltaN[1]);
-      printf("PPP4 DeltaN[2] =%18.15f\n",DeltaN[2]);
-
-      printf("PPP4 DeltaMu[0] =%18.15f\n",DeltaMu[0]);
-      printf("PPP4 DeltaMu[1] =%18.15f\n",DeltaMu[1]);
-      printf("PPP4 DeltaMu[2] =%18.15f\n",DeltaMu[2]);
-
-      printf("PPP4 z0 =%18.15f\n",z0);
-      printf("PPP4 z1 =%18.15f\n",z1);
-      printf("PPP4 z2 =%18.15f\n",z2);
-
-      printf("PPP4 det=%18.15f\n",det);
-      printf("PPP4 a1 =%18.15f\n",a1);
-      printf("PPP4 a2 =%18.15f\n",a2);
-      printf("PPP4 a3 =%18.15f\n",a3);
-      printf("PPP4 y3 =%18.15f\n",y3);
-      */
-
       stepw = -a1*y3/(a2+a3*y3);
 
       flag_nan = 0;
@@ -4673,17 +4662,8 @@ static double Find_Trial_ChemP_by_Muller(
 
     if ( 0.1<fabs(Trial_ChemP-Trial_ChemP0) ){
       Trial_ChemP = Trial_ChemP + 0.1*sgn(Trial_ChemP0 - Trial_ChemP);
-
-      /*
-      printf("PPP1 SCF_iter=%2d num_loop=%2d\n",SCF_iter,num_loop);
-      */
-
     }
     else {
-
-      /*
-      printf("PPP2 SCF_iter=%2d num_loop=%2d\n",SCF_iter,num_loop);
-      */
 
       Trial_ChemP = Trial_ChemP0;
     }

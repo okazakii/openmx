@@ -4,7 +4,10 @@
 #include <sys/types.h>
 #include <sys/times.h>
 #include <sys/time.h> 
-  
+#include <omp.h>
+
+
+
 struct timeval2 {
   long tv_sec;    /* second */
   long tv_usec;   /* microsecond */
@@ -14,10 +17,22 @@ struct timeval2 {
 void dtime(double *t)
 {
 
+
+/* AITUNE
+if you don't like, please change to
+#ifdef noomp
+from 
+#ifndef _OPENMP
+*/
+
+#ifdef noomp
   /* real time */
   struct timeval timev;
   gettimeofday(&timev, NULL);
   *t = timev.tv_sec + (double)timev.tv_usec*1e-6;
+#else
+  *t = omp_get_wtime();
+#endif
 
   /* user time + system time */
   /*

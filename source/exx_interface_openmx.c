@@ -19,21 +19,11 @@
 #include "exx_file_eri.h"
 #include "exx_rhox.h"
 
-#ifdef EXX_USE_MPI
-#include <mpi.h>
-#else
-#include "mimic_mpi.h"
-#endif /* EXX_USE_MPi */
-
 #define PATHLEN 256
 
 static int g_step = 0;
 
-#ifdef EXX_USE_MPI
 MPI_Comm g_exx_mpicomm = MPI_COMM_NULL;
-#else 
-MPI_Comm g_exx_mpicomm = 0;
-#endif /* EXX_USE_MPI */
 
 dcomplex *****g_exx_DM; 
 double g_exx_U[2];
@@ -751,7 +741,7 @@ void EXX_Fock_Cluster(
 )
 {
   double *local_H;
-  // double *buffer_H;
+  /* double *buffer_H;*/
   int H_n;
   int i, j, n, ir, nr, irn, nep;
 
@@ -775,7 +765,7 @@ void EXX_Fock_Cluster(
   MPI_Status stat;
 
   double local_Ux;
-  //double buffer_Ux;
+  /*double buffer_Ux;*/
 
   MPI_Comm_size(g_exx_mpicomm, &nproc);
   MPI_Comm_rank(g_exx_mpicomm, &myid);
@@ -795,7 +785,7 @@ void EXX_Fock_Cluster(
 
   /* allocation */
   local_H = (double*)malloc(sizeof(double)*H_n*H_n);
-  //buffer_H = (double*)malloc(sizeof(double)*H_n*H_n);
+  /*buffer_H = (double*)malloc(sizeof(double)*H_n*H_n);*/
   for (i=0; i<H_n*H_n; i++) { local_H[i] = 0.0; } 
 
   nr = EXX_File_ERI_Read_NRecord(exx);
@@ -805,9 +795,9 @@ void EXX_Fock_Cluster(
     EXX_File_ERI_Read_Data_Head(exx, ir, &iop1, &iop2,
       &nb1, &nb2, &nb3, &nb4, &nrn);
 
-    //EXX_Log_Print("ir= %2d  iop1= %2d  iop2= %2d  ", ir, iop1, iop2);
-    //EXX_Log_Print("atom= %1d %1d %1d %1d\n", 
-    //  op_atom1[iop1], op_atom2[iop1], op_atom1[iop2], op_atom2[iop2]);
+    /*EXX_Log_Print("ir= %2d  iop1= %2d  iop2= %2d  ", ir, iop1, iop2);*/
+    /*EXX_Log_Print("atom= %1d %1d %1d %1d\n", */
+    /*  op_atom1[iop1], op_atom2[iop1], op_atom1[iop2], op_atom2[iop2]);*/
 
     if (nrn != 1) { 
       fprintf(stderr, "***Error at %s (%d)\n", __FILE__, __LINE__);
@@ -843,7 +833,7 @@ void EXX_Fock_Cluster(
 #endif
  
     EXX_OP2EP_Cluster(exx, iop1, iop2, iep1, iep2, &mul);
-    //if (0==SpinP_switch) { mul *= 2; }
+    /*if (0==SpinP_switch) { mul *= 2; }*/
     w = 1.0/(double)mul; 
 
     for (j=0; j<8; j++) {
@@ -851,15 +841,15 @@ void EXX_Fock_Cluster(
       ia2 = ep_atom2[iep1[j]]; /* j */
       ia3 = ep_atom1[iep2[j]]; /* k */
       ia4 = ep_atom2[iep2[j]]; /* l */
-      //EXX_Log_Print("  j=%1d  iep1= %2d  iep2= %2d  ", j, iep1[j], iep2[j]);
-      //EXX_Log_Print("atom= %1d %1d %1d %1d\n", ia1, ia2, ia3, ia4);
+      /*EXX_Log_Print("  j=%1d  iep1= %2d  iep2= %2d  ", j, iep1[j], iep2[j]);*/
+      /*EXX_Log_Print("atom= %1d %1d %1d %1d\n", ia1, ia2, ia3, ia4);*/
    
       nb1_ep = atom_nb[ia1];
       nb2_ep = atom_nb[ia2];
       nb3_ep = atom_nb[ia3];
       nb4_ep = atom_nb[ia4];
       
-      // EXX_Log_Print("  nb= %2d %2d %2d %2d\n", nb1_ep, nb2_ep, nb3_ep, nb4_ep);
+      /* EXX_Log_Print("  nb= %2d %2d %2d %2d\n", nb1_ep, nb2_ep, nb3_ep, nb4_ep);*/
 
       GA_AN = ia1+1;
       wanA = WhatSpecies[GA_AN];
@@ -877,26 +867,26 @@ void EXX_Fock_Cluster(
             for (ib4_ep=0; ib4_ep<nb4_ep; ib4_ep++) {
               EXX_Basis_Index(ib1_ep, ib2_ep, ib3_ep, ib4_ep,
                 &ib1, &ib2, &ib3, &ib4, j);
-              //EXX_Log_Print("  basis(OP)= %2d %2d %2d %2d", 
-              //  ib1, ib2, ib3, ib4);
-              //EXX_Log_Print("  basis(EP)= %2d %2d %2d %2d\n", 
-              //  ib1_ep, ib2_ep, ib3_ep, ib4_ep);
+              /*EXX_Log_Print("  basis(OP)= %2d %2d %2d %2d",*/ 
+              /*  ib1, ib2, ib3, ib4);*/
+              /*EXX_Log_Print("  basis(EP)= %2d %2d %2d %2d\n",*/ 
+              /*  ib1_ep, ib2_ep, ib3_ep, ib4_ep);*/
               i = (((ib1*nb2+ib2)*nb3+ib3)*nb4+ib4)*nrn;
               den = exx_CDM[iep2[j]][ib3_ep][ib4_ep].r;
-              //if (den<0.0) { den = 0.0; }
-              //if (den>1.0) { den = 1.0; }
+              /*if (den<0.0) { den = 0.0; }*/
+              /*if (den>1.0) { den = 1.0; }*/
               sum = eri[i] * den;
-              //i = (Anum+ib1-1)*H_n + (Bnum+ib2-1);
+              /*i = (Anum+ib1-1)*H_n + (Bnum+ib2-1);*/
               i = (Anum+ib1_ep-1)*H_n + (Bnum+ib2_ep-1);
               local_H[i] += -w*sum;
               den = exx_CDM[iep1[j]][ib1_ep][ib2_ep].r;
-              //if (den<0.0) { den = 0.0; }
-              //if (den>1.0) { den = 1.0; }
+              /*if (den<0.0) { den = 0.0; }*/
+              /*if (den>1.0) { den = 1.0; }*/
               local_Ux += -0.5*w*sum*den;
             }
           }
-          //local_H[i] += -0.5*w*sum;
-          //local_Ux += -0.5*w*sum*exx_CDM[iep1[j]][ib1_ep][ib2_ep];
+          /*local_H[i] += -0.5*w*sum;*/
+          /*local_Ux += -0.5*w*sum*exx_CDM[iep1[j]][ib1_ep][ib2_ep];*/
 	}
       }
     } /* loop of j */
@@ -1071,17 +1061,10 @@ void EXX_Fock_Band(
   spin_list = (int*)malloc(sizeof(int)*nproc);
 
   /* all-to-all */
-#ifdef EXX_USE_MPI
   MPI_Allgather(&k1,   1, MPI_DOUBLE, k1_list,   1, MPI_DOUBLE, comm);
   MPI_Allgather(&k2,   1, MPI_DOUBLE, k2_list,   1, MPI_DOUBLE, comm);
   MPI_Allgather(&k3,   1, MPI_DOUBLE, k3_list,   1, MPI_DOUBLE, comm);
   MPI_Allgather(&spin, 1, MPI_INT,    spin_list, 1, MPI_INT,    comm);
-#else
-  k1_list[0] = k1;
-  k2_list[0] = k2;
-  k3_list[0] = k3;
-  spin_list[0] = spin;
-#endif /* EXX_USE_MPI */
 
   op_atom1 = EXX_Array_OP_Atom1(exx);
   op_atom2 = EXX_Array_OP_Atom2(exx);

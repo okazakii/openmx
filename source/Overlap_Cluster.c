@@ -14,12 +14,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include "openmx_common.h"
-
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
 #include "mpi.h"
-#endif
+
 
 void Overlap_Cluster(double ****OLP, double **S, int *MP)
 {
