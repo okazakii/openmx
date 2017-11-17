@@ -7,6 +7,12 @@
 #include "exx_log.h"
 
 
+#ifdef EXX_USE_MPI
+#include <mpi.h>
+#else
+#include "mimic_mpi.h"
+#endif /* EXX_USE_MPI */
+
 void EXX_Debug_Copy_DM(
   int MaxN,
   double *****CDM,

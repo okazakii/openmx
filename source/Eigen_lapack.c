@@ -324,6 +324,7 @@ void Eigen_lapack_r(double **a, double *ko, int n0, int EVmax)
 
 
 
+#pragma optimization_level 1
 void Eigen_HH(double **ac, double *ko, int n, int EVmax)
 {
   /**********************************************************************

@@ -20,6 +20,8 @@ typedef struct EXX_Struct EXX_t;
 #ifdef EXX_USE_MPI
 #include <mpi.h>
 extern MPI_Comm g_exx_mpicomm;
+#else
+extern int g_exx_mpicomm;
 #endif
 
 

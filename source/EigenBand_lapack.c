@@ -26,7 +26,7 @@ void EigenBand_lapack(dcomplex **A, double *W, int N0, int ev_flag)
 }
 
 
-
+#pragma optimization_level 1
 void Eigen_HH(dcomplex **ac, double *ko, int n, int EVmax, int ev_flag)
 {
   /**********************************************************************

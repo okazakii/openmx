@@ -1516,7 +1516,7 @@ void Calc_EXC_EH1(double ECE[])
          - n_{atom}\epsilon_{xc}(n_{atom})
 
    calculation of the difference between the xc energies 
-   calculated by wave-function-charge and atomic charge.
+   calculated by wave-function-charge and atomic charge
    on the coarse grid.    
   ****************************************************/
 
@@ -1659,7 +1659,7 @@ void Calc_EXC_EH1(double ECE[])
       My_sumrz[Nloop] = 0.0;
     }
 
-#pragma omp parallel shared(Dr,Sr,CoarseGL_Abscissae,CoarseGL_Weight,Dt,St,Exc0_GL_Abscissae1,Dp,Sp,Exc0_GL_Abscissae2,Gxyz,Gc_AN,FNAN,natn,ncn,WhatSpecies,atv,F_Vxc_flag,Cwan,Exc0_GL_Weight2,Exc0_GL_Weight1) private(OMPID,Nthrds,Nprocs,ir,r,sumt,sumtx,sumty,sumtz,it,theta,sit,cot,sump,sumpx,sumpy,sumpz,ip,phi,x0,y0,z0,h_AN,Gh_AN,Hwan,x1,y1,z1,dx,dy,dz,r1,den,den0,gden0,dx1,dy1,dz1,exc0,vxc0)
+#pragma omp parallel shared(My_sumr,My_sumrx,My_sumry,My_sumrz,Dr,Sr,CoarseGL_Abscissae,CoarseGL_Weight,Dt,St,Exc0_GL_Abscissae1,Dp,Sp,Exc0_GL_Abscissae2,Gxyz,Gc_AN,FNAN,natn,ncn,WhatSpecies,atv,F_Vxc_flag,Cwan,Exc0_GL_Weight2,Exc0_GL_Weight1,PCC_switch) private(OMPID,Nthrds,Nprocs,ir,r,sumt,sumtx,sumty,sumtz,it,theta,sit,cot,sump,sumpx,sumpy,sumpz,ip,phi,x0,y0,z0,h_AN,Gh_AN,Rn,Hwan,x1,y1,z1,dx,dy,dz,r1,den,den0,gden0,dx1,dy1,dz1,exc0,vxc0)
     {
 
       /* get info. on OpenMP */ 

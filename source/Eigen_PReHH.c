@@ -66,13 +66,13 @@ void Eigen_PReHH(MPI_Comm MPI_Curret_Comm_WD,
 
 
 
-
-
+#pragma optimization_level 1
 void Eigen_Improved_PReHH(MPI_Comm MPI_Curret_Comm_WD, 
                           double **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
   double ABSTOL=1.0e-13;
-  double **ad,*b1,*uu,*q,*p,
+  double *q,*p;
+  double **ad,*b1,*uu,
     s1,s2,s3,ss,u1,u2,r,p1,my_r,my_s2, 
     xsum,bunbo,si,co,sum,
     a1,a2,a3,a4,a5,a6,b7,r1,r2,
@@ -169,41 +169,11 @@ void Eigen_Improved_PReHH(MPI_Comm MPI_Curret_Comm_WD,
                    Householder method
   ****************************************************/
 
-
   myHH(MPI_Curret_Comm_WD, numprocs, myid, n, ac, ad, uu, b1, request_send, request_recv, stat_send);
-
 
   /*
   call_dsytrd(MPI_Curret_Comm_WD, numprocs, myid, n, ac, ad, uu, p, q, b1, request_send, request_recv, stat_send);
   */
-
-  /*
-  printf("ad\n");
-  for (i=1; i<=n; i++){
-    for (j=1; j<=n; j++){
-      printf("%10.5f ",ad[i][j]);
-    }
-    printf("\n");
-  }
-
-  printf("uu\n");
-  for (i=1; i<=n; i++){
-     printf("%10.5f ",uu[i]);
-  }
-  printf("\n");
-
-  printf("b1\n");
-  for (i=1; i<=n; i++){
-     printf("%10.5f ",b1[i]);
-  }
-  printf("\n");
-  */
-
-  /*
-  MPI_Finalize();
-  exit(0);
-  */
-
 
   /****************************************************
                    call a lapack routine
@@ -213,8 +183,6 @@ void Eigen_Improved_PReHH(MPI_Comm MPI_Curret_Comm_WD,
 
   for (i=1; i<=n; i++){
     p[i-1] = ad[i][i];
-  }
-  for (i=1; i<n; i++){
     q[i-1] = ad[i][i+1];
   }
 

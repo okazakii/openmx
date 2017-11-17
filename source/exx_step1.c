@@ -56,10 +56,10 @@ int EXX_Step1(
  
   char path_cache[EXX_PATHLEN];
 
-  MPI_Comm comm;
   int myrank, nproc;
  
 #ifdef EXX_USE_MPI
+  MPI_Comm comm;
   MPI_Status mpistat;
 #endif
 

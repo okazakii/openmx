@@ -7,12 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <mpi.h>
 #include "exx.h"
 #include "exx_log.h"
 #include "exx_file_overlap.h"
 
 
+#ifdef EXX_USE_MPI
+#include <mpi.h>
+#endif /* EXX_USE_MPI */
 
 void EXX_File_Overlap_Write(
   int          ndglf,     /* number of double for GLF matrix */
@@ -39,7 +41,7 @@ void EXX_File_Overlap_Write(
   MPI_Comm_rank(comm, &myrank);
   MPI_Comm_size(comm, &nproc);
 #else
-  ytrank = EXX_ROOT_RANK;
+  myrank = EXX_ROOT_RANK;
   nproc = 1;
 #endif /* EXX_USE_MPI */
 

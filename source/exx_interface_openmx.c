@@ -19,11 +19,21 @@
 #include "exx_file_eri.h"
 #include "exx_rhox.h"
 
+#ifdef EXX_USE_MPI
+#include <mpi.h>
+#else
+#include "mimic_mpi.h"
+#endif /* EXX_USE_MPi */
+
 #define PATHLEN 256
 
 static int g_step = 0;
 
+#ifdef EXX_USE_MPI
 MPI_Comm g_exx_mpicomm = MPI_COMM_NULL;
+#else 
+MPI_Comm g_exx_mpicomm = 0;
+#endif /* EXX_USE_MPI */
 
 dcomplex *****g_exx_DM; 
 double g_exx_U[2];
@@ -1061,10 +1071,17 @@ void EXX_Fock_Band(
   spin_list = (int*)malloc(sizeof(int)*nproc);
 
   /* all-to-all */
+#ifdef EXX_USE_MPI
   MPI_Allgather(&k1,   1, MPI_DOUBLE, k1_list,   1, MPI_DOUBLE, comm);
   MPI_Allgather(&k2,   1, MPI_DOUBLE, k2_list,   1, MPI_DOUBLE, comm);
   MPI_Allgather(&k3,   1, MPI_DOUBLE, k3_list,   1, MPI_DOUBLE, comm);
   MPI_Allgather(&spin, 1, MPI_INT,    spin_list, 1, MPI_INT,    comm);
+#else
+  k1_list[0] = k1;
+  k2_list[0] = k2;
+  k3_list[0] = k3;
+  spin_list[0] = spin;
+#endif /* EXX_USE_MPI */
 
   op_atom1 = EXX_Array_OP_Atom1(exx);
   op_atom2 = EXX_Array_OP_Atom2(exx);

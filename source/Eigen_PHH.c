@@ -43,7 +43,7 @@ void Eigen_PHH(MPI_Comm MPI_Current_Comm_WD,
 
 
 
-
+#pragma optimization_level 1
 void Eigen_Improved_PHH(MPI_Comm MPI_Current_Comm_WD,
                         dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
