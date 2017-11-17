@@ -1,0 +1,47 @@
+<LOADMODULES>
+
+The last three letters indicate:
+openmxgmsa
+~~~~~~||||
+      |||Nothing(original ver) / a(modified ver)
+      |||
+      ||OpenMP o(yes) / s(no)
+      ||
+      |MPICH   m(yes) / s(no)
+      |
+      Compier  g(gcc) / p(pgcc)
+
+
+-rwxr-xr-x  1 okazaki riko 4291600  1月 31 11:27 openmxgmoa
+# tappi, pararell(MPI/OpenMP)
+CC      = mpicc -O3          -fopenmp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+          /usr/lib64/liblapack.so.3 \
+          /usr/lib64/libblas.so.3 \
+          /usr/lib64/libg2c.so.0
+
+-rwxr-xr-x 1 okazaki riko 4258576 12月 4 08:15 openmxgmsa
+# tappi, pararell
+CC      = mpicc -O3         -Dnoomp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+          /usr/lib64/liblapack.so.3 \
+          /usr/lib64/libblas.so.3 \
+          /usr/lib64/libg2c.so.0  
+
+
+-rwxr-xr-x 1 okazaki riko 4258576 May  9 21:49 openmxgms
+# tappi, pararell
+CC      = mpicc -O3         -Dnoomp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+          /usr/lib64/liblapack.so.3 \
+          /usr/lib64/libblas.so.3 \
+          /usr/lib64/libg2c.so.0  
+
+
+-rwxr-xr-x 1 okazaki riko 4164080 May  9 21:41 openmxgss
+# tappi, serial
+CC      = gcc   -O3 -Dnompi -Dnoomp -I/usr/local/fftw-3.2.2-gnu64-4.1.2/include
+LIB     = /usr/local/fftw-3.2.2-gnu64-4.1.2/lib/libfftw3.a \
+          /usr/lib64/liblapack.so.3 \
+          /usr/lib64/libblas.so.3 \
+          /usr/lib64/libg2c.so.0  
