@@ -23,7 +23,7 @@ void lapack_dstedc2(INTEGER N, double *D, double *E, double *W, dcomplex **ev)
   int i,j;
   char  *COMPZ="I";
   INTEGER IL,IU; 
-  double ABSTOL_GR=1.0e-12;
+  double ABSTOL_GR=LAPACK_ABSTOL;
   double *Z;
   INTEGER LDZ;
   INTEGER LWORK;

@@ -438,7 +438,12 @@ void Read_PAO(int spe, char *file)
   ****************************************************/
 
   input_double("AtomSpecies",&dum,0.0);
-  Spe_WhatAtom[spe] = (int)dum; 
+
+  if (1.0e-15<dum && dum<1.0)
+    Spe_WhatAtom[spe] = 1;
+  else
+    Spe_WhatAtom[spe] = (int)dum;
+
   /* dv_EH0 temporaliry is used. */
   dv_EH0[spe] = dum;
   
@@ -588,7 +593,11 @@ void Read_VPS(int spe, char *file)
   ****************************************************/
 
   input_double("AtomSpecies",&dum0,0.0);
-  tmp0 = (int)dum0;
+
+  if (1.0e-15<dum0 && dum0<1.0)
+    tmp0 = 1;
+  else
+    tmp0 = (int)dum0;
 
   if ( dv_EH0[spe]!=dum0 && tmp0!=0 ){
     printf("Not the same atom in PAO and VPS for spe=%2d\n",spe);

@@ -62,7 +62,7 @@ void Eigen_HH2(double *ac, int csize, double *ko, int n, int EVmax)
 
   ***********************************************************************/
 
-  double ABSTOL=1.0e-13;
+  double ABSTOL=LAPACK_ABSTOL;
   double **ad,*D,*E,
     *b1,*u,*uu,
     *p,*q,*s,*c,
@@ -515,7 +515,7 @@ int Eigen_lapack_x2(double *a, int csize, double *ko, int n0, int EVmax)
   INTEGER LDA=n0;
   double VL,VU; /* dummy */
   INTEGER IL,IU; 
-  double ABSTOL=1.0e-13;
+  double ABSTOL=LAPACK_ABSTOL;
   INTEGER M;
 
   double *A,*Z;
@@ -608,7 +608,7 @@ int Eigen_lapack_d2(double *a, int csize, double *ko, int n0, int EVmax)
   INTEGER LDA=n;
   double VL,VU; /* dummy */
   INTEGER IL,IU; 
-  double ABSTOL=1.0e-13;
+  double ABSTOL=LAPACK_ABSTOL;
   INTEGER M;
 
   double *A;

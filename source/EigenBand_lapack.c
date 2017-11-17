@@ -14,11 +14,11 @@ static void Eigen_HH(dcomplex **ac, double *ko, int n, int EVmax, int ev_flag);
 void EigenBand_lapack(dcomplex **A, double *W, int N0, int MaxN, int ev_flag)
 {
 
-  Eigen_HH(A,W,N0,MaxN,ev_flag);
-
   /*
-  Eigen_zheevx(A,W,N0,MaxN,ev_flag);
+  Eigen_HH(A,W,N0,MaxN,ev_flag);
   */
+
+  Eigen_zheevx(A,W,N0,MaxN,ev_flag);
 
   /*
   Eigen_zheev(A,W,N0);
@@ -42,7 +42,7 @@ void Eigen_HH(dcomplex **ac, double *ko, int n, int EVmax, int ev_flag)
 
   ***********************************************************************/
 
-  double ABSTOL=1.0e-14;
+  double ABSTOL=LAPACK_ABSTOL;
 
   dcomplex **ad,*u,*b1,*p,*q,tmp0,tmp1,tmp2,tmp3,u1,u2,p1;
   dcomplex ss0,ss1,ss2,ss3,ss,p10,p11,p12,p13;
@@ -543,7 +543,7 @@ void Eigen_zheevx(dcomplex **A, double *W, int N0, int MaxN, int ev_flag)
   INTEGER LDA=N;
   double VL,VU;
   INTEGER  IL,IU;
-  double ABSTOL=1.0e-13; /* the default value = 1.0e-12 */
+  double ABSTOL=LAPACK_ABSTOL;
   INTEGER M;
   dcomplex *Z;
   INTEGER LDZ=N;

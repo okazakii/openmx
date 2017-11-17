@@ -887,6 +887,25 @@ double Band_DFT_NonCol(int SCF_iter,
       } 
     } 
 
+    /*
+    if (myid0==0){
+    for (i=1; i<=n; i++){
+      for (j=1; j<=n; j++){
+	printf("i=%2d j=%2d S.r=%18.15f S.i=%18.15f\n",i,j,S[i][j].r,S[i][j].i);
+      } 
+    } 
+    
+    for (i=1; i<=2*n; i++){
+      for (j=1; j<=2*n; j++){
+	printf("i=%2d j=%2d H.r=%18.15f H.i=%18.15f\n",i,j,H[i][j].r,H[i][j].i);
+      } 
+    } 
+    }
+
+    MPI_Finalize();
+    exit(0);
+    */
+
     dtime(&Etime);
     time2 += Etime - Stime; 
 
@@ -1517,7 +1536,7 @@ double Band_DFT_NonCol(int SCF_iter,
     k2 = T_KGrids2[kloop];
     k3 = T_KGrids3[kloop];
 
-#pragma omp parallel shared(numprocs0,n,EIGEN,My_NZeros,SP_NZeros,MPI_CDM1_flag,CDM0,EDM0,iDM0,CDM1,EDM1,iDM1,CDM2,EDM2,CDM3,EDM3,VecFkwE,VecFkw,H,lmax,k1,k2,k3,atv_ijk,ncn,natn,FNAN,MP,Spe_Total_CNO,WhatSpecies,order_GA,atomnum) private(OMPID,Nthrds,Nprocs,AN,GA_AN,wanA,tnoA,Anum,k,LB_AN,GB_AN,RnB,wanB,tnoB,Bnum,l1,l2,l3,kRn,si,co,i,ia,ib,j,ja,jb,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,l,tmp,po,ID)
+#pragma omp parallel shared(kloop,SCF_iter,numprocs0,n,EIGEN,My_NZeros,SP_NZeros,MPI_CDM1_flag,CDM0,EDM0,iDM0,CDM1,EDM1,iDM1,CDM2,EDM2,CDM3,EDM3,VecFkwE,VecFkw,H,lmax,k1,k2,k3,atv_ijk,ncn,natn,FNAN,MP,Spe_Total_CNO,WhatSpecies,order_GA,atomnum) private(OMPID,Nthrds,Nprocs,AN,GA_AN,wanA,tnoA,Anum,k,LB_AN,GB_AN,RnB,wanB,tnoB,Bnum,l1,l2,l3,kRn,si,co,i,ia,ib,j,ja,jb,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,l,tmp,po,ID)
     { 
 
       /* get info. on OpenMP */ 
@@ -1582,7 +1601,11 @@ double Band_DFT_NonCol(int SCF_iter,
                 double d11 = 0.0;
                 double d12 = 0.0;
 
+		/*
                 if (SCF_iter%5==1){ 
+		*/
+
+                if (1){ 
 
 		  for (l=1; l<=lmax; l++){
 
@@ -1723,7 +1746,11 @@ double Band_DFT_NonCol(int SCF_iter,
 
     /* EDM */
 
+    /*
     if (SCF_iter%3==1){ 
+    */
+
+    if (1){ 
 
       dtime(&Stime);
 
@@ -2289,7 +2316,7 @@ double Band_DFT_NonCol(int SCF_iter,
 
       /* DM, EDM, and iDM */
 
-#pragma omp parallel shared(kloop,EIGEN,n,CDM0,EDM0,iDM0,CDM1,EDM1,iDM1,CDM2,EDM2,CDM3,EDM3,H,lmax,k1,k2,k3,atv_ijk,ncn,natn,FNAN,MP,Spe_Total_CNO,WhatSpecies,order_GA,atomnum) private(OMPID,Nthrds,Nprocs,AN,GA_AN,wanA,tnoA,Anum,k,LB_AN,GB_AN,RnB,wanB,tnoB,Bnum,l1,l2,l3,kRn,si,co,i,ia,ib,j,ja,jb,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,l,RedumA,ImdumA,Redum2A,RedumB,ImdumB,Redum2B,RedumC,ImdumC,Redum2C,Imdum2D,eig)
+#pragma omp parallel shared(SCF_iter,kloop,EIGEN,n,CDM0,EDM0,iDM0,CDM1,EDM1,iDM1,CDM2,EDM2,CDM3,EDM3,H,lmax,k1,k2,k3,atv_ijk,ncn,natn,FNAN,MP,Spe_Total_CNO,WhatSpecies,order_GA,atomnum) private(OMPID,Nthrds,Nprocs,AN,GA_AN,wanA,tnoA,Anum,k,LB_AN,GB_AN,RnB,wanB,tnoB,Bnum,l1,l2,l3,kRn,si,co,i,ia,ib,j,ja,jb,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,l,RedumA,ImdumA,Redum2A,RedumB,ImdumB,Redum2B,RedumC,ImdumC,Redum2C,Imdum2D,eig)
       { 
 
 	/* get info. on OpenMP */ 
@@ -2347,7 +2374,11 @@ double Band_DFT_NonCol(int SCF_iter,
                 d11 = 0.0;
                 d12 = 0.0;
 
+                if (1){ 
+
+		/*
                 if (SCF_iter%3==1){ 
+		*/
 
 		  for (l=1; l<=lmax; l++){
 
@@ -2497,7 +2528,11 @@ double Band_DFT_NonCol(int SCF_iter,
 
     /* EDM */
 
+    /*
     if (SCF_iter%3==1){ 
+    */
+
+    if (1){ 
 
       MPI_Allreduce(&EDM0[0], &RH0[0], size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
       MPI_Allreduce(&EDM1[0], &RH1[0], size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);

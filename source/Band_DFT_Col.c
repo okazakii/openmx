@@ -575,7 +575,7 @@ double Band_DFT_Col(int SCF_iter,
         }
       }
 
-      new_ranks[0] = ID1; 
+      new_ranks[0] = ID1;
       if (myid1==ID1) MPI_CDM1_flag[ID0] = 1;
 
       for (i=(ks+1); i<(T_knum+ks); i++){
@@ -1608,7 +1608,10 @@ diagonalize1:
         k = SP_NZeros[ID];
         MPI_Reduce(&CDM1[k], &H1[k], My_NZeros[ID], MPI_DOUBLE, MPI_SUM, 0, MPI_CommWD_CDM1[ID]);
 
+	/*
         if (SCF_iter%3==1){ 
+	*/
+        if (1){ 
           MPI_Reduce(&EDM1[k], &S1[k], My_NZeros[ID], MPI_DOUBLE, MPI_SUM, 0, MPI_CommWD_CDM1[ID]);
 	}
       }
@@ -1641,7 +1644,10 @@ diagonalize1:
 
 	      CDM[spin][MA_AN][LB_AN][i][j] = H1[k];
 
+	      /*
               if (SCF_iter%3==1){ 
+	      */
+              if (1){ 
   	        EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
 	      }
 	    }
@@ -1706,8 +1712,10 @@ diagonalize1:
 
 	    /* EDM1 */
 
+	    /*
 	    if (SCF_iter%3==1){ 
-
+	    */
+	    if (1){ 
 	      if (myid0==IDS){
 		MPI_Isend(&S1[k], My_NZeros[IDR], MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
 	      } 
@@ -1746,7 +1754,10 @@ diagonalize1:
 	      if (1<=MA_AN && MA_AN<=Matomnum){   
 		CDM[spin][MA_AN][LB_AN][i][j] = CDM1[k];
 
+		/*
                 if (SCF_iter%3==1){ 
+		*/
+                if (1){ 
 	  	  EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
 		}
 	      }
@@ -1907,7 +1918,10 @@ diagonalize1:
 	  for (j=0; j<tnoB; j++){
 	    CDM[spin][MA_AN][LB_AN][i][j] = 0.0;
 
+	    /*
             if (SCF_iter%3==1){ 
+	    */
+            if (1){ 
 	      EDM[spin][MA_AN][LB_AN][i][j] = 0.0;
 	    }
 
@@ -2530,7 +2544,10 @@ diagonalize1:
 
 	      CDM[spin][MA_AN][LB_AN][i][j] = H1[k];
 
+	      /*
               if (SCF_iter%3==1){ 
+	      */
+              if (1){ 
 	        EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
 	      }
 	    }
@@ -2625,7 +2642,10 @@ diagonalize1:
 	      if (1<=MA_AN && MA_AN<=Matomnum){   
 		CDM[spin][MA_AN][LB_AN][i][j] = CDM1[k];
 
+		/*
                 if (SCF_iter%3==1){ 
+		*/
+                if (1){ 
 		  EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
 		}
 	      }
@@ -2668,7 +2688,10 @@ diagonalize1:
 	  for (j=0; j<tnoB; j++){
 	    CDM[spin][MA_AN][LB_AN][i][j]    = CDM[spin][MA_AN][LB_AN][i][j]*dum;
 
+	    /*
             if (SCF_iter%3==1){ 
+	    */
+            if (1){ 
   	      EDM[spin][MA_AN][LB_AN][i][j]    = EDM[spin][MA_AN][LB_AN][i][j]*dum;
 	    }
 

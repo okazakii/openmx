@@ -75,7 +75,7 @@ void Allocation_Atoms_3D(int MD_iter, int weight_flag)
 
   /* max_depth of level */
 
-  if (numprocs==1)
+  if (numprocs==1 || atomnum==1)
     max_depth = 0;
   else  
     max_depth = (int)(log(((double)numprocs0-1.0+1.0e-7))/log(2.0)) + 1;

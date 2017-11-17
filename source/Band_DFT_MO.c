@@ -362,7 +362,7 @@ static void Band_DFT_MO_Col(
 
       /* H * U * M1 */
 
-#pragma omp parallel for shared(spin,n,myid,is1,ie1,S,H,C)  
+#pragma omp parallel for shared(spin,n,myid,is1,ie1,S,H,C) private(i1,j1,l) 
 
       for (j1=is1[myid]; j1<=ie1[myid]; j1++){
 
@@ -404,8 +404,7 @@ static void Band_DFT_MO_Col(
 
       /* M1 * U^+ H * U * M1 */
 
-
-#pragma omp parallel for shared(spin,n,is1,ie1,myid,S,H,C)  
+#pragma omp parallel for shared(spin,n,is1,ie1,myid,S,H,C) private(i1,j1,l)  
 
       for (i1=1; i1<=n; i1++){
         for (j1=is1[myid]; j1<=ie1[myid]; j1++){
@@ -433,7 +432,28 @@ static void Band_DFT_MO_Col(
 
       for (i1=1; i1<=n; i1++){
 	for (j1=1; j1<=n; j1++){
-	  C[spin][i1][j1] = H[spin][i1][j1];
+	  C[spin][j1][i1] = H[spin][i1][j1];
+	}
+      }
+
+      /* penalty for ill-conditioning states */
+
+      EV_cut0 = 1.0e-9;
+
+      for (i1=1; i1<=n; i1++){
+
+	if (koS[i1]<EV_cut0){
+	  C[spin][i1][i1].r += pow((koS[i1]/EV_cut0),-2.0) - 1.0;
+	}
+ 
+	/* cutoff the interaction between the ill-conditioned state */
+ 
+	if (1.0e+3<C[spin][i1][i1].r){
+	  for (j1=1; j1<=n; j1++){
+	    C[spin][i1][j1] = Complex(0.0,0.0);
+	    C[spin][j1][i1] = Complex(0.0,0.0);
+	  }
+	  C[spin][i1][i1].r = 1.0e+4;
 	}
       }
 
@@ -470,7 +490,7 @@ static void Band_DFT_MO_Col(
 
       /* C is distributed by row in each processor */
 
-#pragma omp parallel for shared(spin,n,is1,ie1,myid,S,H,C)  
+#pragma omp parallel for shared(spin,n,is1,ie1,myid,S,H,C) private(i1,j1,l,sum,sumi)  
 
       for (j1=is1[myid]; j1<=ie1[myid]; j1++){
         for (i1=1; i1<=n; i1++){
@@ -504,6 +524,7 @@ static void Band_DFT_MO_Col(
 	if (x_cut<=x)  x = x_cut;
 	if (SpinP_switch==0) FermiF = 2.0/(1.0 + exp(x));
 	else                 FermiF = 1.0/(1.0 + exp(x));
+
 	if      (SpinP_switch==0 && 1.0<FermiF) Bulk_HOMO[kloop][spin] = i1;
 	else if (SpinP_switch==1 && 0.5<FermiF) Bulk_HOMO[kloop][spin] = i1;
       }      
@@ -1210,7 +1231,7 @@ static void Band_DFT_MO_NonCol(
 
     /* S * 1.0/sqrt(koS[l]) */
 
-#pragma omp parallel for shared(n,S,koS)  
+#pragma omp parallel for shared(n,S,koS) private(i1,j1) 
 
     for (i1=1; i1<=n; i1++){
       for (j1=1; j1<=n; j1++){
@@ -1469,8 +1490,8 @@ static void Band_DFT_MO_NonCol(
     nhomos = num_HOMOs;
     nlumos = num_LUMOs;
 
-    if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][0];
-    if ( (Bulk_HOMO[kloop][0]+nlumos)>n1 )  nlumos = n1 - Bulk_HOMO[kloop][0];
+    if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 )  nhomos = Bulk_HOMO[kloop][0];
+    if ( (Bulk_HOMO[kloop][0]+nlumos)>MaxN)  nlumos = MaxN - Bulk_HOMO[kloop][0];
 
     /* HOMOs */
 

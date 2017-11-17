@@ -59,7 +59,7 @@ double Set_Orbitals_Grid(int Cnt_kind)
     if (Cnt_kind==0)  NO0 = Spe_Total_NO[Cwan];
     else              NO0 = Spe_Total_CNO[Cwan]; 
 
-#pragma omp parallel shared(Orbs_Grid,Cnt_kind,Gxyz,atv,CellListAtom,GridListAtom,GridN_Atom,Gc_AN,Cwan,Mc_AN,NO0) private(OMPID,Nthrds,Nprocs,Nc,GNc,GRc,Cxyz,x,y,z,dx,dy,dz)
+#pragma omp parallel shared(Comp2Real,Spe_PAO_RWF,Spe_Num_Basis,Spe_MaxL_Basis,Spe_PAO_RV,Spe_Num_Mesh_PAO,List_YOUSO,Orbs_Grid,Cnt_kind,Gxyz,atv,CellListAtom,GridListAtom,GridN_Atom,Gc_AN,Cwan,Mc_AN,NO0) private(OMPID,Nthrds,Nprocs,Nc,GNc,GRc,Cxyz,x,y,z,dx,dy,dz,i,j)
     {
       double *Chi0;
       double Cxyz0[4]; 

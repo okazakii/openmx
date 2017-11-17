@@ -25,18 +25,6 @@
 #include "Inputtools.h"
 #include "lapack_prototypes.h"
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
-
 #define MAXBUF 1024
 #define Criterion_Max_Step       0.10
 

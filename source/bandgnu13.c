@@ -15,6 +15,7 @@
 
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include <string.h>
 
@@ -349,7 +350,7 @@ main(int argc, char **argv)
     for(l=1;l<=meig;l++) {
       for (ik=1;ik<=nkpath;ik++) {
 	for (i_perpath=1;i_perpath<=n_perpath[ik]; i_perpath++) {
-	  fprintf(fp, "%lf %lf\n",kline[ik][i_perpath],
+	  fprintf(fp, "%lf %15.12f\n",kline[ik][i_perpath],
 		  (EIGEN[spin][ik][i_perpath][l]-ChemP)*Unit );
 	}
 	fprintf(fp, "\n\n");
@@ -379,7 +380,7 @@ main(int argc, char **argv)
   }
   printf("%s is made\n",fname);
 
-  fprintf(fp,"set data s l\n");
+  fprintf(fp,"set style data lines\n");
   fprintf(fp,"set nokey\n");
   fprintf(fp,"set zeroaxis\n");
   fprintf(fp,"set ytics 1\n");

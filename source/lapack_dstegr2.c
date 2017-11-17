@@ -27,7 +27,7 @@ void lapack_dstegr2(INTEGER N, INTEGER EVmax, double *D, double *E, double *W, d
     
   double VL,VU; /* dummy */
   INTEGER IL,IU; 
-  double ABSTOL_GR=1.0e-13;
+  double ABSTOL_GR=LAPACK_ABSTOL;
   INTEGER M;
   double *Z;
   INTEGER LDZ;

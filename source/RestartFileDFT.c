@@ -184,6 +184,18 @@ void Extp_Charge(int MD_iter, double *extpln_coes)
       extpln_coes[i] = sum;
     }
 
+    /* if a set of extpln_coes is improper, correct them */
+
+    sum = 0.0;
+    for (i=0; i<NumHis; i++){
+      sum += extpln_coes[i];
+    }
+
+    if (sum<0.5){
+      for (i=0; i<Extrapolated_Charge_History; i++) extpln_coes[i] = 0.0;
+      extpln_coes[NumHis-1] = 1.0;   
+    }
+
     /* free */
 
     for (i=0; i<(Extrapolated_Charge_History+2); i++){
@@ -198,7 +210,7 @@ void Extp_Charge(int MD_iter, double *extpln_coes)
 
     free(B);
 
-  } /* if (2<MD_iter)  */   
+  } /* if (Extrapolated_Charge_History<MD_iter && 1<Extrapolated_Charge_History) */   
 
   /* shift His_Gxyz */
 
@@ -697,14 +709,17 @@ void Output_Charge_Density(int MD_iter)
 
   /* save numprocs, Ngrid1, Ngrid2, and Ngrid3 */
 
-  sprintf(file_check,"%s%s_rst/%s.crst_check",filepath,filename,filename);
+  if (myid==Host_ID){
 
-  if ((fp = fopen(file_check,"w")) != NULL){
-    fprintf(fp,"%d %d %d %d",numprocs,Ngrid1,Ngrid2,Ngrid3);
-    fclose(fp);
-  }
-  else{
-    printf("Failure of saving %s\n",file_check);
+    sprintf(file_check,"%s%s_rst/%s.crst_check",filepath,filename,filename);
+
+    if ((fp = fopen(file_check,"w")) != NULL){
+      fprintf(fp,"%d %d %d %d",numprocs,Ngrid1,Ngrid2,Ngrid3);
+      fclose(fp);
+    }
+    else{
+      printf("Failure of saving %s\n",file_check);
+    }
   }
 
   /****************************************************

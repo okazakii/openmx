@@ -798,7 +798,14 @@ double DFT(int MD_iter, int Cnt_Now)
 	  regardless of the above reason.
 	*/
 
-	time3 += Set_Hamiltonian("nostdout",SCF_iter,SucceedReadingDMfile,Cnt_kind,H0,HNL,DM[0],H);
+        if (Correct_Position_flag || 
+              (SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0 
+               && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0) /* non-spin-orbit coupling and non-LDA+U */
+	    ){
+
+  	  time3 += Set_Hamiltonian("nostdout",SCF_iter,SucceedReadingDMfile,Cnt_kind,H0,HNL,DM[0],H);
+	}
+
       }
 
       /* failure of reading restart files */

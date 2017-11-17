@@ -16,6 +16,7 @@
 #include <math.h>
 #include "openmx_common.h"
 #include "mpi.h"
+#include "f77func.h"
 
 #define  measure_time   0
 
@@ -33,8 +34,11 @@ static int numrocC(int N, int NB, int IPROC, int ISRCPROC, int NPROCS);
 void Eigen_PHH(MPI_Comm MPI_Current_Comm_WD, 
                dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
+  int numprocs;
 
-  if (n<10)
+  MPI_Comm_size(MPI_Current_Comm_WD,&numprocs);
+
+  if (n<10 || n<numprocs)
     EigenBand_lapack(ac, ko, n, n, 1);
 
   else if (scf_eigen_lib_flag==0 || n<100)
@@ -42,7 +46,6 @@ void Eigen_PHH(MPI_Comm MPI_Current_Comm_WD,
 
   else if (scf_eigen_lib_flag==1)
     Eigen_ELPA1_Co(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag);
-
 }
 
 
@@ -154,7 +157,7 @@ void Eigen_ELPA1_Co(MPI_Comm MPI_Current_Comm_WD,
   mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
   mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
 
-  solve_evp_complex_(&na, &nev, a, &na_rows, &ko[1], z, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
+  F77_NAME(solve_evp_complex,SOLVE_EVP_COMPLEX)(&na, &nev, a, &na_rows, &ko[1], z, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
 
   MPI_Comm_free(&mpi_comm_rows);
   MPI_Comm_free(&mpi_comm_cols);
@@ -276,7 +279,7 @@ int numrocC(int N, int NB, int IPROC, int ISRCPROC, int NPROCS)
 void Eigen_Improved_PHH(MPI_Comm MPI_Current_Comm_WD,
                         dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
-  double ABSTOL=1.0e-14;
+  double ABSTOL=LAPACK_ABSTOL;
   dcomplex **ad,*u,*b1,*p,*q,tmp0,tmp1,tmp2,u1,u2,p1,ss,ss0,ss1;
   double *uu,*alphar,*alphai,
          s1,s2,s3,r,
@@ -959,7 +962,7 @@ void Eigen_Improved_PHH(MPI_Comm MPI_Current_Comm_WD,
 void Eigen_Original_PHH(MPI_Comm MPI_Current_Comm_WD,
                         dcomplex **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
-  double ABSTOL=1.0e-13;
+  double ABSTOL=LAPACK_ABSTOL;
   dcomplex **ad,*u,*b1,*p,*q,tmp1,tmp2,u1,u2,p1,ss;
   double *D,*E,*uu,*alphar,*alphai,
          s1,s2,s3,r,

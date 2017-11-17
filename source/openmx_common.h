@@ -1,4 +1,4 @@
-static char Version_OpenMX[30] = "3.7"; /* version of OpenMX */ 
+static char Version_OpenMX[30] = "3.7.10"; /* version of OpenMX */ 
    
 #define PI              3.1415926535897932384626
 #define BYTESIZE        8                        /* Don't change!! */
@@ -56,7 +56,8 @@ static char Version_OpenMX[30] = "3.7"; /* version of OpenMX */
 
 #define Threshold_OLP_Eigen  1.0e-9  /* threshold for cutting off eigenvalues of OLP */
 #define fp_bsize         1048576     /* buffer size for setvbuf */
-#define Shift_K_Point    1.0e-6      /* disturbance for stabilization of eigenvalue routine */
+#define Shift_K_Point     1.0e-6     /* disturbance for stabilization of eigenvalue routine */
+#define LAPACK_ABSTOL     6.0e-15    /* absolute error tolerance for lapack routines */
 
 #define Host_ID             0        /* ID of the host CPU in MPI */
 
@@ -2092,6 +2093,7 @@ double PAO_Nkmax,Grid_Ecut,Finite_Elements_Ecut,rcut_FEB;
 double orbitalOpt_criterion,MD_Opt_criterion,orbitalOpt_SD_step;
 double MD_EvsLattice_Step;
 int MD_EvsLattice_flag[3];
+int MD_OutABC;
 double X_Center_Coordinate,Y_Center_Coordinate,Z_Center_Coordinate;
 dcomplex Comp2Real[YOUSO36+1][2*(YOUSO36+1)+1][2*(YOUSO36+1)+1];
 /* added by mari (May 2004) */

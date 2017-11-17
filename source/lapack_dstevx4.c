@@ -24,7 +24,7 @@ void lapack_dstevx4(INTEGER N, INTEGER IL, INTEGER IU, double *D, double *E, dou
   char  *JOBZ="V";
   char  *RANGE="I";
   double VL,VU; /* dummy */
-  double ABSTOL=1.0e-14;
+  double ABSTOL=LAPACK_ABSTOL;
   INTEGER M;
   double *Z;
   INTEGER LDZ;

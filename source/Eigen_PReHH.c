@@ -18,6 +18,7 @@
 #include "lapack_prototypes.h"
 #include "mpi.h"
 #include <omp.h>
+#include "f77func.h"
 
 
  
@@ -51,7 +52,7 @@ void Eigen_PReHH(MPI_Comm MPI_Current_Comm_WD,
                  double **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
 
-  if      (scf_eigen_lib_flag==0 || n<100)
+  if (scf_eigen_lib_flag==0 || n<100)
     Eigen_Improved_PReHH(MPI_Current_Comm_WD, ac, ko, n, EVmax, bcast_flag); 
 
   else if (scf_eigen_lib_flag==1)
@@ -168,7 +169,7 @@ void Eigen_ELPA1_Re(MPI_Comm MPI_Current_Comm_WD,
   mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
   mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
 
-  solve_evp_real_(&na, &nev, a, &na_rows, &ko[1], z, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
+  F77_NAME(solve_evp_real,SOLVE_EVP_REAL)(&na, &nev, a, &na_rows, &ko[1], z, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
 
   MPI_Comm_free(&mpi_comm_rows);
   MPI_Comm_free(&mpi_comm_cols);
@@ -275,7 +276,7 @@ int numrocC(int N, int NB, int IPROC, int ISRCPROC, int NPROCS)
 void Eigen_Improved_PReHH(MPI_Comm MPI_Current_Comm_WD, 
                           double **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
-  double ABSTOL=1.0e-13;
+  double ABSTOL=LAPACK_ABSTOL;
   double *q,*p;
   double **ad,*b1,*uu,
     s1,s2,s3,ss,u1,u2,r,p1,my_r,my_s2, 
@@ -635,7 +636,7 @@ void myHH( MPI_Comm MPI_Current_Comm_WD, int numprocs, int myid, int n, double *
            MPI_Request *request_recv, 
            MPI_Status *stat_send)
 {
-  double ABSTOL=1.0e-13; 
+  double ABSTOL=LAPACK_ABSTOL; 
   int jj1,i,j,i1,j1,i1s,is0,ID1,ID0,k1,i2,n2;
   int nump,num0,k0,num,count,ID;
   int IDS,IDR,num1,tag=999;
@@ -1024,7 +1025,7 @@ void myHH( MPI_Comm MPI_Current_Comm_WD, int numprocs, int myid, int n, double *
 void Eigen_Original_PReHH(MPI_Comm MPI_Current_Comm_WD, 
                   double **ac, double *ko, int n, int EVmax, int bcast_flag)
 {
-  double ABSTOL=1.0e-13;
+  double ABSTOL=LAPACK_ABSTOL;
   double **ad,*D,*E,
     *b1,*u,*uu,
     *p,*q,
