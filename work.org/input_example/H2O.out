@@ -1,0 +1,408 @@
+***********************************************************
+***********************************************************
+
+  This calculation was performed by OpenMX Ver. 3.7.33
+  using 1 MPI processes and 1 OpenMP threads.
+
+  Sun Mar 27 18:26:45 2016
+
+***********************************************************
+***********************************************************
+
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      H2O
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+# restart using *.rst
+#
+
+scf.restart                     off    # on|off, default=off
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ H   H6.0-s1p1      H_CA13
+ O   O6.0-s1p1      O_CA13
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         3
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  O  0.000  0.000  0.000  3.0 3.0
+ 2  H  0.757  0.586  0.000  0.5 0.5
+ 3  H -0.757  0.586  0.000  0.5 0.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+#<Atoms.UnitVectors                     
+#  10.0   0.0   0.0  
+#   0.0  10.0   0.0  
+#   0.0   0.0  10.0  
+#Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                  LDA        # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        off        # On|Off|NC
+scf.ElectronicTemperature  100.0       # default=300 (K)
+scf.energycutoff           150.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver     Cluster       # DC|GDC|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.10        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       5          # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     opt        # Nomd|Opt|NVE|NVT_VS|NVT_NH
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.maxIter                   2         # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-14      # default=1.0e-4 (Hartree/bohr)
+MD.Opt.DIIS_Mixing          0.01       # default=0.5
+
+
+***********************************************************
+***********************************************************
+
+  Required cutoff energy (Ryd) for 3D-grids = 150.0000
+      Used cutoff energy (Ryd) for 3D-grids = 150.0010, 150.0010, 150.0010
+  Num. of grids of a-, b-, and c-axes = 64, 60, 54
+
+  Num.Grid1.    64
+  Num.Grid2.    60
+  Num.Grid3.    54
+
+
+  Cell_Volume =   3499.720575024559 (Bohr^3)
+  GridVol     =      0.016877510489 (Bohr^3)
+  Cell vectors (bohr) of the grid cell (gtv)
+    gtv_a =  0.256509111003,  0.000000000000,  0.000000000000
+    gtv_b =  0.000000000000,  0.256509111003,  0.000000000000
+    gtv_c =  0.000000000000,  0.000000000000,  0.256509111003
+    |gtv_a| =  0.256509111003
+    |gtv_b| =  0.256509111003
+    |gtv_c| =  0.256509111003
+
+***********************************************************
+***********************************************************
+
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 1                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -5.178671411001
+   SCF=   2  NormRD=  0.825059031093  Uele= -4.478565347768
+   SCF=   3  NormRD=  0.457154952150  Uele= -4.002202802491
+   SCF=   4  NormRD=  0.379246615569  Uele= -3.781376356592
+   SCF=   5  NormRD=  0.058753056119  Uele= -4.417478625260
+   SCF=   6  NormRD=  0.022753249050  Uele= -4.292761983599
+   SCF=   7  NormRD=  0.010544734322  Uele= -4.283417267909
+   SCF=   8  NormRD=  0.000298704076  Uele= -4.294930357104
+   SCF=   9  NormRD=  0.000032264623  Uele= -4.294873051398
+   SCF=  10  NormRD=  0.000001908479  Uele= -4.294943122351
+   SCF=  11  NormRD=  0.000000238258  Uele= -4.294945591883
+   SCF=  12  NormRD=  0.000000012263  Uele= -4.294945333200
+   SCF=  13  NormRD=  0.000000000085  Uele= -4.294945308717
+   SCF=  14  NormRD=  0.000000000001  Uele= -4.294945308584
+   SCF=  15  NormRD=  0.000000000000  Uele= -4.294945308586
+
+*******************************************************
+        Total energy (Hartree) at MD = 1        
+*******************************************************
+
+  Uele.         -4.294945308586
+
+  Ukin.         12.539346497161
+  UH0.         -20.135991826795
+  UH1.           0.048769426940
+  Una.         -15.707493896776
+  Unl.           3.365929069121
+  Uxc0.         -2.214126112615
+  Uxc1.         -2.214126112615
+  Ucore.         6.982816022051
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW           0.000000000000
+  Utot.        -17.334876933527
+
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW
+
+  Uene:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy 
+
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 2                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.957206161687
+   SCF=   2  NormRD=  0.203676157683  Uele= -4.433873440820
+   SCF=   3  NormRD=  0.044943400422  Uele= -4.059343689053
+   SCF=   4  NormRD=  0.008896903716  Uele= -4.128771379687
+   SCF=   5  NormRD=  0.004278494523  Uele= -4.110212700800
+   SCF=   6  NormRD=  0.001503526955  Uele= -4.109226148177
+   SCF=   7  NormRD=  0.000140650748  Uele= -4.111556447413
+   SCF=   8  NormRD=  0.000002202727  Uele= -4.111747755382
+   SCF=   9  NormRD=  0.000000082959  Uele= -4.111745698950
+   SCF=  10  NormRD=  0.000000006816  Uele= -4.111745581554
+   SCF=  11  NormRD=  0.000000000380  Uele= -4.111745590845
+   SCF=  12  NormRD=  0.000000000004  Uele= -4.111745591435
+   SCF=  13  NormRD=  0.000000000000  Uele= -4.111745591429
+
+*******************************************************
+        Total energy (Hartree) at MD = 2        
+*******************************************************
+
+  Uele.         -4.111745591429
+
+  Ukin.         12.244505522646
+  UH0.         -19.813198680551
+  UH1.           0.046092839486
+  Una.         -15.159152078737
+  Unl.           3.336295797664
+  Uxc0.         -2.178548677656
+  Uxc1.         -2.178548677656
+  Ucore.         6.354236414149
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW           0.000000000000
+  Utot.        -17.348317540656
+
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW
+
+  Uene:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy 
+
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.234375000000
+
+***********************************************************
+***********************************************************
+           Eigenvalues (Hartree) for SCF KS-eq.           
+***********************************************************
+***********************************************************
+
+   Chemical Potential (Hartree) =  -0.23437500000000
+   Number of States             =   8.00000000000000
+   HOMO =  4
+   Eigenvalues
+                Up-spin            Down-spin
+          1  -0.92980078043826  -0.92980078043826
+          2  -0.48821100732330  -0.48821100732330
+          3  -0.35282019190112  -0.35282019190112
+          4  -0.28504081605176  -0.28504081605176
+          5  -0.00127952364519  -0.00127952364519
+          6   0.04288569758255   0.04288569758255
+          7   0.20121503648114   0.20121503648114
+          8   0.22851030446251   0.22851030446251
+          9   0.29476583120473   0.29476583120473
+         10   0.34631424372903   0.34631424372903
+         11   0.50350291854626   0.50350291854626
+         12   0.59043289265699   0.59043289265699
+
+***********************************************************
+***********************************************************
+              History of geometry optimization             
+***********************************************************
+***********************************************************
+
+  MD_iter   SD_scaling     |Maximum force|   Maximum step        Utot
+                           (Hartree/Bohr)        (Ang)         (Hartree)
+
+    1       1.25981732       0.09080272       0.06053515     -17.33487693
+    2       1.25981732       0.01550311       0.01033540     -17.34831754
+
+***********************************************************
+***********************************************************
+                   Mulliken populations                    
+***********************************************************
+***********************************************************
+
+  Total spin moment (muB)   0.000000000
+
+                    Up spin      Down spin     Sum           Diff
+      1    O      3.269049544  3.269049544   6.538099087   0.000000000
+      2    H      0.365475228  0.365475228   0.730950456   0.000000000
+      3    H      0.365475228  0.365475228   0.730950457   0.000000000
+
+ Sum of MulP: up   =     4.00000 down          =     4.00000
+              total=     8.00000 ideal(neutral)=     8.00000
+
+
+  Decomposed Mulliken populations
+
+    1    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.909592851  0.909592851   1.819185702   0.000000000
+   sum over m      0.909592851  0.909592851   1.819185702   0.000000000
+   sum over m+mul  0.909592851  0.909592851   1.819185702   0.000000000
+  px          0    0.655837492  0.655837492   1.311674985   0.000000000
+  py          0    0.774699849  0.774699849   1.549399698   0.000000000
+  pz          0    0.928919351  0.928919351   1.857838701   0.000000000
+   sum over m      2.359456692  2.359456692   4.718913385   0.000000000
+   sum over m+mul  2.359456692  2.359456692   4.718913385   0.000000000
+
+    2    H          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.330260796  0.330260796   0.660521592   0.000000000
+   sum over m      0.330260796  0.330260796   0.660521592   0.000000000
+   sum over m+mul  0.330260796  0.330260796   0.660521592   0.000000000
+  px          0   -0.031845388 -0.031845388  -0.063690776   0.000000000
+  py          0    0.031519496  0.031519496   0.063038992   0.000000000
+  pz          0    0.035540325  0.035540325   0.071080649   0.000000000
+   sum over m      0.035214432  0.035214432   0.070428865   0.000000000
+   sum over m+mul  0.035214432  0.035214432   0.070428865   0.000000000
+
+    3    H          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.330260796  0.330260796   0.660521592   0.000000000
+   sum over m      0.330260796  0.330260796   0.660521592   0.000000000
+   sum over m+mul  0.330260796  0.330260796   0.660521592   0.000000000
+  px          0   -0.031845388 -0.031845388  -0.063690776   0.000000000
+  py          0    0.031519496  0.031519496   0.063038992   0.000000000
+  pz          0    0.035540325  0.035540325   0.071080649   0.000000000
+   sum over m      0.035214432  0.035214432   0.070428865   0.000000000
+   sum over m+mul  0.035214432  0.035214432   0.070428865   0.000000000
+
+***********************************************************
+***********************************************************
+                    Dipole moment (Debye)                  
+***********************************************************
+***********************************************************
+
+ Absolute D        1.97377856
+
+                      Dx                Dy                Dz
+ Total             -0.00000000        1.97377856       -0.00000000
+ Core               0.00000000        4.22092276       -0.00000000
+ Electron          -0.00000000       -2.24714420       -0.00000000
+ Back ground       -0.00000000       -0.00000000       -0.00000000
+
+***********************************************************
+***********************************************************
+       xyz-coordinates (Ang) and forces (Hartree/Bohr)  
+***********************************************************
+***********************************************************
+
+<coordinates.forces
+  3
+    1     O     0.00000  -0.05849  -0.00000  -0.000000000037  0.015503107048  0.000000000000
+    2     H     0.81021   0.61487   0.00000   0.008174366014 -0.007353122529 -0.000000000000
+    3     H    -0.81021   0.61487   0.00000  -0.008174366005 -0.007353122536  0.000000000000
+coordinates.forces>
+
+***********************************************************
+***********************************************************
+       Fractional coordinates of the final structure       
+***********************************************************
+***********************************************************
+
+     1      O     0.00000000000026   0.99281778632382  -0.00000000000000
+     2      H     0.09326369522770   0.07549657457461   0.00000000000000
+     3      H     0.90673630477216   0.07549657457535   0.00000000000000
+
+***********************************************************
+***********************************************************
+               Computational Time (second)                 
+***********************************************************
+***********************************************************
+
+   Elapsed.Time.        10.315
+
+                               Min_ID   Min_Time       Max_ID   Max_Time
+   Total Computational Time =     0       10.315          0       10.315
+   readfile                 =     0        6.259          0        6.259
+   truncation               =     0        0.000          0        0.000
+   MD_pac                   =     0        0.000          0        0.000
+   OutData                  =     0        0.486          0        0.486
+   DFT                      =     0        3.245          0        3.245
+
+*** In DFT ***
+
+   Set_OLP_Kin              =     0        0.152          0        0.152
+   Set_Nonlocal             =     0        0.083          0        0.083
+   Set_ProExpn_VNA          =     0        0.261          0        0.261
+   Set_Hamiltonian          =     0        0.579          0        0.579
+   Poisson                  =     0        0.523          0        0.523
+   Diagonalization          =     0        0.016          0        0.016
+   Mixing_DM                =     0        0.001          0        0.001
+   Force                    =     0        0.661          0        0.661
+   Total_Energy             =     0        0.345          0        0.345
+   Set_Aden_Grid            =     0        0.060          0        0.060
+   Set_Orbitals_Grid        =     0        0.087          0        0.087
+   Set_Density_Grid         =     0        0.465          0        0.465
+   RestartFileDFT           =     0        0.007          0        0.007
+   Mulliken_Charge          =     0        0.001          0        0.001
+   FFT(2D)_Density          =     0        0.000          0        0.000
+   Others                   =     0        0.005          0        0.005

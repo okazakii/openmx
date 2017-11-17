@@ -136,15 +136,28 @@
 #
 
 
-CC = mpicc -O3 -xHOST -ip -no-prec-div -openmp -I/opt/intel/mkl/include/fftw
-FC = mpif90 -O3 -xHOST -ip -no-prec-div -openmp
-LIB= -L/opt/intel/mkl/lib -mkl=parallel -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lifcore -lmpi -lmpi_f90 -lmpi_f77
+#CC = mpicc -O3 -xHOST -ip -no-prec-div -openmp -I/opt/intel/mkl/include/fftw
+#FC = mpif90 -O3 -xHOST -ip -no-prec-div -openmp
+#LIB= -L/opt/intel/mkl/lib -mkl=parallel -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lpthread -lifcore -lmpi -lmpi_f90 -lmpi_f77
+
+## ubuntu 14.04.4 LTS (use OpenMPI)
+#CC = mpicc  -O3 -fopenmp -Wno-unused-result
+#FC = mpif90 -O3 -fopenmp
+##LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_f90 -lmpi_f77 -lgfortran -static
+#LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_f90 -lmpi_f77 -lgfortran
+
+# ubuntu 16.04.2 LTS (use OpenMPI)
+CC = mpicc  -O3 -fopenmp -Wno-unused-result
+FC = mpif90 -O3 -fopenmp
+#LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_mpifh -lmpi_usempif08 -lgfortran -static
+LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_mpifh -lmpi_usempif08 -lgfortran
 
 
 
 
 
-CFLAGS  = -g 
+#CFLAGS  = -g 
+CFLAGS  = 
 
 OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o \
           init.o LU_inverse.o ReLU_inverse.o \
@@ -241,7 +254,8 @@ CC      += -I$(LIBERIDIR)
 # destination directory
 #
 
-PROG    = openmx
+#PROG    = openmx
+PROG    = openmxgmo
 DESTDIR = ../work
 UTIL 	= DosMain jx analysis_example esp polB bandgnu13 bin2txt cube2xsf intensity_map md2axsf
 
@@ -249,8 +263,9 @@ UTIL 	= DosMain jx analysis_example esp polB bandgnu13 bin2txt cube2xsf intensit
 # OpenMX
 #
 
-openmx:	$(OBJS)
-	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+$(PROG):	$(OBJS)
+#	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o $(PROG)
 
 #
 #
@@ -259,7 +274,8 @@ openmx:	$(OBJS)
 #
 
 all: $(PROG) $(UTIL)
-	cp $(PROG) $(UTIL) $(DESTDIR)/
+#	cp $(PROG) $(UTIL) $(DESTDIR)/
+	cp -p $(PROG) $(UTIL) $(DESTDIR)/
 
 openmx.o: openmx.c openmx_common.h tran_variables.h tran_prototypes.h
 	$(CC) -c openmx.c
@@ -661,7 +677,8 @@ Show_DFT_DATA.o: Show_DFT_DATA.c openmx_common.h Inputtools.h
 
 install: $(PROG)
 	strip $(PROG)
-	cp $(PROG) $(DESTDIR)/$(PROG)
+#	cp $(PROG) $(DESTDIR)/$(PROG)
+	cp -p $(PROG) $(DESTDIR)/$(PROG)
 
 #
 #
