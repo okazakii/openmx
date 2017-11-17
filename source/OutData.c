@@ -2749,12 +2749,17 @@ void out_OrbOpt(char *inputfile)
     for (natom=0; natom<Num_CntOrb_Atoms; natom++){
 
       Gc_AN = CntOrb_Atoms[natom];
+//fprintf( stderr, "natom, Gc_AN = %d %d\n", natom, Gc_AN );
       ID = G2ID[Gc_AN];
+//fprintf( stderr, "ID = %d\n", ID );
       wan = WhatSpecies[Gc_AN];
+//fprintf( stderr, "wan = %d\n", wan );
 
       if (myid==ID){
 
+//fprintf( stderr, "Hello5\n" );
         Mc_AN = F_G2M[Gc_AN];
+//fprintf( stderr, "Hello6\n" );
 
         al = -1;
         num = 0;
@@ -2763,14 +2768,19 @@ void out_OrbOpt(char *inputfile)
 	    for (M0=0; M0<=2*L0; M0++){
 	      al++;
 	      for (p=0; p<Spe_Specified_Num[wan][al]; p++){
+//fprintf( stderr, "Hello7\n" );
+//fprintf( stderr, "num, p, wan, al, Mc_AN = %d %d %d %d %d\n", num, p, wan, al, Mc_AN );
+//// Mc_AN is -1 ??
 	        Tmp_Vec[num] = CntCoes[Mc_AN][al][p];
+//fprintf( stderr, "Hello7B\n" );
                 num++;
 	      }
 	    }
 	  }
         }
-
+//fprintf( stderr, "Hello1\n" );
         if (myid!=Host_ID){
+//fprintf( stderr, "Hello3\n" );
           MPI_Isend(&num, 1, MPI_INT, Host_ID, tag, mpi_comm_level1, &request);
           MPI_Wait(&request,&stat);
           MPI_Isend(&Tmp_Vec[0], num, MPI_DOUBLE, Host_ID, tag, mpi_comm_level1, &request);
@@ -2780,9 +2790,11 @@ void out_OrbOpt(char *inputfile)
       }
 
       else if (ID!=myid && myid==Host_ID){
+//fprintf( stderr, "Hello2\n" );
         MPI_Recv(&num, 1, MPI_INT, ID, tag, mpi_comm_level1, &stat);
         MPI_Recv(&Tmp_Vec[0], num, MPI_DOUBLE, ID, tag, mpi_comm_level1, &stat);
       }
+//fprintf( stderr, "Hello4\n" );
 
       /****************************************************
        generate a pao file
