@@ -3129,7 +3129,7 @@ void MTRAN_Output_Conductance(
     fprintf(fp,"#\n");
     fprintf(fp,"#    G0 = e^2/h\n");
     fprintf(fp,"#       = (1.60217653 * 10^{-19})^2/(6.626076 * 10^{-34})\n");
-    fprintf(fp,"#       = 3.87404194169 * 10^{-4} [C^2 J^{-1} s^{-1}]\n");
+    fprintf(fp,"#       = 3.87404194169 * 10^{-5} [C^2 J^{-1} s^{-1}]\n");
     fprintf(fp,"#    note that\n");
     fprintf(fp,"#    e = 1.60217653 * 10^{-19} C\n");
     fprintf(fp,"#    h = 6.626076 * 10^{-34} J s\n");    
@@ -4555,10 +4555,13 @@ static void MTRAN_Free_All_NC()
     for (i = 0; i <= atomnum_e[iside]; i++) {
       free(natn_e[iside][i]);
       free(ncn_e[iside][i]);
-      free(atv_ijk_e[iside][i]);
     }
     free(natn_e[iside]);
     free(ncn_e[iside]);
+
+    for (i=0; i<(TCpyCell+1); i++) {
+      free(atv_ijk_e[iside][i]);
+    }
     free(atv_ijk_e[iside]);
  
     for (k = 0; k<4; k++) {

@@ -1110,7 +1110,8 @@ double DFT(int MD_iter, int Cnt_Now)
     if ( Mixing_switch==5 
        || ( Cnt_switch!=1 && SucceedReadingDMfile!=1 
        && (Mixing_switch==1 || Mixing_switch==6) 
-       && (LSCF_iter-SCF_iter_shift)<=(Pulay_SCF/2)) ){
+       && (LSCF_iter-SCF_iter_shift)<=(Pulay_SCF/2))
+       && Solver!=4 ){
 
       time6  += Mixing_H(MD_iter, LSCF_iter-SCF_iter_shift, SCF_iter-SCF_iter_shift);
     }

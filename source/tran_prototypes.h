@@ -32,7 +32,10 @@ typedef struct { double r,i; } dcomplex;
 #endif
 
 
-typedef float     Type_Orbs_Grid;       /* type of Orbs_Grid */
+#ifndef ___Type_Orbs_Grid_definition___
+typedef float Type_Orbs_Grid; /* type of Orbs_Grid */
+#define ___Type_Orbs_Grid_definition___
+#endif
 
 
 int Lapack_LU_Zinverse(int , dcomplex *);

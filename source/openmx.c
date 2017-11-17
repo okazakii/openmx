@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-  Ver. 3.7 (15/May/2013)
+  Ver. 3.8 (21/Oct./2016)
 
   OpenMX (Open source package for Material eXplorer) is a program package
   for linear scaling density functional calculations of large-scale materials.
@@ -33,12 +33,12 @@
 
      Taisuke Ozaki
 
-     Present (15/May/2013) official address
+     Present (21/Oct./2016) official address
 
-       Japan Advanced Institute of Science and Technology (JAIST)
-       Asahidai 1-1, Nomi, Ishikawa 923-1292, Japan
+     Institute for Solid State Physics, University of Tokyo,
+     Kashiwanoha 5-1-5, Kashiwa, Chiba 277-8581, Japan
 
-       e-mail: t-ozaki@jaist.ac.jp
+     e-mail: t-ozaki@issp.u-tokyo.ac.jp
     **************************************************************
  
 *****************************************************************************/

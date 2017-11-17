@@ -41,7 +41,7 @@ double Mixing_DM(int MD_iter,
 
   /* In case of (rmm-diis || rmm-adiis) && SCF_iter<(Pulay_SCF/2)), then return. */
   if ( Cnt_switch!=1 && SucceedReadingDMfile!=1 
-   && (Mixing_switch==1 || Mixing_switch==6) && SCF_iter<=(Pulay_SCF/2)) return 0.0; 
+   && (Mixing_switch==1 || Mixing_switch==6) && SCF_iter<=(Pulay_SCF/2) && Solver!=4) return 0.0; 
 
   /*******************************************************
                      Simple Mixing

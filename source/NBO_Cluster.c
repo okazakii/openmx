@@ -23,12 +23,6 @@
 #include "lapack_prototypes.h"
 #include "f77func.h"
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
 #define  measure_time 0
 
 void Calc_NAO_Cluster(double *****CDM){

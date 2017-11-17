@@ -1,4 +1,4 @@
-static char Version_OpenMX[30] = "3.8"; /* version of OpenMX */ 
+static char Version_OpenMX[30] = "3.8.3"; /* version of OpenMX */ 
    
 #define PI              3.1415926535897932384626
 #define BYTESIZE        8                        /* Don't change!! */
@@ -70,6 +70,7 @@ typedef float     Type_DS_VNA;          /* type of DS_VNA */
 #define MPI_Type_DS_VNA  MPI_FLOAT      /* type of DS_VNA */
 
 typedef float     Type_Orbs_Grid;       /* type of Orbs_Grid */
+#define ___Type_Orbs_Grid_definition___
 #define MPI_Type_Orbs_Grid  MPI_FLOAT   /* type of Orbs_Grid */
 
 

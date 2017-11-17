@@ -21,18 +21,6 @@
 #define  error_check    0
 #define  cutoff_value  Threshold_OLP_Eigen
 
-#ifdef nompi
-#include "mimic_mpi.h"
-#else
-#include "mpi.h"
-#endif
-
-#ifdef noomp
-#include "mimic_omp.h"
-#else
-#include <omp.h>
-#endif
-
 #include "tran_prototypes.h"
 
 #define  measure_time   0
