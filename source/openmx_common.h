@@ -2433,7 +2433,7 @@ int Scf_RestartFromFile,Band_disp_switch;
 int GeoOpt_RestartFromFile,OutData_bin_flag;
 int coordinates_unit,unitvector_unit;
 int Size_Total_Matrix,SP_PEV,EKC_core_size_max;
-int specified_system,MO_fileout,num_HOMOs,num_LUMOs;
+int specified_system,MO_fileout,num_HOMOs,num_LUMOs,homoup,homodown,lumoup,lumodown;//modified by takase
 int Cluster_HOMO[2],MO_Nkpoint,ML_flag,ForceConsistency_flag,force_flag;
 int StressConsistency_flag,stress_flag,scf_stress_flag,MD_cellopt_flag,cellopt_swtich;
 int rediagonalize_flag_overlap_matrix; 

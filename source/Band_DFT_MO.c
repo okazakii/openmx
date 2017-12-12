@@ -534,6 +534,10 @@ static void Band_DFT_MO_Col(
 
 	if      (SpinP_switch==0 && 1.0<FermiF) Bulk_HOMO[kloop][spin] = i1;
 	else if (SpinP_switch==1 && 0.5<FermiF) Bulk_HOMO[kloop][spin] = i1;
+        if(i==1){//modified by takase
+	  if      (SpinP_switch==0 && 1.0>=FermiF) Bulk_HOMO[kloop][spin] = 0;//modified by takase
+	  else if (SpinP_switch==1 && 0.5>=FermiF) Bulk_HOMO[kloop][spin] = 0;//modified by takase
+        }
       }      
 
     } /* spin */
@@ -558,18 +562,48 @@ static void Band_DFT_MO_Col(
     nlumos = num_LUMOs;
 
     if (SpinP_switch==0){
-      if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][0];
-      if ( (Bulk_HOMO[kloop][0]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][0];
+      if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ){ nhomos = Bulk_HOMO[kloop][0];
+                                        homoup=nhomos;//modified by takase
+      }
+      if ( (Bulk_HOMO[kloop][0]+nlumos)>n ){   nlumos = n - Bulk_HOMO[kloop][0];
+                                        lumoup=nlumos;//modified by takase
+      }
     }
     else if (SpinP_switch==1){
-      if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][0];
-      if ( (Bulk_HOMO[kloop][1]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][1];
-      if ( (Bulk_HOMO[kloop][0]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][0];
-      if ( (Bulk_HOMO[kloop][1]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][1];
+      if(Bulk_HOMO[kloop][0] >= Bulk_HOMO[kloop][1]){//modified by takase
+        if ( (Bulk_HOMO[kloop][0]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][0];
+                                           homoup=nhomos;//modified by takase
+        }
+        if ( (Bulk_HOMO[kloop][1]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][1];
+                                         homodown=nhomos;//modified by takase
+        }
+        if ( (Bulk_HOMO[kloop][1]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][1];
+                                         lumodown=nlumos;//modified by takase
+        }
+        if ( (Bulk_HOMO[kloop][0]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][0];
+                                           lumoup=nlumos;//modified by takase
+        }
+      }
+      else{//modified by takase
+        if ( (Bulk_HOMO[kloop][1]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][1];
+                                           homoup=nhomos;//modified by takase
+        }
+        if ( (Bulk_HOMO[kloop][0]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][0];
+                                         homodown=nhomos;//modified by takase
+        }
+        if ( (Bulk_HOMO[kloop][0]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][0];
+                                         lumodown=nlumos;//modified by takase
+        }
+        if ( (Bulk_HOMO[kloop][1]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][1];
+                                           lumoup=nlumos;//modified by takase
+        }
+      }
     }
 
     /* HOMOs */
     for (spin=0; spin<=SpinP_switch; spin++){
+      if(spin==0) nhomos=homoup;//modified by takase
+      if(spin==1) nhomos=homodown;//modified by takase
       for (j=0; j<nhomos; j++){
 
         j1 = Bulk_HOMO[kloop][spin] - j;
@@ -589,9 +623,12 @@ static void Band_DFT_MO_Col(
         }
       }        
     }
+    if(SpinP_switch==1 && homoup < homodown) nhomos=homoup;//modified by takase 
 
     /* LUMOs */
     for (spin=0; spin<=SpinP_switch; spin++){
+      if(spin==0) nlumos=lumoup;//modified by takase
+      if(spin==1) nlumos=lumodown;//modified by takase
       for (j=0; j<nlumos; j++){
 
         j1 = Bulk_HOMO[kloop][spin] + 1 + j;
@@ -611,6 +648,7 @@ static void Band_DFT_MO_Col(
         }
       }
     }
+    if(SpinP_switch==1 && lumoup < lumodown) nlumos=lumoup;//modified by takase
 
     Bulk_Num_HOMOs[kloop] = nhomos;
     Bulk_Num_LUMOs[kloop] = nlumos;
@@ -1482,6 +1520,9 @@ static void Band_DFT_MO_NonCol(
       if (x_cut<=x)  x = x_cut;
       FermiF = 1.0/(1.0 + exp(x));
       if (0.5<FermiF) Bulk_HOMO[kloop][0] = i1;
+      if(i1==1){//modified by takase
+        if(0.5>=FermiF) Bulk_HOMO[kloop][0]=0;//modified by takase
+      }
     }      
 
     if (2<=level_stdout){

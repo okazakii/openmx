@@ -933,7 +933,12 @@ static double Cluster_collinear(
 	  if (max_x<=x)  x = max_x;
 	  FermiF = 1.0/(1.0 + exp(x));
 	  Num_State = Num_State + spin_degeneracy*FermiF;
-	  if (0.5<FermiF) Cluster_HOMO[spin] = i1;
+	  if (0.5<FermiF){Cluster_HOMO[spin] = i1;}
+          if(i1==1){//modified by takase
+            if(0.5>=FermiF){//modified by takase
+              Cluster_HOMO[spin]=0;//modified by takase
+            }
+          }
 	}
       }
 
@@ -987,15 +992,44 @@ static double Cluster_collinear(
     ****************************************************/
 
     if (SpinP_switch==0){
-      if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 )  num_HOMOs = Cluster_HOMO[0];
-      if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ) num_LUMOs = MaxN - Cluster_HOMO[0];
+      if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 ){  num_HOMOs = Cluster_HOMO[0];
+                                        homoup=num_HOMOs;//modified by takase
+      }
+      if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[0];
+                                        lumoup=num_LUMOs;//modified by takase
+      }
     }
     else if (SpinP_switch==1){
-      if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 )  num_HOMOs = Cluster_HOMO[0];
-      if ( (Cluster_HOMO[1]-num_HOMOs+1)<1 )  num_HOMOs = Cluster_HOMO[1];
-      if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ) num_LUMOs = MaxN - Cluster_HOMO[0];
-      if ( (Cluster_HOMO[1]+num_LUMOs)>MaxN ) num_LUMOs = MaxN - Cluster_HOMO[1];
+      if(Cluster_HOMO[0] >= Cluster_HOMO[1]){//modified by takase
+        if ( (Cluster_HOMO[0]-num_HOMOs+1)<=1 ){  num_HOMOs = Cluster_HOMO[0];
+                                          homoup=num_HOMOs;//modified by takase
+        }
+        if ( (Cluster_HOMO[1]-num_HOMOs+1)<=1 ){  num_HOMOs = Cluster_HOMO[1];
+                                        homodown=num_HOMOs;//modified by takase
+        }
+        if ( (Cluster_HOMO[1]+num_LUMOs)>=MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[1];
+                                        lumodown=num_LUMOs;//modified by takase
+        }
+        if ( (Cluster_HOMO[0]+num_LUMOs)>=MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[0];
+                                          lumoup=num_LUMOs;//modified by takase
+        }
+      }
+      else{//modified by takase
+        if ( (Cluster_HOMO[1]-num_HOMOs+1)<1 ){  num_HOMOs = Cluster_HOMO[1];
+                                        homodown=num_HOMOs;//modified by takase
+        }
+        if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 ){  num_HOMOs = Cluster_HOMO[0];
+                                          homoup=num_HOMOs;//modified by takase
+        }
+        if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[0];
+                                          lumoup=num_LUMOs;//modified by takase
+        }
+        if ( (Cluster_HOMO[1]+num_LUMOs)>MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[1];
+                                        lumodown=num_LUMOs;//modified by takase
+        }
+      }
     }
+
 
     if (myid0==Host_ID){
       if (SpinP_switch==0 && 2<=level_stdout){
@@ -1012,6 +1046,8 @@ static double Cluster_collinear(
       /* HOMOs */
 
       for (spin=0; spin<=SpinP_switch; spin++){
+        if(spin==0) num_HOMOs=homoup;//modified by takase
+        if(spin==1) num_HOMOs=homodown;//modified by takase
 	for (j=0; j<num_HOMOs; j++){
 
 	  j1 = Cluster_HOMO[spin] - j;
@@ -1030,10 +1066,13 @@ static double Cluster_collinear(
 	  }
 	}
       }
+      if(SpinP_switch==1 && homoup < homodown) num_HOMOs=homoup;//modified by takase
       
       /* LUMOs */
    
       for (spin=0; spin<=SpinP_switch; spin++){
+        if(spin==0) num_LUMOs=lumoup;//modified by takase
+        if(spin==1) num_LUMOs=lumodown;//modified by takase
 	for (j=0; j<num_LUMOs; j++){
 
 	  j1 = Cluster_HOMO[spin] + 1 + j;
@@ -1052,6 +1091,7 @@ static double Cluster_collinear(
 	  }
 	}
       }
+      if(SpinP_switch==1 && lumoup < lumodown) num_LUMOs=lumoup;//modified by takase
     }
 
     /****************************************************

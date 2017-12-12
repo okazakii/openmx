@@ -2285,6 +2285,10 @@ void Input_std(char *file)
     num_HOMOs = 1;
     num_LUMOs = 1;
   }
+  homoup=num_HOMOs;//modified by takase
+  homodown=num_HOMOs;//modified by takase
+  lumoup=num_LUMOs;//modified by takase
+  lumodown=num_LUMOs;//modified by takase
 
   if ((Solver!=2 && Solver!=3 && Solver!=7) && MO_fileout==1){
 

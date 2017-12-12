@@ -1080,6 +1080,8 @@ void out_Cluster_MO()
 
   for (so=0; so<=SO_switch; so++){
     for (spin=0; spin<=SpinP_switch; spin++){
+      if(spin==0) num_HOMOs=homoup;//modified by takase
+      if(spin==1) num_HOMOs=homodown;//modified by takase
       for (orbit=0; orbit<num_HOMOs; orbit++){ 
 
 	/* calc. MO on grids */
@@ -1143,6 +1145,7 @@ void out_Cluster_MO()
       }  /* orbit */ 
     }  /* spin */ 
   }  /* so */
+  if(SpinP_switch==1 && homoup < homodown) num_HOMOs=homoup;//modified by takase
 
   /*************
       LUMOs
@@ -1150,6 +1153,8 @@ void out_Cluster_MO()
 
   for (so=0; so<=SO_switch; so++){
     for (spin=0; spin<=SpinP_switch; spin++){
+      if(spin==0) num_LUMOs=lumoup;//modified by takase
+      if(spin==1) num_LUMOs=lumodown;//modified by takase
       for (orbit=0; orbit<num_LUMOs; orbit++){ 
 
 	/* calc. MO on grids */
@@ -1192,7 +1197,7 @@ void out_Cluster_MO()
 
           if (so==0)
   	    sprintf(file1,"%s%s.lumo%i_%i_r%s",filepath,filename,spin,orbit,CUBE_EXTENSION);
-          else if (so==0)
+          else if (so==1)//modified by takase
   	    sprintf(file1,"%s%s.lumo%i_%i_i%s",filepath,filename,spin,orbit,CUBE_EXTENSION);
 
 
@@ -1215,6 +1220,7 @@ void out_Cluster_MO()
       }  /* orbit */ 
     }  /* spin */ 
   }  /* so */
+  if(SpinP_switch==1 && lumoup < lumodown) num_LUMOs=lumoup;//modified by takase
 
   /****************************************************
     freeing of arrays:
@@ -1680,6 +1686,8 @@ void out_Cluster_NC_MO()
   *************/
 
   for (spin=0; spin<=1; spin++){
+    if(spin==0) num_HOMOs=homoup;//modified by takase
+    if(spin==1) num_HOMOs=homodown;//modified by takase
     for (orbit=0; orbit<num_HOMOs; orbit++){ 
 
       /* calc. MO on grids */
@@ -1756,13 +1764,16 @@ void out_Cluster_NC_MO()
       }
     } /* orbit */ 
   } /* spin  */
+  if(homoup < homodown) num_HOMOs=homoup;//modified by takase
 
   /*************
       LUMOs
   *************/
 
   for (spin=0; spin<=1; spin++){
-    for (orbit=0; orbit<num_HOMOs; orbit++){ 
+    if(spin==0) num_LUMOs=lumoup;//modified by takase
+    if(spin==1) num_LUMOs=lumodown;//modified by takase
+    for (orbit=0; orbit<num_LUMOs; orbit++){ //modified by takase
 
       /* calc. MO on grids */
 
@@ -1838,6 +1849,7 @@ void out_Cluster_NC_MO()
       }
     }  /* orbit */ 
   }  /* spin  */
+  if(lumoup < lumodown) num_LUMOs=lumoup;//modified by takase
 
   /****************************************************
     freeing of arrays:
@@ -1910,7 +1922,8 @@ void out_Bulk_MO()
     k3 = MO_kpoint[kloop][3];
 
     for (spin=0; spin<=spinmax; spin++){
-
+    if(spin==0) Bulk_Num_HOMOs[kloop]=homoup;//modified by takase
+    if(spin==1) Bulk_Num_HOMOs[kloop]=homodown;//modified by takase
       for (orbit=0; orbit<Bulk_Num_HOMOs[kloop]; orbit++){ 
 
 	/* calc. MO on grids */
@@ -2003,6 +2016,7 @@ void out_Bulk_MO()
       } /* orbit */
     } /* spin */ 
   } /* kloop */
+  if(spinmax==1 && homoup < homodown) Bulk_Num_HOMOs[kloop]=homoup;//modified by takase
 
   /*************
        LUMOs
@@ -2015,7 +2029,8 @@ void out_Bulk_MO()
     k3 = MO_kpoint[kloop][3];
 
     for (spin=0; spin<=spinmax; spin++){
-
+    if(spin==0) Bulk_Num_LUMOs[kloop]=lumoup;//modified by takase
+    if(spin==1) Bulk_Num_LUMOs[kloop]=lumodown;//modified by takase
       for (orbit=0; orbit<Bulk_Num_LUMOs[kloop]; orbit++){
 
 	/* calc. MO on grids */
@@ -2109,6 +2124,7 @@ void out_Bulk_MO()
       } /* orbit */
     }   /* spin  */
   }     /* kloop */
+  if(spinmax==1 && lumoup < lumodown) Bulk_Num_LUMOs[kloop]=lumoup;//modified by takase
 
 
   /****************************************************
