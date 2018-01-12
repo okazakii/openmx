@@ -1000,36 +1000,16 @@ static double Cluster_collinear(
       }
     }
     else if (SpinP_switch==1){
-      if(Cluster_HOMO[0] >= Cluster_HOMO[1]){//modified by takase
-        if ( (Cluster_HOMO[0]-num_HOMOs+1)<=1 ){  num_HOMOs = Cluster_HOMO[0];
-                                          homoup=num_HOMOs;//modified by takase
-        }
-        if ( (Cluster_HOMO[1]-num_HOMOs+1)<=1 ){  num_HOMOs = Cluster_HOMO[1];
-                                        homodown=num_HOMOs;//modified by takase
-        }
-        if ( (Cluster_HOMO[1]+num_LUMOs)>=MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[1];
-                                        lumodown=num_LUMOs;//modified by takase
-        }
-        if ( (Cluster_HOMO[0]+num_LUMOs)>=MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[0];
-                                          lumoup=num_LUMOs;//modified by takase
-        }
-      }
-      else{//modified by takase
-        if ( (Cluster_HOMO[1]-num_HOMOs+1)<1 ){  num_HOMOs = Cluster_HOMO[1];
-                                        homodown=num_HOMOs;//modified by takase
-        }
-        if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 ){  num_HOMOs = Cluster_HOMO[0];
-                                          homoup=num_HOMOs;//modified by takase
-        }
-        if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[0];
-                                          lumoup=num_LUMOs;//modified by takase
-        }
-        if ( (Cluster_HOMO[1]+num_LUMOs)>MaxN ){ num_LUMOs = MaxN - Cluster_HOMO[1];
-                                        lumodown=num_LUMOs;//modified by takase
-        }
-      }
-    }
+      if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 )  num_HOMOs = Cluster_HOMO[0];
+      if ( (Cluster_HOMO[1]-num_HOMOs+1)<1 )  num_HOMOs = Cluster_HOMO[1];
+      if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ) num_LUMOs = MaxN - Cluster_HOMO[0];
+      if ( (Cluster_HOMO[1]+num_LUMOs)>MaxN ) num_LUMOs = MaxN - Cluster_HOMO[1];
 
+      if ( Cluster_HOMO[0] < homoup  ) homoup   = Cluster_HOMO[0];//modified by takase
+      if ( Cluster_HOMO[1] < homodown) homodown = Cluster_HOMO[1];//modified by takase
+      if ( Cluster_HOMO[0] > MaxN-lumoup  ) lumoup   = MaxN-Cluster_HOMO[0];//modified by takase
+      if ( Cluster_HOMO[1] > MaxN-lumodown) lumodown = MaxN-Cluster_HOMO[1];//modified by takase
+    }
 
     if (myid0==Host_ID){
       if (SpinP_switch==0 && 2<=level_stdout){
@@ -1067,7 +1047,7 @@ static double Cluster_collinear(
 	}
       }
       if(SpinP_switch==1 && homoup < homodown) num_HOMOs=homoup;//modified by takase
-      
+
       /* LUMOs */
    
       for (spin=0; spin<=SpinP_switch; spin++){

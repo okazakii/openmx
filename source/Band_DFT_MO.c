@@ -570,34 +570,15 @@ static void Band_DFT_MO_Col(
       }
     }
     else if (SpinP_switch==1){
-      if(Bulk_HOMO[kloop][0] >= Bulk_HOMO[kloop][1]){//modified by takase
-        if ( (Bulk_HOMO[kloop][0]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][0];
-                                           homoup=nhomos;//modified by takase
-        }
-        if ( (Bulk_HOMO[kloop][1]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][1];
-                                         homodown=nhomos;//modified by takase
-        }
-        if ( (Bulk_HOMO[kloop][1]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][1];
-                                         lumodown=nlumos;//modified by takase
-        }
-        if ( (Bulk_HOMO[kloop][0]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][0];
-                                           lumoup=nlumos;//modified by takase
-        }
-      }
-      else{//modified by takase
-        if ( (Bulk_HOMO[kloop][1]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][1];
-                                           homoup=nhomos;//modified by takase
-        }
-        if ( (Bulk_HOMO[kloop][0]-nhomos+1)<=1 ){ nhomos = Bulk_HOMO[kloop][0];
-                                         homodown=nhomos;//modified by takase
-        }
-        if ( (Bulk_HOMO[kloop][0]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][0];
-                                         lumodown=nlumos;//modified by takase
-        }
-        if ( (Bulk_HOMO[kloop][1]+nlumos)>=n ){   nlumos = n - Bulk_HOMO[kloop][1];
-                                           lumoup=nlumos;//modified by takase
-        }
-      }
+      if ( (Bulk_HOMO[kloop][0]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][0];
+      if ( (Bulk_HOMO[kloop][1]-nhomos+1)<1 ) nhomos = Bulk_HOMO[kloop][1];
+      if ( (Bulk_HOMO[kloop][0]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][0];
+      if ( (Bulk_HOMO[kloop][1]+nlumos)>n )   nlumos = n - Bulk_HOMO[kloop][1];
+
+      if ( Bulk_HOMO[kloop][0] < homoup  ) homoup   = Bulk_HOMO[kloop][0];//modified by takase
+      if ( Bulk_HOMO[kloop][1] < homodown) homodown = Bulk_HOMO[kloop][1];//modified by takase
+      if ( Bulk_HOMO[kloop][0] > n-lumoup  ) lumoup   = n-Bulk_HOMO[kloop][0];//modified by takase
+      if ( Bulk_HOMO[kloop][1] > n-lumodown) lumodown = n-Bulk_HOMO[kloop][1];//modified by takase
     }
 
     /* HOMOs */
