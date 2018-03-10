@@ -1,9 +1,5 @@
 # -*- coding:utf-8; mode:shell-script; -*-
-2017/11/17
-openmx3.8 + patch3.8.3 をコンパイルし直した。
-
-テストラン
-( https://orange.eit.hirosaki-u.ac.jp/nc2/html/htdocs/?page_id=197 )
+==== FOR TEST RUN ====
 
 $ cd work  # change directory to the work of openmx
 
@@ -19,9 +15,12 @@ $ mpirun -np 2 openmxgmo -runtestL -nt 1  # this job was omitted because of poor
 $ mpirun -np 2 openmxgmo -runtest -nt 4
 $ mpirun -np 8 openmxgmo -runtestL -nt 1
 
-check the diff output of runtest.result and runtestL.result files
-(any other value of outputs was not checked).
+# For spiraea
+$ mpirun -np 4 openmxgmo -runtest -nt 1  # use a compute-0-2
+$ qsub goL.sh  # use a SGE queueing system
 
 note:
--testrun  which probably reads input_example/*.dat
--testrunL which probably reads large_example/*.dat
+- check the diff output of runtest.result and runtestL.result files
+  (any other value of outputs was not checked).
+- option -testrun  which probably reads input_example/*.dat
+- option -testrunL which probably reads large_example/*.dat
