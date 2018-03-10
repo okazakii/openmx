@@ -534,7 +534,7 @@ static void Band_DFT_MO_Col(
 
 	if      (SpinP_switch==0 && 1.0<FermiF) Bulk_HOMO[kloop][spin] = i1;
 	else if (SpinP_switch==1 && 0.5<FermiF) Bulk_HOMO[kloop][spin] = i1;
-        if(i==1){//modified by takase
+        if(i1==1){//modified by takase
 	  if      (SpinP_switch==0 && 1.0>=FermiF) Bulk_HOMO[kloop][spin] = 0;//modified by takase
 	  else if (SpinP_switch==1 && 0.5>=FermiF) Bulk_HOMO[kloop][spin] = 0;//modified by takase
         }
