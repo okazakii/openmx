@@ -723,7 +723,7 @@ void TRAN_Main_Analysis( MPI_Comm comm1,
       i3 = T_IGrids3[kloop];
       k_op = T_op_flag[kloop];
 
-      printf("  myid0=%2d i2=%2d i3=%2d  k2=%8.4f k3=%8.4f\n",myid0,i2,i3,k2,k3); fflush(stdout);
+      printf("  myid0=%5d i2=%2d i3=%2d  k2=%8.4f k3=%8.4f\n",myid0,i2,i3,k2,k3); fflush(stdout);
 
       if (parallel_mode){
         comm_tmp = MPI_CommWD1[myworld1];
@@ -4294,12 +4294,6 @@ static void MTRAN_Free_All()
   }
   free(atv_ijk);
 
-  /*
-  printf("ZZZ6\n");
-  MPI_Finalize();
-  exit(0);
-  */
-
   free(TRAN_region);
   free(TRAN_Original_Id);
   free(WhatSpecies);
@@ -4326,7 +4320,6 @@ static void MTRAN_Free_All()
           tno0 = Spe_Total_CNO_e[iside][Cwan];
         }
 
-
         for (h_AN = 0; h_AN <= FNAN_e[iside][Gc_AN]; h_AN++) {
 
            for (i = 0; i<tno0; i++) {
@@ -4342,22 +4335,33 @@ static void MTRAN_Free_All()
       free(OLP_e[iside][k]);
       if (k <= SpinP_switch) free(H_e[iside][k]);
     }
+
     free(OLP_e[iside]);
     free(H_e[iside]);
+  }
+
+  for (iside = 0; iside <= 1; iside++) {
 
     for (i = 0; i <= atomnum_e[iside]; i++) {
       free(natn_e[iside][i]);
       free(ncn_e[iside][i]);
-      free(atv_ijk_e[iside][i]);
     }
+
     free(natn_e[iside]);
     free(ncn_e[iside]);
-    free(atv_ijk_e[iside]);
-
+ 
     free(WhatSpecies_e[iside]);
     free(Spe_Total_CNO_e[iside]);
     free(FNAN_e[iside]);
   }
+
+  for (iside = 0; iside <= 1; iside++) {
+    for (i=0; i<(TCpyCell_e[iside]+1); i++) {
+      free(atv_ijk_e[iside][i]);
+    }
+    free(atv_ijk_e[iside]);
+  }
+
 }
 /*E MitsuakiKawamura*/
 
