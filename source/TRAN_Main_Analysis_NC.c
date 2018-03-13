@@ -4548,21 +4548,6 @@ static void MTRAN_Free_All_NC()
   **********************************************/
 
   for (iside = 0; iside <= 1; iside++) {
-
-    free(WhatSpecies_e[iside]);
-    free(Spe_Total_CNO_e[iside]);
-    free(FNAN_e[iside]);
-    for (i = 0; i <= atomnum_e[iside]; i++) {
-      free(natn_e[iside][i]);
-      free(ncn_e[iside][i]);
-    }
-    free(natn_e[iside]);
-    free(ncn_e[iside]);
-
-    for (i=0; i<(TCpyCell+1); i++) {
-      free(atv_ijk_e[iside][i]);
-    }
-    free(atv_ijk_e[iside]);
  
     for (k = 0; k<4; k++) {
 
@@ -4600,8 +4585,26 @@ static void MTRAN_Free_All_NC()
     free(OLP_e[iside]);
     free(H_e[iside]);
     free(iHNL_e[iside]);
-
   }
+  
+  for (iside = 0; iside <= 1; iside++) {
+
+    free(WhatSpecies_e[iside]);
+    free(Spe_Total_CNO_e[iside]);
+    free(FNAN_e[iside]);
+    for (i = 0; i <= atomnum_e[iside]; i++) {
+      free(natn_e[iside][i]);
+      free(ncn_e[iside][i]);
+    }
+    free(natn_e[iside]);
+    free(ncn_e[iside]);
+
+    for (i=0; i<(TCpyCell+1); i++) {
+      free(atv_ijk_e[iside][i]);
+    }
+    free(atv_ijk_e[iside]);
+  }
+
 }
 /*E MitsuakiKawamura*/
 
