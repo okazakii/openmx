@@ -198,13 +198,13 @@ void Force_test(int argc, char *argv[])
         strcpy(tmp_argv,argv[3]); 
 
         tp = strtok(tmp_argv," ");
-        sprintf(str[0],tp);
+	sprintf(str[0],"%s",tp);
  
         p = 1; 
         while (tp != NULL ){
           tp = strtok(NULL," ");   
           if (tp!=NULL){ 
-            sprintf(str[p],tp); 
+	    sprintf(str[p],"%s",tp); 
             p++;
           }
 	}

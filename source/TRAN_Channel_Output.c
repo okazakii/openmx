@@ -581,7 +581,7 @@ void TRAN_Output_eigentrans_sum(
 
     if ((fp = fopen(file1, "a")) != NULL) {
 
-      fprintf(fp, "\nSum of transmition eigenvalues\n\n");
+      fprintf(fp, "\nSum of transmission eigenvalues\n\n");
 
       for (kloop = 0; kloop < TRAN_Channel_Nkpoint; kloop++) {
         for (iw = 0; iw < TRAN_Channel_Nenergy; iw++) {

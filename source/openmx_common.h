@@ -1,4 +1,4 @@
-static char Version_OpenMX[30] = "3.8.3"; /* version of OpenMX */ 
+static char Version_OpenMX[30] = "3.8.5"; /* version of OpenMX */ 
    
 #define PI              3.1415926535897932384626
 #define BYTESIZE        8                        /* Don't change!! */

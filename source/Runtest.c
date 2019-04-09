@@ -146,7 +146,7 @@ void Runtest(char *mode, int argc, char *argv[])
     /* count the number of dat files */
 
     if(( dp = opendir(dir) ) == NULL ){
-      printf("could not find the directry '%s'\n",input_dir);
+      printf("could not find the directory '%s'\n",input_dir);
       MPI_Finalize();
       exit(0);
     }
@@ -166,7 +166,7 @@ void Runtest(char *mode, int argc, char *argv[])
     /* store the name of dat files */
 
     if(( dp = opendir(dir) ) == NULL ){
-      printf("could not find the directry '%s'\n",input_dir);
+      printf("could not find the directory '%s'\n",input_dir);
       MPI_Finalize();
       exit(0);
     }
