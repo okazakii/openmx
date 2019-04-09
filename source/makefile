@@ -146,7 +146,7 @@
 ##LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_f90 -lmpi_f77 -lgfortran -static
 #LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_f90 -lmpi_f77 -lgfortran
 
-## ubuntu 16.04.2 LTS (use OpenMPI)
+## ubuntu 16.04.2 LTS, 18.04.2 LTS (use OpenMPI)
 #CC = mpicc  -O3 -fopenmp -Wno-unused-result
 #FC = mpif90 -O3 -fopenmp
 ##LIB= -llapack -lblas -lfftw3 -lmpi -lmpi_mpifh -lmpi_usempif08 -lgfortran -static
