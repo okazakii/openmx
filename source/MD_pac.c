@@ -7476,7 +7476,7 @@ void Output_abc_file(int iter)
   char buf[fp_bsize];          /* setvbuf */
   char fileabc[YOUSO10]="",dotabc[YOUSO10],iter_s[YOUSO10];
 
-  printf("\nOutputing to abc file.\n");
+  printf("\nOutputting to abc file.\n");
   snprintf(iter_s,sizeof(iter_s),"%d",iter);
   strcpy(dotabc,".abc");
   fnjoint(iter_s,dotabc,fileabc);
@@ -7631,7 +7631,7 @@ void Estimate_Initial_Hessian(int diis_iter, int CellOpt_flag, double itv[4][4])
 
   else if (Initial_Hessian_flag==1){
 
-    int i,j,k,I,J;
+    int i,j,k;
     int Mc_AN,Gc_AN,h_AN,Gh_AN,Rn;
     int wsp1,wsp2,m1,m2,n1,n2;
     double r,g[4],gr,d;
@@ -8018,25 +8018,6 @@ void Estimate_Initial_Hessian(int diis_iter, int CellOpt_flag, double itv[4][4])
       exit(0);
       */
 
-    }
-
-    /* check constraint and correct Hessian */
-
-    for (I=1; I<=atomnum; I++){     
-      for (i=1; i<=3; i++){     
-
-        if (atom_Fixed_XYZ[I][i]==1){
-
-	  for (J=1; J<=atomnum; J++){     
-	    for (j=1; j<=3; j++){     
-	      Hessian[(I-1)*3+i][(J-1)*3+j] = 0.0;
-	      Hessian[(J-1)*3+j][(I-1)*3+i] = 0.0;
-	    }
-	  }
-
-          Hessian[(I-1)*3+i][(I-1)*3+i] = 1.0;
-	}
-      }
     }
 
     /* freeing of Hess_tmp */

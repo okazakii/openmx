@@ -406,9 +406,9 @@ void MP_Special_Kpt(/* input */
   /* Number of primitive unit cell contained in the original lattice */
   int npcell;
   /*cell_parameters is for unit cell's lattice parameters: 
-    cell_parameters[0] lenght of a vector
-    cell_parameters[1] lenght of b vector
-    cell_parameters[2] lenght of c vector
+    cell_parameters[0] length of a vector
+    cell_parameters[1] length of b vector
+    cell_parameters[2] length of c vector
     cell_parameters[3] angle between b and c vector in radian (alpha)
     cell_parameters[4] angle between a and c vector in radian (beta)
     cell_parameters[5] angle between a and b vector in radian (gamma)
@@ -1816,7 +1816,7 @@ void Chk_Shorter_Lattice_Vector(double **rlatt){
 	rlatt[k][1]=rlatt[k][1]-rlatt[(k+1+k%2)%3][1];
 	rlatt[k][2]=rlatt[k][2]-rlatt[(k+1+k%2)%3][2];
 	absv=sqrt(rlatt[k][0]*rlatt[k][0]+rlatt[k][1]*rlatt[k][1]+rlatt[k][2]*rlatt[k][2]);
-	/* printf("%2d-%2d vector: new lenght is %10.5f, old one is %10.5f\n",k,(k+1)%3,absv,abc[k]); */
+	/* printf("%2d-%2d vector: new length is %10.5f, old one is %10.5f\n",k,(k+1)%3,absv,abc[k]); */
 	if(absv>(abc[k]+smallvalue)){
 	  break; /* no search for vector[k]-vector[(k+1k%2)%3], break to + case */
 	}
@@ -1836,7 +1836,7 @@ void Chk_Shorter_Lattice_Vector(double **rlatt){
 	rlatt[k][1]=rlatt[k][1]+rlatt[(k+1+k%2)%3][1];
 	rlatt[k][2]=rlatt[k][2]+rlatt[(k+1+k%2)%3][2];
 	absv=sqrt(rlatt[k][0]*rlatt[k][0]+rlatt[k][1]*rlatt[k][1]+rlatt[k][2]*rlatt[k][2]);
-	/* printf("%2d+%2d vector: new lenght is %10.5f, old one is %10.5f\n",k,(k+1)%3,absv,abc[k]);*/
+	/* printf("%2d+%2d vector: new length is %10.5f, old one is %10.5f\n",k,(k+1)%3,absv,abc[k]);*/
 	if(absv>(abc[k]+smallvalue)){
 	  break;/* no search for vector[k]+vector[(k+1+k%2)%3], break */
 	}
@@ -1857,7 +1857,7 @@ void Chk_Shorter_Lattice_Vector(double **rlatt){
 	rlatt[k][1]=rlatt[k][1]-rlatt[(k+2-k%2)%3][1];
 	rlatt[k][2]=rlatt[k][2]-rlatt[(k+2-k%2)%3][2];
 	absv=sqrt(rlatt[k][0]*rlatt[k][0]+rlatt[k][1]*rlatt[k][1]+rlatt[k][2]*rlatt[k][2]);
-	/* printf("%2d-%2d vector: new lenght is %10.5f, old one is %10.5f\n",k,(k+2)%3,absv,abc[k]);*/
+	/* printf("%2d-%2d vector: new length is %10.5f, old one is %10.5f\n",k,(k+2)%3,absv,abc[k]);*/
 	if(absv>(abc[k]+smallvalue)){
 	  break; /* no search for vector[k]-vector[(k+2-k%2)%3], break to + case */
 	}
@@ -1877,7 +1877,7 @@ void Chk_Shorter_Lattice_Vector(double **rlatt){
 	rlatt[k][1]=rlatt[k][1]+rlatt[(k+2-k%2)%3][1];
 	rlatt[k][2]=rlatt[k][2]+rlatt[(k+2-k%2)%3][2];
 	absv=sqrt(rlatt[k][0]*rlatt[k][0]+rlatt[k][1]*rlatt[k][1]+rlatt[k][2]*rlatt[k][2]);
-	/* printf("%2d+%2d vector: new lenght is %10.5f, old one is %10.5f\n",k,(k+2)%3,absv,abc[k]);*/
+	/* printf("%2d+%2d vector: new length is %10.5f, old one is %10.5f\n",k,(k+2)%3,absv,abc[k]);*/
 	if(absv>(abc[k]+smallvalue)){
 	  break;/* no search for vector[k]+vector[(k+2-k%2)%3], break */
 	}
@@ -2043,7 +2043,7 @@ int Bravais_Type(double **lattice_vector,double *cell_parameters){
 	cell_parameters[2]=c/a;
       }		
     }else{/*all angles are equal but not right angle, it would be cF, cI, or hR*/
-      if(fabs(a-b)<smallvalue&&fabs(b-c)<smallvalue){ /*all the vectors' lenght are equal */
+      if(fabs(a-b)<smallvalue&&fabs(b-c)<smallvalue){ /*all the vectors' length are equal */
 	if(fabs(cos(alpha)-1.0/2.0)<smallvalue){/* if all angles are 60 degree, it is Face-centred cubic (cF) */
 	  bravais_type = 3;
 	  cell_parameters[0]=sqrt(2.0)*a;
@@ -2063,7 +2063,7 @@ int Bravais_Type(double **lattice_vector,double *cell_parameters){
   }else if(fabs(alpha-beta)<smallvalue){
     if(fabs(alpha-pi/2.0)<smallvalue){/* If two equal angles are right angle, it would be hP, oC or mP */
       if(fabs(a-b)<smallvalue){
-        /*If the two vectors perpendicular and their lenghts are equal, it would be hP or oC instead of mP*/
+        /*If the two vectors perpendicular and their lengths are equal, it would be hP or oC instead of mP*/
 	if(fabs(cos(gamma)+1.0/2.0)<smallvalue){ /*If gamma is 120 degree, it is hP*/
 	  bravais_type = 4;
 	  cell_parameters[0]=a;
@@ -2138,7 +2138,7 @@ int Bravais_Type(double **lattice_vector,double *cell_parameters){
        Attention! Generally the lattice vectors are chosen so that alpha=beta
     */
   }else{/* all of the angles are different */
-    if(fabs(a-b)<smallvalue&&fabs(b-c)<smallvalue){/*all the vectors' lenght are equal, oI*/
+    if(fabs(a-b)<smallvalue&&fabs(b-c)<smallvalue){/*all the vectors' length are equal, oI*/
       if(fabs(c*c+a*b*cos(gamma)+a*c*cos(beta)+b*c*cos(alpha))<smallvalue
 	 && (a*a+c*c+2.0*a*c*cos(beta)-(c*c+b*b+2.0*c*b*cos(alpha)))>smallvalue
 	 && (a*a+b*b+2.0*a*b*cos(gamma)-(a*a+c*c+2.0*a*c*cos(beta)))>smallvalue){

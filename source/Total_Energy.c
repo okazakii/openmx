@@ -3647,7 +3647,7 @@ double Calc_EdftD3()
 	  for (i=0; i<maxcn_dftD[wanA]; i++){
 	    for (j=0; j<maxcn_dftD[wanB]; j++){
 	      C6_ref=C6ab_dftD[wanA][wanB][i][j][0];
-	      if (C6_ref>0.0){
+	      if (C6_ref>1.0e-12){
 		dAi = CN[Gc_AN] - C6ab_dftD[wanA][wanB][i][j][1];
 		dBj = CN[Gc_BN] - C6ab_dftD[wanA][wanB][i][j][2];
 		exparg = -k3_dftD*( dAi*dAi + dBj*dBj );
@@ -3661,7 +3661,7 @@ double Calc_EdftD3()
 	      }
 	    } /* CN_j */
 	  } /* CN_i */
-	  if (W>0.0){
+	  if (W>1.0e-12){
 	    C6 = Z/W;
 	    C8 = 3.0*C6*r2r4ab_dftD[wanA][wanB];
 	    dC6ij[Gc_AN][Gc_BN]=((dZi*W)-(dWi*Z))/(W*W);

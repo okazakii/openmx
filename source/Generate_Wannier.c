@@ -1429,7 +1429,7 @@ void Wannier(int Solver,
 
     if(Wannier_Min_Scheme==0){
       printf("Using Steepest Decent (SD) method for Minimization.\n");
-      printf("In minimization step lenght is %10.5f\n",Wannier_Min_StepLength); 
+      printf("In minimization step length is %10.5f\n",Wannier_Min_StepLength); 
     }else if(Wannier_Min_Scheme==1){
       printf("Using Conjugate Gradient (CG) method for Minimization.\n");
     }else if(Wannier_Min_Scheme==2){
@@ -2198,7 +2198,7 @@ void Wannier(int Solver,
 
     if((fptmp=fopen(fname,"rt"))==NULL){
       printf("***************************Error**********************************\n");
-      printf("*  Error in openning file for reading eigen-values and states.   *\n");
+      printf("*  Error in opening file for reading eigen-values and states.   *\n");
       printf("***************************Error**********************************\n");
       MPI_Finalize();
       exit(0);
@@ -2756,7 +2756,7 @@ void Wannier(int Solver,
       if((fp=fopen(fname,"wt"))==NULL){
 
 	printf("******************************************************************\n");
-	printf("* Error in openning file %s for writing Mmn(k,b).\n",fname);
+	printf("* Error in opening file %s for writing Mmn(k,b).\n",fname);
 	printf("******************************************************************\n");
 	exit(0);     
 
@@ -2826,7 +2826,7 @@ void Wannier(int Solver,
     if((fp=fopen(fname,"rt"))==NULL){
       if (myid==Host_ID){
         printf("*****************************************************************\n");
-        printf(" Error in openning file %s for reading Mmn(k,b). Please check it!\n",fname);
+        printf(" Error in opening file %s for reading Mmn(k,b). Please check it!\n",fname);
         printf("*****************************************************************\n");
       }
       MPI_Finalize();
@@ -3049,7 +3049,7 @@ void Wannier(int Solver,
 
         if (myid==Host_ID){
 	  printf("******************************************************************\n");
-	  printf("* Error in openning file for reading projection matrix. Please check it!*\n");
+	  printf("* Error in opening file for reading projection matrix. Please check it!*\n");
 	  printf("******************************************************************\n");
 	}
 
@@ -3596,7 +3596,7 @@ void Wannier(int Solver,
 
           if (myid==Host_ID){
 	    printf("      secant prev sec_step %i, sigma=%10.5f\n",sec_step, sigma_0);
-	    printf("      secant Intial error mode is %10.5f \n",yita_prev);
+	    printf("      secant Initial error mode is %10.5f \n",yita_prev);
 	    fflush(0);
 	  }
 
@@ -4666,7 +4666,7 @@ void Projection_Amatrix(dcomplex ****Amnk, double **kg, int spinsize,
     sprintf(fname,"%s%s.amn",filepath,filename);
     if((fp=fopen(fname,"wt"))==NULL){
       printf("******************************************************************\n");
-      printf("* Error in openning file for Amn(k).\n");
+      printf("* Error in opening file for Amn(k).\n");
       printf("******************************************************************\n");
     }else{
       printf(" ... ... Writting Amn(k) matrix into file.\n\n");
@@ -7280,7 +7280,7 @@ int Cal_Weight_of_Shell(double **klatt, int *M_s, int **bvector, int *num_shell,
 
   int find_w; /* whether w is found or not? To control the while loop */    
   
-  double *qvector; /* qvector is a vector of lenght six. Corresponding to the combination 
+  double *qvector; /* qvector is a vector of length six. Corresponding to the combination 
                       of Cartesian indices of two b vectors.
 		      qvector[0] --> xx
 		      qvector[1] --> yx
@@ -7939,7 +7939,7 @@ void Output_WF_Spread(char *mode,
 
   sprintf(fname,"%s%s.wfinfo",filepath,filename);
   if((fp=fopen(fname,"w"))==NULL){
-     printf("Error in openning file for wrinfo: %s\n",fname);
+     printf("Error in opening file for wrinfo: %s\n",fname);
   }
 
   if (strcasecmp(mode,"std")==0)
@@ -9051,7 +9051,7 @@ void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int S
     sprintf(fname,"%s%s.HWR",filepath,filename);
     printf("Real-space Hamiltonian Data file %s\n",fname);
     if((fpBand=fopen(fname,"wt"))==NULL){
-      printf("Error in openning file for HWR: %s\n",fname);
+      printf("Error in opening file for HWR: %s\n",fname);
     }else{
       fprintf(fpBand,"Real-space Hamiltonian in Wannier Gauge on Wigner-Seitz supercell.\n");
       fprintf(fpBand,"Number of Wannier Function %i\n",wan_num);
@@ -9170,7 +9170,7 @@ void Wannier_Interpolation(dcomplex ****Uk, double ***eigen, int spinsize, int S
     sprintf(fname,"%s%s.Wannier_Band",filepath,filename);
     printf("Band data file %s\n",fname);
      if((fpBand=fopen(fname,"wt"))==NULL){
-       printf("Error in openning file for Bands: %s\n",fname);
+       printf("Error in opening file for Bands: %s\n",fname);
      }else{
        if(SpinP_switch==3){
          fprintf(fpBand," %d  %d  %lf\n",wan_num,0,ChemP);  /* set SpinP_switch==0 */
